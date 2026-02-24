@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+.env
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Logs & temp
+*.log
+logs/
+tmp/
+.cache/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Docker / local data
+mysql_data/
+outputs/
+*.sqlite3
+
+# Anything large
+*.zip
+*.tar
+*.tar.gz
