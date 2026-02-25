@@ -4,8 +4,8 @@ from pathlib import Path
 
 from celery.signals import task_failure, task_success
 
-from .celery_app import celery_app
-from .db.tasks_repo import set_task_failure, set_task_running, set_task_success
+from ..celery_app import celery_app
+from ..db.tasks_repo import set_task_failure, set_task_running, set_task_success
 
 
 @celery_app.task(bind=True)
