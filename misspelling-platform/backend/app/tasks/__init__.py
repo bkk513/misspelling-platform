@@ -1,11 +1,16 @@
 import json
 import time
-from pathlib import Path
 
 from celery.signals import task_failure, task_success
 
 from ..celery_app import celery_app
 from ..db.tasks_repo import set_task_failure, set_task_running, set_task_success
+from ..services.artifact_service import (
+    build_output_dir,
+    register_simulation_artifacts,
+    write_simulation_csv,
+    write_simulation_preview_png,
+)
 from ..services.task_event_service import (
     record_task_failure,
     record_task_running,
@@ -56,15 +61,12 @@ def simulation_run(self, n: int = 30, steps: int = 50):
     record_task_running(task_id, "simulation-run")
     try:
         series = [{"t": t, "errors": (t % 10), "correct": (t * 2) % 17} for t in range(steps)]
-        out_dir = Path("/app/outputs") / task_id
-        out_dir.mkdir(parents=True, exist_ok=True)
+        out_dir = build_output_dir(task_id)
         out_csv = out_dir / "result.csv"
-        import csv
-
-        with out_csv.open("w", newline="", encoding="utf-8") as f:
-            w = csv.DictWriter(f, fieldnames=["t", "errors", "correct"])
-            w.writeheader()
-            w.writerows(series)
+        out_png = out_dir / "preview.png"
+        write_simulation_csv(series, out_csv)
+        write_simulation_preview_png(series, out_png)
+        register_simulation_artifacts(task_id, out_csv, out_png)
         result = {
             "n": n,
             "steps": steps,
