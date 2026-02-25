@@ -1,12 +1,47 @@
 from fastapi import FastAPI
+from fastapi.responses import FileResponse
 
-from .api.routes_tasks import router as tasks_router
+from .db.core import check_db
+from .services.task_service import (
+    build_output_path,
+    create_simulation_task,
+    create_word_analysis_task,
+    get_task_payload,
+    list_task_payload,
+)
+from .tasks import demo_analysis, simulation_run
+
+app = FastAPI(title="Misspelling Platform API (MVP)")
 
 
-def create_app() -> FastAPI:
-    app = FastAPI(title="Misspelling Platform API (MVP)")
-    app.include_router(tasks_router)
-    return app
+@app.get("/health")
+def health():
+    return {"status": "ok", "db": check_db()}
 
 
-app = create_app()
+@app.post("/api/tasks/word-analysis")
+def create_task(word: str):
+    return create_word_analysis_task(word, demo_analysis)
+
+
+@app.get("/api/tasks/{task_id}")
+def get_task(task_id: str):
+    return get_task_payload(task_id, demo_analysis.AsyncResult)
+
+
+@app.get("/api/tasks")
+def list_tasks(limit: int = 20):
+    return list_task_payload(limit)
+
+
+@app.post("/api/tasks/simulation-run")
+def create_sim_task(n: int = 30, steps: int = 50):
+    return create_simulation_task(n, steps, simulation_run)
+
+
+@app.get("/api/files/{task_id}/{filename}")
+def download_file(task_id: str, filename: str):
+    p = build_output_path(task_id, filename)
+    if not p.exists():
+        return {"error": "file not found"}
+    return FileResponse(str(p), filename=filename)
