@@ -289,6 +289,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     Write-Step "Check optional simulation-run task"
     $simCreate = Try-CreateSimulationTask
     $simulationSummary = "[SKIP] simulation-run endpoint not implemented"
+    $simulationPngSummary = "[SKIP] simulation-run preview png download not checked"
     if ($simCreate.Implemented) {
         if (-not $simCreate.Response.task_id) {
             throw "simulation-run create response missing task_id"
@@ -334,6 +335,24 @@ CREATE TABLE IF NOT EXISTS tasks (
             }
         }
         Write-Pass "simulation-run artifact csv download 200"
+        $pngUrl = "$($script:BaseUrl)/api/files/$simTaskId/preview.png"
+        $tmpPng = Join-Path $env:TEMP ("misspelling-check-" + [guid]::NewGuid().ToString('N') + ".png")
+        try {
+            $pngResp = Invoke-WebRequest -Method Get -Uri $pngUrl -OutFile $tmpPng -TimeoutSec 20
+            $pngFile = Get-Item $tmpPng
+            if ($pngFile.Length -le 0) {
+                throw "Downloaded PNG is empty"
+            }
+            if ($pngResp -and ($pngResp.PSObject.Properties.Name -contains 'StatusCode') -and [int]$pngResp.StatusCode -ne 200) {
+                throw "PNG download returned HTTP $([int]$pngResp.StatusCode)"
+            }
+        } finally {
+            if (Test-Path $tmpPng) {
+                Remove-Item -Force $tmpPng
+            }
+        }
+        Write-Pass "simulation-run preview png download 200"
+        $simulationPngSummary = "[PASS] simulation-run preview png download 200 (task_id=$simTaskId)"
         Try-CheckTimeSeriesPersistence -TaskId $simTaskId
         Try-CheckTaskEvents -TaskId $simTaskId -ExpectedLevels @('QUEUED', 'RUNNING', 'SUCCESS')
         $simulationSummary = "[PASS] simulation-run SUCCESS + CSV download 200 (task_id=$simTaskId)"
@@ -348,6 +367,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     Write-Host ("[INFO] schema tables={0}" -f $tableCount)
     Write-Host "[PASS] word-analysis latest task SUCCESS (task_id=$wordTaskId)"
     Write-Host $simulationSummary
+    Write-Host $simulationPngSummary
     Write-Host ("[INFO] elapsed={0:n1}s" -f $elapsed.TotalSeconds)
     exit 0
 } catch {
