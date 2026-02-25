@@ -9,6 +9,7 @@ from ..services.task_service import (
     get_task_payload,
     list_task_payload,
 )
+from ..services.task_event_service import list_task_events_payload
 from ..tasks import demo_analysis, simulation_run
 
 router = APIRouter()
@@ -27,6 +28,11 @@ def create_task(word: str):
 @router.get("/api/tasks/{task_id}")
 def get_task(task_id: str):
     return get_task_payload(task_id, demo_analysis.AsyncResult)
+
+
+@router.get("/api/tasks/{task_id}/events")
+def get_task_events(task_id: str, limit: int = 200):
+    return list_task_events_payload(task_id, limit)
 
 
 @router.get("/api/tasks")
