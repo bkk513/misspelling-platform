@@ -40,7 +40,7 @@
     build: ./backend
     command: celery -A app.celery_app worker -l INFO
     environment:
-      DATABASE_URL: mysql+pymysql://misspell:misspell@mysql:3306/misspell
+      DATABASE_URL: mysql+pymysql://root:root@mysql:3306/misspell
       CELERY_BROKER_URL: redis://redis:6379/1
       CELERY_RESULT_BACKEND: redis://redis:6379/2
     depends_on:
