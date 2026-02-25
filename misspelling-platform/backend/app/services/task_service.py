@@ -2,10 +2,12 @@
 import json
 from pathlib import Path
 from typing import Any, Dict
+from uuid import uuid4
 
 from sqlalchemy import text
 
 from ..db.core import get_engine
+from .task_event_service import record_task_failure, record_task_queued
 
 OUTPUT_ROOT = Path("/app/outputs")
 
@@ -20,7 +22,8 @@ def create_word_analysis_task(word: str, celery_task) -> dict:
     2) persist QUEUED row into MySQL
     3) return {"task_id": <id>}
     """
-    job = celery_task.delay(word)
+    task_id = str(uuid4())
+    params = {"word": word}
 
     with get_engine().begin() as conn:
         conn.execute(
@@ -33,21 +36,38 @@ def create_word_analysis_task(word: str, celery_task) -> dict:
                   updated_at=CURRENT_TIMESTAMP
             """),
             {
-                "task_id": job.id,
+                "task_id": task_id,
                 "task_type": "word-analysis",
                 "status": "QUEUED",
-                "params_json": json.dumps({"word": word}),
+                "params_json": json.dumps(params),
             },
         )
-
-    return {"task_id": job.id}
+    record_task_queued(task_id, "word-analysis", params)
+    try:
+        celery_task.apply_async(args=[word], task_id=task_id)
+    except Exception as exc:
+        with get_engine().begin() as conn:
+            conn.execute(
+                text(
+                    """
+                    UPDATE tasks
+                    SET status='FAILURE', error_text=:error_text
+                    WHERE task_id=:task_id
+                    """
+                ),
+                {"task_id": task_id, "error_text": str(exc)},
+            )
+        record_task_failure(task_id, "word-analysis", str(exc))
+        raise
+    return {"task_id": task_id}
 
 
 def create_simulation_task(n: int, steps: int, celery_task) -> dict:
     """
     Called by routes_tasks.py: create_simulation_task(n, steps, simulation_run)
     """
-    job = celery_task.delay(n, steps)
+    task_id = str(uuid4())
+    params = {"n": n, "steps": steps}
 
     with get_engine().begin() as conn:
         conn.execute(
@@ -60,14 +80,30 @@ def create_simulation_task(n: int, steps: int, celery_task) -> dict:
                   updated_at=CURRENT_TIMESTAMP
             """),
             {
-                "task_id": job.id,
+                "task_id": task_id,
                 "task_type": "simulation-run",
                 "status": "QUEUED",
-                "params_json": json.dumps({"n": n, "steps": steps}),
+                "params_json": json.dumps(params),
             },
         )
-
-    return {"task_id": job.id}
+    record_task_queued(task_id, "simulation-run", params)
+    try:
+        celery_task.apply_async(args=[n, steps], task_id=task_id)
+    except Exception as exc:
+        with get_engine().begin() as conn:
+            conn.execute(
+                text(
+                    """
+                    UPDATE tasks
+                    SET status='FAILURE', error_text=:error_text
+                    WHERE task_id=:task_id
+                    """
+                ),
+                {"task_id": task_id, "error_text": str(exc)},
+            )
+        record_task_failure(task_id, "simulation-run", str(exc))
+        raise
+    return {"task_id": task_id}
 def _normalize_jsonish(value: Any) -> Any:
     if value is None:
         return None
