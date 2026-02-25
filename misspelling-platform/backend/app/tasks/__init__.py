@@ -6,6 +6,10 @@ from celery.signals import task_failure, task_success
 
 from ..celery_app import celery_app
 from ..db.tasks_repo import set_task_failure, set_task_running, set_task_success
+from ..services.timeseries_service import (
+    persist_simulation_stub_timeseries,
+    persist_word_analysis_stub_timeseries,
+)
 
 
 @celery_app.task(bind=True)
@@ -17,6 +21,7 @@ def demo_analysis(self, word: str):
             time.sleep(1)
             self.update_state(state="PROGRESS", meta={"step": i + 1, "total": 5})
         result = {"word": word, "message": "analysis done", "dummy_metric": 42}
+        persist_word_analysis_stub_timeseries(task_id, word)
         set_task_success(task_id, json.dumps(result))
         return result
     except Exception as e:
@@ -57,6 +62,7 @@ def simulation_run(self, n: int = 30, steps: int = 50):
             "files": {"csv": f"/api/files/{task_id}/result.csv"},
             "preview": series[:5],
         }
+        persist_simulation_stub_timeseries(task_id, n, steps)
         set_task_success(task_id, json.dumps(result))
         return result
     except Exception as e:
