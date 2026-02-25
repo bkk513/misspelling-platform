@@ -138,6 +138,31 @@ select {
   color: #334155;
 }
 
+.chart-wrap {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 10px;
+  background: #fcfcfd;
+}
+
+.chart-svg {
+  width: 100%;
+  height: auto;
+  display: block;
+  background: #fff;
+  border: 1px solid #eef2f7;
+  border-radius: 6px;
+}
+
+.chart-axis {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  color: #6b7280;
+  margin-top: 6px;
+}
+
 button {
   border: 1px solid #d1d5db;
   border-radius: 6px;

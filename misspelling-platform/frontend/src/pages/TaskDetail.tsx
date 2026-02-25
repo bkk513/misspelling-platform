@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { goToTask } from "../app/router";
+import { LineChart } from "../components/LineChart";
 import { api, describeApiError, type TaskDetailResponse, type TaskEventsResponse } from "../lib/api";
 
 function asObject(value: unknown): Record<string, unknown> | null {
@@ -33,6 +34,10 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
   const [ticks, setTicks] = useState(0);
   const [probePngOk, setProbePngOk] = useState<boolean | null>(null);
   const [probeCsvOk, setProbeCsvOk] = useState<boolean | null>(null);
+  const [tsInfo, setTsInfo] = useState<string>("Loading...");
+  const [tsVariants, setTsVariants] = useState<string[]>([]);
+  const [tsVariant, setTsVariant] = useState("correct");
+  const [tsPoints, setTsPoints] = useState<Array<{ time: string; value: number }>>([]);
 
   const taskObj = useMemo(() => asObject(task?.result), [task?.result]);
   const taskType = useMemo(() => {
@@ -69,6 +74,10 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
     void refresh(true);
     setProbePngOk(null);
     setProbeCsvOk(null);
+    setTsInfo("Loading...");
+    setTsVariants([]);
+    setTsVariant("correct");
+    setTsPoints([]);
   }, [taskId]);
 
   useEffect(() => {
@@ -95,6 +104,49 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
       .then((r) => setProbeCsvOk(r.ok))
       .catch(() => setProbeCsvOk(false));
   }, [task?.state, taskId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    api.getTimeSeriesMeta(taskId)
+      .then((meta) => {
+        if (cancelled) return;
+        const variants = meta.variants?.length ? meta.variants : ["correct"];
+        setTsVariants(variants);
+        setTsVariant((v) => (variants.includes(v) ? v : variants[0]));
+        setTsInfo(`source=${meta.source} word=${meta.word} granularity=${meta.granularity} points=${meta.point_count}`);
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        const err = e as { status?: number };
+        setTsVariants([]);
+        setTsPoints([]);
+        setTsInfo(
+          err?.status === 404
+            ? "This task has no time-series data (optional module not enabled or data not written)."
+            : describeApiError(e)
+        );
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [taskId]);
+
+  useEffect(() => {
+    if (!tsVariant || tsVariants.length === 0) return;
+    let cancelled = false;
+    api.getTimeSeriesPoints(taskId, tsVariant)
+      .then((resp) => {
+        if (!cancelled) setTsPoints(resp.items ?? []);
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        setTsPoints([]);
+        setTsInfo(describeApiError(e));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [taskId, tsVariant, tsVariants.length]);
 
   const csvUrl = api.fileUrl(taskId, "result.csv");
   const pngUrl = api.fileUrl(taskId, "preview.png");
@@ -193,10 +245,20 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
 
       <section className="panel">
         <h3 style={{ marginTop: 0 }}>Time Series</h3>
-        <div className="muted">Time series chart will be added in the next commit (M6 final step).</div>
-        <div className="row-inline">
-          <button onClick={() => goToTask(taskId)}>Reload This Task</button>
-        </div>
+        <div className="muted" style={{ marginBottom: 10 }}>{tsInfo}</div>
+        {tsVariants.length > 0 && (
+          <>
+            <div className="row-inline">
+              <label htmlFor="variant" className="muted">variant</label>
+              <select id="variant" value={tsVariant} onChange={(e) => setTsVariant(e.target.value)}>
+                {tsVariants.map((v) => <option key={v} value={v}>{v}</option>)}
+              </select>
+              <button onClick={() => void refresh()}>Refresh Task State</button>
+              <button onClick={() => goToTask(taskId)}>Reload Route</button>
+            </div>
+            <LineChart points={tsPoints} title={`Time Series (${tsVariant})`} />
+          </>
+        )}
       </section>
     </div>
   );
