@@ -19,6 +19,19 @@
     ports:
       - "6379:6379"
 
+  db-init:
+    image: mysql:8.0
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      MYSQL_PWD: root
+    command: >
+      sh -c "mysql -hmysql -uroot -D misspell < /schema/001_schema.sql"
+    volumes:
+      - ./db/init:/schema:ro
+    restart: "no"
+
   api:
     build: ./backend
     environment:
@@ -31,6 +44,8 @@
         condition: service_healthy
       redis:
         condition: service_started
+      db-init:
+        condition: service_completed_successfully
     ports:
       - "8000:8000"
     volumes:
@@ -48,6 +63,8 @@
         condition: service_healthy
       redis:
         condition: service_started
+      db-init:
+        condition: service_completed_successfully
     volumes:
       - ./backend:/app
       - outputs:/app/outputs
