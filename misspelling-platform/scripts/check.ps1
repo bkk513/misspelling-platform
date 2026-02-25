@@ -15,6 +15,10 @@ function Write-Info {
     param([Parameter(Mandatory = $true)][string]$Message)
     Write-Host "[INFO] $Message"
 }
+function Write-Warn {
+    param([Parameter(Mandatory = $true)][string]$Message)
+    Write-Host "[WARN] $Message" -ForegroundColor Yellow
+}
 function Fail {
     param([Parameter(Mandatory = $true)][string]$Message)
     Write-Host "[FAIL] $Message" -ForegroundColor Red
@@ -90,6 +94,13 @@ function Wait-ForHealth {
         Start-Sleep -Seconds 2
     }
     throw "Timed out waiting for GET /health to return db:true"
+}
+function Get-DbTableNames {
+    $rows = Invoke-MySqlQuery -Sql "SHOW TABLES;" -RawOutput
+    if ([string]::IsNullOrWhiteSpace($rows)) {
+        return @()
+    }
+    return @($rows -split "`r?`n" | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
 }
 function Get-LatestTaskRow {
     $row = Invoke-MySqlQuery -Sql "SELECT task_id, task_type, status FROM tasks ORDER BY id DESC LIMIT 1;" -RawOutput
@@ -183,8 +194,27 @@ try {
         throw "/health returned but db was not true"
     }
     Write-Pass "/health db:true"
-    Write-Step "Bootstrap minimal tasks table (M0 temporary fallback)"
-    $bootstrapSql = @'
+    Write-Step "Inspect DB schema status"
+    $tableNames = @(Get-DbTableNames)
+    $tableCount = $tableNames.Count
+    $requiredSchemaTables = @(
+        'users', 'roles', 'permissions', 'user_roles', 'role_permissions', 'audit_logs',
+        'tasks', 'task_events', 'task_artifacts',
+        'data_sources', 'lexicon_versions', 'lexicon_terms', 'lexicon_variants'
+    )
+    $missingSchemaTables = @($requiredSchemaTables | Where-Object { $tableNames -notcontains $_ })
+    $formalSchemaReady = ($tableCount -ge 10 -and $missingSchemaTables.Count -eq 0)
+    if ($formalSchemaReady) {
+        Write-Pass "Formal schema detected (tables=$tableCount)"
+    } else {
+        Write-Warn "Formal schema missing/incomplete (tables=$tableCount). Temporary tasks fallback will be removed in a future milestone."
+        if ($missingSchemaTables.Count -gt 0) {
+            Write-Info ("Missing schema tables: " + ($missingSchemaTables -join ", "))
+        }
+    }
+    if (-not ($tableNames -contains 'tasks')) {
+        Write-Step "Bootstrap minimal tasks table (temporary fallback)"
+        $bootstrapSql = @'
 CREATE TABLE IF NOT EXISTS tasks (
   id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
   task_id VARCHAR(255) NOT NULL,
@@ -200,8 +230,11 @@ CREATE TABLE IF NOT EXISTS tasks (
   KEY idx_tasks_task_type (task_type)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 '@
-    Invoke-MySqlQuery -Sql $bootstrapSql | Out-Null
-    Write-Pass "tasks table bootstrap ensured"
+        Invoke-MySqlQuery -Sql $bootstrapSql | Out-Null
+        Write-Pass "tasks table bootstrap ensured"
+    } else {
+        Write-Info "tasks table already present; fallback bootstrap skipped"
+    }
     Write-Step "Create and verify word-analysis task"
     $wordCreate = Invoke-RestMethod -Method Post -Uri "$($script:BaseUrl)/api/tasks/word-analysis?word=demo" -TimeoutSec 10
     if (-not $wordCreate.task_id) {
@@ -269,6 +302,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     Write-Host "===== check.ps1 summary ====="
     Write-Host "[PASS] docker compose up -d --build"
     Write-Host "[PASS] GET /health db:true"
+    Write-Host ("[INFO] schema tables={0}" -f $tableCount)
     Write-Host "[PASS] word-analysis latest task SUCCESS (task_id=$wordTaskId)"
     Write-Host $simulationSummary
     Write-Host ("[INFO] elapsed={0:n1}s" -f $elapsed.TotalSeconds)
