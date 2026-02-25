@@ -65,6 +65,14 @@ select {
   gap: 16px;
 }
 
+.row-inline {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
 .field {
   display: grid;
   gap: 6px;
@@ -91,6 +99,34 @@ select {
 
 .muted {
   color: #6b7280;
+}
+
+.error-text {
+  color: #b42318;
+  margin-top: 8px;
+}
+
+.table-wrap {
+  overflow-x: auto;
+}
+
+.simple-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.simple-table th,
+.simple-table td {
+  text-align: left;
+  border-top: 1px solid #e5e7eb;
+  padding: 8px 6px;
+  vertical-align: top;
+}
+
+.simple-table th {
+  color: #6b7280;
+  font-weight: 600;
 }
 
 button {
