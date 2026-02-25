@@ -4,7 +4,14 @@ import random
 from datetime import date, timedelta
 
 from ..db.data_sources_repo import ensure_data_source
-from ..db.time_series_repo import create_series, ensure_term, ensure_variant, insert_series_points
+from ..db.time_series_repo import (
+    create_series,
+    ensure_term,
+    ensure_variant,
+    get_series_points_for_task,
+    insert_series_points,
+    list_series_by_task,
+)
 
 
 def _seed(task_id: str, label: str) -> int:
@@ -61,3 +68,29 @@ def persist_simulation_stub_timeseries(task_id: str, n: int, steps: int):
     count = max(30, min(90, int(steps or 0) if steps is not None else 60))
     canonical = f"sim-{str(task_id)[:8]}"
     _persist_stub_bundle(task_id, "simulation-run", canonical, count)
+
+
+def get_task_timeseries_summary(task_id: str):
+    rows = list_series_by_task(task_id)
+    if not rows:
+        return {"task_id": task_id, "items": [], "variants": [], "point_count": 0}
+    items = [dict(r) for r in rows]
+    return {
+        "task_id": task_id,
+        "source": items[0]["source_name"],
+        "word": items[0]["canonical"],
+        "granularity": items[0]["granularity"],
+        "variants": [r["variant"] for r in items],
+        "point_count": int(sum(int(r["point_count"]) for r in items)),
+        "items": items,
+    }
+
+
+def get_task_timeseries_points(task_id: str, variant: str = "correct"):
+    series_id, rows = get_series_points_for_task(task_id, variant or "correct")
+    return {
+        "task_id": task_id,
+        "variant": variant or "correct",
+        "series_id": series_id,
+        "items": [{"time": str(r["t"]), "value": float(r["value"])} for r in rows],
+    }

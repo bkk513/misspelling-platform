@@ -94,3 +94,64 @@ def insert_series_points(series_id: int, points):
             ),
             [{"series_id": series_id, "t": p["t"], "value": p["value"]} for p in points],
         )
+
+
+def list_series_by_task(task_id: str):
+    with get_engine().begin() as conn:
+        return (
+            conn.execute(
+                text(
+                    """
+                    SELECT
+                      ts.id AS series_id,
+                      ds.name AS source_name,
+                      lt.canonical,
+                      ts.granularity,
+                      ts.window_start,
+                      ts.window_end,
+                      COALESCE(JSON_UNQUOTE(JSON_EXTRACT(ts.meta_json, '$.variant')), 'correct') AS variant,
+                      (SELECT COUNT(*) FROM time_series_points p WHERE p.series_id = ts.id) AS point_count
+                    FROM time_series ts
+                    JOIN data_sources ds ON ds.id = ts.source_id
+                    JOIN lexicon_terms lt ON lt.id = ts.term_id
+                    WHERE JSON_UNQUOTE(JSON_EXTRACT(ts.meta_json, '$.task_id')) = :task_id
+                    ORDER BY ts.id
+                    """
+                ),
+                {"task_id": task_id},
+            )
+            .mappings()
+            .all()
+        )
+
+
+def get_series_points_for_task(task_id: str, variant: str = "correct"):
+    with get_engine().begin() as conn:
+        series = (
+            conn.execute(
+                text(
+                    """
+                    SELECT id
+                    FROM time_series
+                    WHERE JSON_UNQUOTE(JSON_EXTRACT(meta_json, '$.task_id')) = :task_id
+                      AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(meta_json, '$.variant')), 'correct') = :variant
+                    ORDER BY id
+                    LIMIT 1
+                    """
+                ),
+                {"task_id": task_id, "variant": variant},
+            )
+            .mappings()
+            .first()
+        )
+        if not series:
+            return None, []
+        rows = (
+            conn.execute(
+                text("SELECT t, value FROM time_series_points WHERE series_id = :series_id ORDER BY t"),
+                {"series_id": series["id"]},
+            )
+            .mappings()
+            .all()
+        )
+        return int(series["id"]), rows
