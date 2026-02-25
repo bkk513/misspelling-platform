@@ -129,6 +129,15 @@ select {
   font-weight: 600;
 }
 
+.pre-block {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #334155;
+}
+
 button {
   border: 1px solid #d1d5db;
   border-radius: 6px;
