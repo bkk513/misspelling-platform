@@ -21,6 +21,7 @@ Thumbs.db
 logs/
 tmp/
 .cache/
+node_modules/
 
 # Jupyter
 .ipynb_checkpoints/
