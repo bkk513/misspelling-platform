@@ -6,6 +6,11 @@ from celery.signals import task_failure, task_success
 
 from ..celery_app import celery_app
 from ..db.tasks_repo import set_task_failure, set_task_running, set_task_success
+from ..services.task_event_service import (
+    record_task_failure,
+    record_task_running,
+    record_task_success,
+)
 from ..services.timeseries_service import (
     persist_simulation_stub_timeseries,
     persist_word_analysis_stub_timeseries,
@@ -16,6 +21,7 @@ from ..services.timeseries_service import (
 def demo_analysis(self, word: str):
     task_id = self.request.id
     set_task_running(task_id)
+    record_task_running(task_id, "word-analysis")
     try:
         for i in range(5):
             time.sleep(1)
@@ -23,9 +29,11 @@ def demo_analysis(self, word: str):
         result = {"word": word, "message": "analysis done", "dummy_metric": 42}
         persist_word_analysis_stub_timeseries(task_id, word)
         set_task_success(task_id, json.dumps(result))
+        record_task_success(task_id, "word-analysis")
         return result
     except Exception as e:
         set_task_failure(task_id, str(e))
+        record_task_failure(task_id, "word-analysis", str(e))
         raise
 
 
@@ -45,6 +53,7 @@ def _on_failure(sender=None, exception=None, traceback=None, **kwargs):
 def simulation_run(self, n: int = 30, steps: int = 50):
     task_id = self.request.id
     set_task_running(task_id)
+    record_task_running(task_id, "simulation-run")
     try:
         series = [{"t": t, "errors": (t % 10), "correct": (t * 2) % 17} for t in range(steps)]
         out_dir = Path("/app/outputs") / task_id
@@ -64,7 +73,9 @@ def simulation_run(self, n: int = 30, steps: int = 50):
         }
         persist_simulation_stub_timeseries(task_id, n, steps)
         set_task_success(task_id, json.dumps(result))
+        record_task_success(task_id, "simulation-run")
         return result
     except Exception as e:
         set_task_failure(task_id, str(e))
+        record_task_failure(task_id, "simulation-run", str(e))
         raise

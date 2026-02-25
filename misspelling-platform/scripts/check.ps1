@@ -136,6 +136,27 @@ function Try-CheckTimeSeriesPersistence {
         Write-Warn ("time_series not persisted (M3): " + $_.Exception.Message)
     }
 }
+function Try-CheckTaskEvents {
+    param(
+        [Parameter(Mandatory = $true)][string]$TaskId,
+        [Parameter(Mandatory = $true)][string[]]$ExpectedLevels
+    )
+    try {
+        $raw = Invoke-MySqlQuery -Sql "SELECT DISTINCT level FROM task_events WHERE task_id = '$TaskId';" -RawOutput
+        $present = @()
+        if (-not [string]::IsNullOrWhiteSpace($raw)) {
+            $present = @($raw -split "`r?`n" | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+        }
+        $missing = @($ExpectedLevels | Where-Object { $present -notcontains $_ })
+        if ($missing.Count -gt 0) {
+            Write-Warn ("task_events not complete for task_id={0}; missing={1}; present={2}" -f $TaskId, ($missing -join ','), ($present -join ','))
+            return
+        }
+        Write-Pass ("task_events complete ({0})" -f ($ExpectedLevels -join ','))
+    } catch {
+        Write-Warn ("task_events not complete: " + $_.Exception.Message)
+    }
+}
 function Wait-ForDbTaskSuccess {
     param(
         [Parameter(Mandatory = $true)][string]$ExpectedTaskId,
@@ -264,6 +285,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     Start-Sleep -Seconds 7
     $wordRow = Wait-ForDbTaskSuccess -ExpectedTaskId $wordTaskId -ExpectedTaskType 'word-analysis' -TimeoutSeconds 20
     Write-Pass "word-analysis latest DB row SUCCESS (task_id=$($wordRow.task_id))"
+    Try-CheckTaskEvents -TaskId $wordTaskId -ExpectedLevels @('QUEUED', 'SUCCESS')
     Write-Step "Check optional simulation-run task"
     $simCreate = Try-CreateSimulationTask
     $simulationSummary = "[SKIP] simulation-run endpoint not implemented"
@@ -313,6 +335,7 @@ CREATE TABLE IF NOT EXISTS tasks (
         }
         Write-Pass "simulation-run artifact csv download 200"
         Try-CheckTimeSeriesPersistence -TaskId $simTaskId
+        Try-CheckTaskEvents -TaskId $simTaskId -ExpectedLevels @('QUEUED', 'RUNNING', 'SUCCESS')
         $simulationSummary = "[PASS] simulation-run SUCCESS + CSV download 200 (task_id=$simTaskId)"
     } else {
         Write-Info "simulation-run endpoint not implemented; skipping optional validation"
