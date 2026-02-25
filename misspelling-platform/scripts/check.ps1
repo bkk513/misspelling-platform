@@ -117,6 +117,25 @@ function Get-LatestTaskRow {
         status    = $parts[2]
     }
 }
+function Try-CheckTimeSeriesPersistence {
+    param([Parameter(Mandatory = $true)][string]$TaskId)
+    try {
+        # M2 schema has no time_series.task_id column; task linkage is stored in meta_json.task_id.
+        $seriesCount = [int](Invoke-MySqlQuery -Sql "SELECT COUNT(*) FROM time_series WHERE JSON_UNQUOTE(JSON_EXTRACT(meta_json,'$.task_id'))='$TaskId';" -RawOutput)
+        if ($seriesCount -le 0) {
+            Write-Warn "time_series not persisted (M3) for task_id=$TaskId"
+            return
+        }
+        $pointCount = [int](Invoke-MySqlQuery -Sql "SELECT COUNT(*) FROM time_series_points WHERE series_id IN (SELECT id FROM time_series WHERE JSON_UNQUOTE(JSON_EXTRACT(meta_json,'$.task_id'))='$TaskId');" -RawOutput)
+        if ($pointCount -le 0) {
+            Write-Warn "time_series points missing (M3) for task_id=$TaskId"
+            return
+        }
+        Write-Pass "time_series points persisted (series=$seriesCount, points=$pointCount)"
+    } catch {
+        Write-Warn ("time_series not persisted (M3): " + $_.Exception.Message)
+    }
+}
 function Wait-ForDbTaskSuccess {
     param(
         [Parameter(Mandatory = $true)][string]$ExpectedTaskId,
@@ -293,6 +312,7 @@ CREATE TABLE IF NOT EXISTS tasks (
             }
         }
         Write-Pass "simulation-run artifact csv download 200"
+        Try-CheckTimeSeriesPersistence -TaskId $simTaskId
         $simulationSummary = "[PASS] simulation-run SUCCESS + CSV download 200 (task_id=$simTaskId)"
     } else {
         Write-Info "simulation-run endpoint not implemented; skipping optional validation"
