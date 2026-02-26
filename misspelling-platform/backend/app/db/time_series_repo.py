@@ -226,3 +226,31 @@ def get_series_with_points(series_id: int):
             .all()
         )
         return meta, points
+
+
+def list_gbnc_series(limit: int = 100):
+    with get_engine().begin() as conn:
+        return (
+            conn.execute(
+                text(
+                    """
+                    SELECT
+                      ts.id AS series_id, lt.canonical, COALESCE(lv.variant, JSON_UNQUOTE(JSON_EXTRACT(ts.meta_json, '$.variant')), 'correct') AS variant,
+                      ds.name AS source_name, ts.granularity, ts.updated_at,
+                      JSON_UNQUOTE(JSON_EXTRACT(ts.meta_json, '$.corpus')) AS corpus,
+                      JSON_UNQUOTE(JSON_EXTRACT(ts.meta_json, '$.smoothing')) AS smoothing,
+                      (SELECT COUNT(*) FROM time_series_points p WHERE p.series_id = ts.id) AS point_count
+                    FROM time_series ts
+                    JOIN data_sources ds ON ds.id = ts.source_id
+                    JOIN lexicon_terms lt ON lt.id = ts.term_id
+                    LEFT JOIN lexicon_variants lv ON lv.id = ts.variant_id
+                    WHERE ds.name = 'gbnc'
+                    ORDER BY ts.updated_at DESC, ts.id DESC
+                    LIMIT :n
+                    """
+                ),
+                {"n": max(1, min(int(limit), 500))},
+            )
+            .mappings()
+            .all()
+        )

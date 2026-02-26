@@ -1,32 +1,41 @@
-import os
 from typing import Any
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends
 
+from .auth_deps import require_admin_user
+from ..db.time_series_repo import list_gbnc_series
+from ..db.users_repo import list_user_roles, list_users
 from ..services.audit_log_service import list_audit_logs_payload
 from ..services.lexicon_service import admin_add_variants_payload
 
 router = APIRouter()
 
 
-def require_admin_token(x_admin_token: str | None = Header(default=None)) -> dict[str, Any]:
-    configured = os.getenv("ADMIN_TOKEN", "").strip()
-    if not configured:
-        raise HTTPException(status_code=401, detail="admin token not configured on server")
-    if x_admin_token != configured:
-        raise HTTPException(status_code=401, detail="invalid admin token")
-    return {"auth": "ok"}
-
-
 @router.get("/api/admin/audit-logs")
-def get_admin_audit_logs(limit: int = 100, _auth=Depends(require_admin_token)):
+def get_admin_audit_logs(limit: int = 100, _auth=Depends(require_admin_user)):
     return list_audit_logs_payload(limit)
+
+
+@router.get("/api/admin/users")
+def get_admin_users(limit: int = 100, _auth=Depends(require_admin_user)):
+    rows = list_users(limit)
+    return {
+        "items": [
+            {**dict(r), "roles": list_user_roles(int(r["id"]))}
+            for r in rows
+        ]
+    }
+
+
+@router.get("/api/admin/gbnc-series")
+def get_admin_gbnc_series(limit: int = 100, _auth=Depends(require_admin_user)):
+    return {"items": [dict(r) for r in list_gbnc_series(limit)]}
 
 
 @router.post("/api/admin/lexicon/variants")
 def post_admin_lexicon_variants(
     payload: dict[str, Any],
-    _auth=Depends(require_admin_token),
+    _auth=Depends(require_admin_user),
 ):
     variants = payload.get("variants") if isinstance(payload.get("variants"), list) else []
     return admin_add_variants_payload(
