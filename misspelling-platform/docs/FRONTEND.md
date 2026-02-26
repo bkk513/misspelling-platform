@@ -1,14 +1,15 @@
-# FRONTEND.md (M6)
+# FRONTEND.md (M7)
 
 ## Goal
 
-Provide a minimal but complete researcher demo UI for Framework v1 without changing existing backend API contracts.
+Provide a minimal but complete researcher/admin demo UI for Framework v1 without changing existing backend API contracts.
 
 ## Pages
 
 ### `/` Home (Researcher Entry)
 
 - Health status (`GET /health`)
+- Suggest misspelling variants (`POST /api/lexicon/variants/suggest`)
 - Create `word-analysis` task
 - Create `simulation-run` task
 - Recent task list (`GET /api/tasks`)
@@ -20,6 +21,13 @@ Provide a minimal but complete researcher demo UI for Framework v1 without chang
 - Task lifecycle events (`GET /api/tasks/{task_id}/events`) if enabled
 - Artifacts preview/download (`/api/files/{task_id}/result.csv`, `/preview.png`)
 - Time series metadata/points (`GET /api/time-series/{task_id}`, `/points`)
+- Multi-line variant chart (default top 6 variants, optional expand)
+
+### `/admin` Admin (Weak Auth Demo)
+
+- Optional admin token input (`X-Admin-Token`)
+- Audit log viewer (`GET /api/admin/audit-logs`)
+- Manual lexicon variant append (`POST /api/admin/lexicon/variants`)
 
 ## Local start (PowerShell)
 
@@ -34,11 +42,31 @@ npm run dev
 
 Open `http://127.0.0.1:5173`.
 
+## Frontend environment
+
+- `VITE_API_BASE` (optional, default `http://127.0.0.1:8000`)
+- `ADMIN_TOKEN` is not read by frontend automatically; paste it in the Admin page input when configured on backend.
+
+Example:
+
+```powershell
+Set-Location .\misspelling-platform\frontend
+$env:VITE_API_BASE="http://127.0.0.1:8000"
+npm run dev
+```
+
+## Backend environment (M7 demo-related)
+
+- `BAILIAN_API_KEY` (optional; if absent, lexicon suggest uses cache/heuristic fallback)
+- `BAILIAN_BASE_URL` (optional)
+- `BAILIAN_MODEL` (optional)
+- `ADMIN_TOKEN` (optional; if unset, admin auth is disabled for local demo)
+
 ## Demo flow (3 steps)
 
-1. On Home page, create `simulation-run` with default `n=20`, `steps=15`.
-2. Open Task Detail and watch `Task Lifecycle` move to `SUCCESS`.
-3. Verify `preview.png` preview renders and `result.csv` / `preview.png` download links work.
+1. On Home page, click `Suggest Variants` for `demo`, then click `Run Word Analysis` (or `Simulation Run`) and open the created task.
+2. In Task Detail, observe `Task Lifecycle` (`QUEUED -> RUNNING -> SUCCESS`) and the multi-line `Time Series` plot.
+3. Verify `Artifacts` downloads work (`result.csv`; for `simulation-run`, also `preview.png`), then open `/admin` to inspect `Audit Logs`.
 
 ## Error handling notes
 
@@ -47,11 +75,11 @@ Open `http://127.0.0.1:5173`.
 
 ## Screenshots (placeholders)
 
-- `docs/screenshots/m6-home.png` (to be added)
-- `docs/screenshots/m6-task-detail-success.png` (to be added)
-- `docs/screenshots/m6-task-detail-timeseries.png` (to be added)
+- `docs/screenshots/m7-home-variants.png` (to be added)
+- `docs/screenshots/m7-task-detail-timeseries.png` (to be added)
+- `docs/screenshots/m7-admin-audit-logs.png` (to be added)
 
 ## API compatibility
 
-- No backend endpoint paths were changed in M6.
-- No new backend API endpoint was added in M6.
+- Existing backend endpoint paths/response compatibility are preserved.
+- M7 adds new read/write demo endpoints under `/api/lexicon/*` and `/api/admin/*` only.
