@@ -32,6 +32,15 @@ select {
   background: #ffffff;
 }
 
+.admin-shell {
+  background: #f3f6fb;
+}
+
+.admin-header {
+  background: #f8fafc;
+  border-bottom-color: #cbd5e1;
+}
+
 .app-main {
   max-width: 1120px;
   margin: 0 auto;

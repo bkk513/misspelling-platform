@@ -98,7 +98,10 @@ export function HomePage() {
                 <span className="muted">llm_enabled={String(variantInfo.llm_enabled ?? false)}</span>
                 {variantInfo.version_id != null && <span className="muted">version_id={variantInfo.version_id}</span>}
               </div>
-              {variantInfo.warning && <div className="muted">{variantInfo.warning}</div>}
+              {(variantInfo.warnings ?? []).map((w, idx) => (
+                <div key={`${w}-${idx}`} className="muted">{w}</div>
+              ))}
+              {variantInfo.llm_error && <div className="error-text">LLM: {variantInfo.llm_error}</div>}
               <div className="chip-list">
                 {(variantInfo.variants ?? []).map((v) => <span key={v} className="chip mono">{v}</span>)}
                 {(variantInfo.variants ?? []).length === 0 && <span className="muted">No variants returned.</span>}
@@ -124,14 +127,14 @@ export function HomePage() {
         {listErr && <div className="error-text">{listErr}</div>}
         <div className="table-wrap">
           <table className="simple-table">
-            <thead><tr><th>task_id</th><th>type</th><th>status</th><th>created_at</th><th /></tr></thead>
+            <thead><tr><th>display</th><th>status</th><th>created_at</th><th>task_id</th><th /></tr></thead>
             <tbody>
               {items.map((it) => (
                 <tr key={it.task_id}>
-                  <td className="mono">{it.task_id}</td>
-                  <td>{it.task_type}</td>
+                  <td>{it.display_name || it.task_type}</td>
                   <td>{it.status}</td>
                   <td>{it.created_at ?? "-"}</td>
+                  <td className="mono">{it.task_id}</td>
                   <td><button onClick={() => goToTask(it.task_id)}>Open</button></td>
                 </tr>
               ))}

@@ -25,6 +25,7 @@ export type TaskListItem = {
   task_id: string;
   task_type: string;
   status: string;
+  display_name?: string;
   params_json?: unknown;
   created_at?: string;
   updated_at?: string;
@@ -33,6 +34,7 @@ export type TaskListResponse = { items: TaskListItem[] };
 export type TaskDetailResponse = {
   task_id: string;
   state: string;
+  display_name?: string;
   params?: unknown;
   result?: unknown;
   error?: unknown;
@@ -65,6 +67,8 @@ export type LexiconSuggestResponse = {
   version_id?: number | null;
   llm_enabled?: boolean;
   warning?: string | null;
+  warnings?: string[];
+  llm_error?: string | null;
 };
 export type AdminAuditLogItem = {
   id: number;
@@ -96,7 +100,7 @@ export const api = {
     request<LexiconSuggestResponse>(`/api/lexicon/variants/suggest?word=${encodeURIComponent(word)}&k=${k}`, { method: "POST" }),
   adminListAuditLogs: (limit = 50, adminToken = "") =>
     request<AdminAuditLogsResponse>(`/api/admin/audit-logs?limit=${limit}`, {
-      headers: adminToken ? { "X-Admin-Token": adminToken } : undefined,
+      headers: { "X-Admin-Token": adminToken },
     }),
   adminAddLexiconVariants: (payload: { word?: string; term_id?: number; variants: string[] }, adminToken = "") =>
     request<{ ok: boolean; term_id: number; version_id?: number | null; count: number; variants: string[] }>(
@@ -105,7 +109,7 @@ export const api = {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          ...(adminToken ? { "X-Admin-Token": adminToken } : {}),
+          "X-Admin-Token": adminToken,
         },
         body: JSON.stringify(payload),
       }
@@ -115,6 +119,7 @@ export const api = {
 
 export function describeApiError(error: unknown) {
   const err = error as ApiError;
+  if (err?.status === 401) return "401: unauthorized. Check X-Admin-Token / ADMIN_TOKEN configuration.";
   if (err?.status === 404) return "404: resource not found or feature not enabled.";
   if (err?.status === 500) return "500: backend exception. Check docker compose logs api/worker.";
   if (err instanceof Error) return err.message;

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { api, describeApiError, type AdminAuditLogItem } from "../lib/api";
 
 export function AdminPage() {
-  const [adminToken, setAdminToken] = useState("");
+  const [adminToken, setAdminToken] = useState(() => window.sessionStorage.getItem("admin_token") ?? "");
   const [auditLogs, setAuditLogs] = useState<AdminAuditLogItem[]>([]);
   const [auditMsg, setAuditMsg] = useState("Loading audit logs...");
   const [word, setWord] = useState("demo");
@@ -23,6 +23,10 @@ export function AdminPage() {
     void loadAuditLogs();
   }, []);
 
+  useEffect(() => {
+    window.sessionStorage.setItem("admin_token", adminToken);
+  }, [adminToken]);
+
   const submitVariants = async () => {
     setSubmitMsg("Submitting...");
     try {
@@ -41,8 +45,8 @@ export function AdminPage() {
   return (
     <div className="stack">
       <section className="panel">
-        <h2>Admin (Demo)</h2>
-        <p className="muted">Weak auth via header `X-Admin-Token`. Leave empty when backend `ADMIN_TOKEN` is unset.</p>
+        <h2>Admin Console</h2>
+        <p className="muted">All admin requests send `X-Admin-Token`. Backend returns 401 when token is missing/invalid or `ADMIN_TOKEN` is not configured.</p>
         <div className="field">
           <label>Admin Token</label>
           <input type="password" value={adminToken} onChange={(e) => setAdminToken(e.target.value)} placeholder="optional" />

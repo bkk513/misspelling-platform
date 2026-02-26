@@ -46,6 +46,9 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
     const t = meta?.task_type;
     return typeof t === "string" ? t : "-";
   }, [events]);
+  const taskDisplayName = useMemo(() => {
+    return typeof task?.display_name === "string" && task.display_name ? task.display_name : taskType;
+  }, [task?.display_name, taskType]);
 
   const refresh = async (resetTicks = false) => {
     if (resetTicks) setTicks(0);
@@ -111,18 +114,20 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
       .then((meta) => {
         if (cancelled) return;
         const variants = meta.variants?.length ? meta.variants : ["correct"];
+        const sourceKind = /stub/i.test(meta.source || "") ? "stub" : /cache/i.test(meta.source || "") ? "cache" : "external";
         setTsVariants(variants);
-        setTsVariant((v) => (variants.includes(v) ? v : variants[0]));
-        setTsInfo(`source=${meta.source} word=${meta.word} granularity=${meta.granularity} points=${meta.point_count}`);
+        setTsInfo(
+          `source=${sourceKind} granularity=${meta.granularity} variants_count=${variants.length} points_count=${meta.point_count}`
+        );
       })
       .catch((e) => {
         if (cancelled) return;
         const err = e as { status?: number };
         setTsVariants([]);
-        setTsPoints([]);
+        setTsSeries([]);
         setTsInfo(
           err?.status === 404
-            ? "This task has no time-series data (optional module not enabled or data not written)."
+            ? "未写入时序数据。"
             : describeApiError(e)
         );
       });
@@ -174,6 +179,7 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
           </div>
         </div>
         <div className="row-inline">
+          <span className="muted">Display: {taskDisplayName}</span>
           <span className="muted">Task Type: {taskType}</span>
           <span style={{ color: statusTone(task?.state), fontWeight: 600 }}>Status: {task?.state ?? "loading..."}</span>
           <span className="muted">Polling: {polling ? `on (${ticks * 2}s)` : `off (${ticks >= 30 ? "auto-stopped at 60s" : "manual"})`}</span>
