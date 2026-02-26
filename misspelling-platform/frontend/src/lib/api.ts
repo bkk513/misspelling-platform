@@ -159,6 +159,7 @@ export const api = {
     request<CreateTaskResponse>(`/api/tasks/simulation-run?n=${n}&steps=${steps}`, { method: "POST" }),
   listTasks: (limit = 20) => request<TaskListResponse>(`/api/tasks?limit=${limit}`),
   getTask: (taskId: string) => request<TaskDetailResponse>(`/api/tasks/${encodeURIComponent(taskId)}`),
+  deleteTask: (taskId: string) => request<{ ok: boolean; task_id: string; status: string }>(`/api/tasks/${encodeURIComponent(taskId)}`, { method: "DELETE" }),
   getTaskEvents: (taskId: string, limit = 200) =>
     request<TaskEventsResponse>(`/api/tasks/${encodeURIComponent(taskId)}/events?limit=${limit}`),
   getTimeSeriesMeta: (taskId: string) => request<TimeSeriesMeta>(`/api/time-series/${encodeURIComponent(taskId)}`),

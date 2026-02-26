@@ -1,5 +1,6 @@
 # ===== compatibility layer for routes_tasks.py imports (M2) =====
 import json
+import shutil
 from pathlib import Path
 from typing import Any, Dict
 from uuid import uuid4
@@ -7,6 +8,7 @@ from uuid import uuid4
 from sqlalchemy import text
 
 from ..db.core import get_engine
+from .audit_log_service import record_audit
 from .task_event_service import record_task_failure, record_task_queued
 
 OUTPUT_ROOT = Path("/app/outputs")
@@ -223,6 +225,84 @@ def get_task_payload(task_id: str, async_result_factory=None) -> Dict[str, Any]:
             pass
     return payload
 
+def delete_task_payload(task_id: str) -> Dict[str, Any]:
+    task_id = str(task_id).strip()
+    if not task_id:
+        return {"ok": False, "error": "task_id is required"}
+
+    with get_engine().begin() as conn:
+        row = conn.execute(
+            text("SELECT task_id, task_type, status FROM tasks WHERE task_id=:task_id"),
+            {"task_id": task_id},
+        ).mappings().first()
+        if not row:
+            return {"ok": False, "error": "not found"}
+        current_status = str(row.get("status") or "")
+        if current_status in {"QUEUED", "RUNNING", "PROGRESS"}:
+            return {"ok": False, "error": "task is running", "status": current_status}
+
+        series_ids = [
+            int(r["id"])
+            for r in conn.execute(
+                text(
+                    """
+                    SELECT id FROM time_series
+                    WHERE JSON_UNQUOTE(JSON_EXTRACT(meta_json, '$.task_id')) = :task_id
+                    """
+                ),
+                {"task_id": task_id},
+            ).mappings().all()
+        ]
+        for series_id in series_ids:
+            conn.execute(text("DELETE FROM time_series_points WHERE series_id=:series_id"), {"series_id": series_id})
+        conn.execute(
+            text(
+                """
+                DELETE FROM time_series
+                WHERE JSON_UNQUOTE(JSON_EXTRACT(meta_json, '$.task_id')) = :task_id
+                """
+            ),
+            {"task_id": task_id},
+        )
+        conn.execute(text("DELETE FROM task_events WHERE task_id=:task_id"), {"task_id": task_id})
+        conn.execute(text("DELETE FROM task_artifacts WHERE task_id=:task_id"), {"task_id": task_id})
+        conn.execute(
+            text(
+                """
+                DELETE FROM audit_logs
+                WHERE target_id=:task_id
+                  AND (target_type='task' OR target_type='word-analysis' OR target_type='simulation-run')
+                """
+            ),
+            {"task_id": task_id},
+        )
+        conn.execute(
+            text(
+                """
+                UPDATE tasks
+                SET status='DELETED', result_json=NULL, error_text='task deleted'
+                WHERE task_id=:task_id
+                """
+            ),
+            {"task_id": task_id},
+        )
+
+    out_dir = OUTPUT_ROOT / task_id
+    removed_files = 0
+    if out_dir.exists():
+        try:
+            removed_files = sum(1 for p in out_dir.rglob("*") if p.is_file())
+            shutil.rmtree(out_dir, ignore_errors=True)
+        except Exception:
+            removed_files = 0
+    record_audit(
+        "TASK_DELETE",
+        "task",
+        task_id,
+        {"previous_status": row.get("status"), "task_type": row.get("task_type"), "removed_files": removed_files},
+    )
+    return {"ok": True, "task_id": task_id, "status": "DELETED"}
+
 def list_task_payload(limit: int = 20) -> Dict[str, Any]:
     limit = max(1, min(int(limit), 200))
     with get_engine().begin() as conn:
@@ -230,6 +310,7 @@ def list_task_payload(limit: int = 20) -> Dict[str, Any]:
             text("""
                 SELECT task_id, task_type, status, params_json, created_at, updated_at
                 FROM tasks
+                WHERE status <> 'DELETED'
                 ORDER BY id DESC
                 LIMIT :limit
             """),

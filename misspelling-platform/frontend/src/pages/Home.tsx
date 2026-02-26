@@ -149,6 +149,17 @@ export function HomePage() {
     setManualVariant("");
   };
 
+  const deleteTask = async (taskId: string) => {
+    if (!window.confirm(`Delete task ${taskId}? This will remove cached artifacts and task-linked time series.`)) return;
+    try {
+      await api.deleteTask(taskId);
+      if (lastTaskId === taskId) setLastTaskId("");
+      await refresh();
+    } catch (e) {
+      setListErr(describeApiError(e));
+    }
+  };
+
   return (
     <div className="stack">
       <section className="panel">
@@ -243,7 +254,7 @@ export function HomePage() {
         {listErr && <div className="error-text">{listErr}</div>}
         <div className="table-wrap">
           <table className="simple-table">
-            <thead><tr><th>display</th><th>status</th><th>created_at</th><th>task_id</th><th /></tr></thead>
+            <thead><tr><th>display</th><th>status</th><th>created_at</th><th>task_id</th><th colSpan={2} /></tr></thead>
             <tbody>
               {items.map((it) => (
                 <tr key={it.task_id}>
@@ -252,10 +263,11 @@ export function HomePage() {
                   <td>{it.created_at ?? "-"}</td>
                   <td className="mono">{it.task_id}</td>
                   <td><button onClick={() => goToTask(it.task_id)}>Open</button></td>
+                  <td><button onClick={() => void deleteTask(it.task_id)}>Delete</button></td>
                 </tr>
               ))}
               {items.length === 0 && (
-                <tr><td colSpan={5} className="muted">No tasks returned.</td></tr>
+                <tr><td colSpan={6} className="muted">No tasks returned.</td></tr>
               )}
             </tbody>
           </table>

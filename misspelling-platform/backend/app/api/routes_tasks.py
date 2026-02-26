@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse
 
 from ..db.core import check_db
@@ -6,6 +6,7 @@ from ..services.task_service import (
     build_output_path,
     create_simulation_task,
     create_word_analysis_task,
+    delete_task_payload,
     get_task_payload,
     list_task_payload,
 )
@@ -53,6 +54,18 @@ def get_task_events(task_id: str, limit: int = 200):
 @router.get("/api/tasks")
 def list_tasks(limit: int = 20):
     return list_task_payload(limit)
+
+
+@router.delete("/api/tasks/{task_id}")
+def delete_task(task_id: str):
+    result = delete_task_payload(task_id)
+    if not result.get("ok"):
+        if result.get("error") == "not found":
+            raise HTTPException(status_code=404, detail="task not found")
+        if result.get("error") == "task is running":
+            raise HTTPException(status_code=409, detail="task is running")
+        raise HTTPException(status_code=400, detail=str(result.get("error") or "delete failed"))
+    return result
 
 
 @router.post("/api/tasks/simulation-run")
