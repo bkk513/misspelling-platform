@@ -41,6 +41,7 @@
       CELERY_RESULT_BACKEND: redis://redis:6379/2
       BAILIAN_BASE_URL: ${BAILIAN_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
       BAILIAN_MODEL: ${BAILIAN_MODEL:-qwen-plus}
+      DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:-}
       BAILIAN_API_KEY: ${BAILIAN_API_KEY:-}
       ADMIN_TOKEN: ${ADMIN_TOKEN:-}
     depends_on:
@@ -64,6 +65,7 @@
       CELERY_RESULT_BACKEND: redis://redis:6379/2
       BAILIAN_BASE_URL: ${BAILIAN_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
       BAILIAN_MODEL: ${BAILIAN_MODEL:-qwen-plus}
+      DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:-}
       BAILIAN_API_KEY: ${BAILIAN_API_KEY:-}
       ADMIN_TOKEN: ${ADMIN_TOKEN:-}
     depends_on:
