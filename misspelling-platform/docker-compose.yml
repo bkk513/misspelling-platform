@@ -44,6 +44,10 @@
       DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:-}
       BAILIAN_API_KEY: ${BAILIAN_API_KEY:-}
       ADMIN_TOKEN: ${ADMIN_TOKEN:-}
+      ALLOW_ADMIN_TOKEN_COMPAT: ${ALLOW_ADMIN_TOKEN_COMPAT:-0}
+      AUTH_TOKEN_SECRET: ${AUTH_TOKEN_SECRET:-}
+      INIT_ADMIN_USERNAME: ${INIT_ADMIN_USERNAME:-}
+      INIT_ADMIN_PASSWORD: ${INIT_ADMIN_PASSWORD:-}
     depends_on:
       mysql:
         condition: service_healthy
@@ -68,6 +72,8 @@
       DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:-}
       BAILIAN_API_KEY: ${BAILIAN_API_KEY:-}
       ADMIN_TOKEN: ${ADMIN_TOKEN:-}
+      ALLOW_ADMIN_TOKEN_COMPAT: ${ALLOW_ADMIN_TOKEN_COMPAT:-0}
+      AUTH_TOKEN_SECRET: ${AUTH_TOKEN_SECRET:-}
     depends_on:
       mysql:
         condition: service_healthy

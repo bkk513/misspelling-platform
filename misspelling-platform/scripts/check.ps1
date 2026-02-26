@@ -177,6 +177,58 @@ function Try-CheckLexiconSuggest {
         Write-Warn ("lexicon suggest endpoint check skipped: " + $_.Exception.Message)
     }
 }
+function Try-CheckGbncPull {
+    try {
+        $uri = "$($script:BaseUrl)/api/data/gbnc/pull?word=ChatGPT&start_year=2018&end_year=2019&corpus=eng_2019&smoothing=0"
+        $resp = Invoke-RestMethod -Method Post -Uri $uri -TimeoutSec 40
+        if ($null -eq $resp) {
+            Write-Warn "gbnc pull skipped (not configured): empty response"
+            return
+        }
+        $items = @()
+        if ($resp.PSObject.Properties.Name -contains 'items' -and $null -ne $resp.items) { $items = @($resp.items) }
+        if ($items.Count -le 0) {
+            Write-Warn "gbnc pull returned no series rows (word may be absent in selected range)"
+            return
+        }
+        $seriesIds = @()
+        foreach ($it in $items) {
+            if ($it.PSObject.Properties.Name -contains 'series_id') { $seriesIds += [int]$it.series_id }
+        }
+        if ($seriesIds.Count -le 0) {
+            Write-Warn "gbnc pull response missing series_id"
+            return
+        }
+        $idList = ($seriesIds | Select-Object -Unique) -join ','
+        $pointCount = [int](Invoke-MySqlQuery -Sql "SELECT COUNT(*) FROM time_series_points WHERE series_id IN ($idList);" -RawOutput)
+        if ($pointCount -le 0) {
+            Write-Warn "gbnc pull returned series but no persisted points"
+            return
+        }
+        Write-Pass "gbnc pull persisted points (series=$($seriesIds.Count), points=$pointCount)"
+    } catch {
+        Write-Warn ("gbnc pull skipped (not configured): " + $_.Exception.Message)
+    }
+}
+function Try-CheckAuthLogin {
+    $u = ($env:INIT_ADMIN_USERNAME | Out-String).Trim()
+    $p = ($env:INIT_ADMIN_PASSWORD | Out-String).Trim()
+    if ([string]::IsNullOrWhiteSpace($u) -or [string]::IsNullOrWhiteSpace($p)) {
+        Write-Warn "auth login check skipped (INIT_ADMIN_USERNAME/PASSWORD not set)"
+        return
+    }
+    try {
+        $body = @{ username = $u; password = $p } | ConvertTo-Json -Compress
+        $login = Invoke-RestMethod -Method Post -Uri "$($script:BaseUrl)/api/auth/login" -ContentType "application/json" -Body $body -TimeoutSec 15
+        if ($null -eq $login -or -not $login.access_token) { throw "missing access_token" }
+        $headers = @{ Authorization = "Bearer $($login.access_token)" }
+        $adminResp = Invoke-RestMethod -Method Get -Uri "$($script:BaseUrl)/api/admin/audit-logs?limit=1" -Headers $headers -TimeoutSec 15
+        $count = if ($adminResp -and ($adminResp.PSObject.Properties.Name -contains 'items') -and $null -ne $adminResp.items) { @($adminResp.items).Count } else { 0 }
+        Write-Pass "auth login + admin audit access ok (items=$count)"
+    } catch {
+        Write-Warn ("auth login check failed: " + $_.Exception.Message)
+    }
+}
 function Wait-ForDbTaskSuccess {
     param(
         [Parameter(Mandatory = $true)][string]$ExpectedTaskId,
@@ -329,6 +381,8 @@ CREATE TABLE IF NOT EXISTS tasks (
     }
     Try-CheckTaskEvents -TaskId $wordTaskId -ExpectedLevels @('QUEUED', 'SUCCESS')
     Try-CheckLexiconSuggest
+    Try-CheckGbncPull
+    Try-CheckAuthLogin
     Write-Step "Check optional simulation-run task"
     $simCreate = Try-CreateSimulationTask
     $simulationSummary = "[SKIP] simulation-run endpoint not implemented"
