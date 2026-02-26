@@ -36,8 +36,8 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
   const [probeCsvOk, setProbeCsvOk] = useState<boolean | null>(null);
   const [tsInfo, setTsInfo] = useState<string>("Loading...");
   const [tsVariants, setTsVariants] = useState<string[]>([]);
-  const [tsVariant, setTsVariant] = useState("correct");
-  const [tsPoints, setTsPoints] = useState<Array<{ time: string; value: number }>>([]);
+  const [tsShowAll, setTsShowAll] = useState(false);
+  const [tsSeries, setTsSeries] = useState<Array<{ name: string; points: Array<{ time: string; value: number }> }>>([]);
 
   const taskObj = useMemo(() => asObject(task?.result), [task?.result]);
   const taskType = useMemo(() => {
@@ -76,8 +76,8 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
     setProbeCsvOk(null);
     setTsInfo("Loading...");
     setTsVariants([]);
-    setTsVariant("correct");
-    setTsPoints([]);
+    setTsShowAll(false);
+    setTsSeries([]);
   }, [taskId]);
 
   useEffect(() => {
@@ -132,21 +132,27 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
   }, [taskId]);
 
   useEffect(() => {
-    if (!tsVariant || tsVariants.length === 0) return;
+    if (tsVariants.length === 0) return;
     let cancelled = false;
-    api.getTimeSeriesPoints(taskId, tsVariant)
-      .then((resp) => {
-        if (!cancelled) setTsPoints(resp.items ?? []);
+    const visible = (tsShowAll ? tsVariants : tsVariants.slice(0, 6)).filter(Boolean);
+    Promise.all(
+      visible.map(async (variant) => {
+        const resp = await api.getTimeSeriesPoints(taskId, variant);
+        return { name: variant, points: resp.items ?? [] };
+      })
+    )
+      .then((rows) => {
+        if (!cancelled) setTsSeries(rows);
       })
       .catch((e) => {
         if (cancelled) return;
-        setTsPoints([]);
+        setTsSeries([]);
         setTsInfo(describeApiError(e));
       });
     return () => {
       cancelled = true;
     };
-  }, [taskId, tsVariant, tsVariants.length]);
+  }, [taskId, tsVariants, tsShowAll]);
 
   const csvUrl = api.fileUrl(taskId, "result.csv");
   const pngUrl = api.fileUrl(taskId, "preview.png");
@@ -225,16 +231,18 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
             {probePngOk === null ? "PNG status pending..." : probePngOk ? "PNG available (HTTP 200)" : "PNG not available (404/5xx)"}
           </span>
         </div>
-        <div className="panel" style={{ marginTop: 12, background: "#fafafa" }}>
-          <div className="muted" style={{ marginBottom: 8 }}>preview.png (simulation-run)</div>
-          <img
-            src={pngUrl}
-            alt="preview artifact"
-            style={{ maxWidth: "100%", border: "1px solid #e5e7eb", borderRadius: 6 }}
-            onLoad={() => setProbePngOk(true)}
-            onError={() => setProbePngOk(false)}
-          />
-        </div>
+        {(taskType === "simulation-run" || probePngOk !== false) && (
+          <div className="panel" style={{ marginTop: 12, background: "#fafafa" }}>
+            <div className="muted" style={{ marginBottom: 8 }}>preview.png (simulation-run)</div>
+            <img
+              src={pngUrl}
+              alt="preview artifact"
+              style={{ maxWidth: "100%", border: "1px solid #e5e7eb", borderRadius: 6 }}
+              onLoad={() => setProbePngOk(true)}
+              onError={() => setProbePngOk(false)}
+            />
+          </div>
+        )}
         {resultFiles && <div className="muted" style={{ marginTop: 8 }}>Result files payload: {JSON.stringify(resultFiles)}</div>}
         {resultPreviewRows.length > 0 && (
           <div className="muted" style={{ marginTop: 8 }}>
@@ -249,14 +257,19 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
         {tsVariants.length > 0 && (
           <>
             <div className="row-inline">
-              <label htmlFor="variant" className="muted">variant</label>
-              <select id="variant" value={tsVariant} onChange={(e) => setTsVariant(e.target.value)}>
-                {tsVariants.map((v) => <option key={v} value={v}>{v}</option>)}
-              </select>
+              <span className="muted">showing {Math.min(tsSeries.length, tsShowAll ? tsVariants.length : 6)} / {tsVariants.length} variants</span>
+              {tsVariants.length > 6 && (
+                <button onClick={() => setTsShowAll((v) => !v)}>{tsShowAll ? "Show First 6" : "Show All Variants"}</button>
+              )}
               <button onClick={() => void refresh()}>Refresh Task State</button>
               <button onClick={() => goToTask(taskId)}>Reload Route</button>
             </div>
-            <LineChart points={tsPoints} title={`Time Series (${tsVariant})`} />
+            <LineChart series={tsSeries} title="Time Series (variants)" />
+            {!tsShowAll && tsVariants.length > 6 && (
+              <div className="muted" style={{ marginTop: 8 }}>
+                Hidden variants: {tsVariants.slice(6).join(", ")}
+              </div>
+            )}
           </>
         )}
       </section>
