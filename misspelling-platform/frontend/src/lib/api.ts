@@ -117,6 +117,7 @@ export type GbncSeriesDetail = {
   units?: string;
   window_start?: string;
   window_end?: string;
+  updated_at?: string;
   point_count: number;
   meta?: unknown;
 };

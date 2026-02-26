@@ -144,6 +144,7 @@ def get_gbnc_series_payload(series_id: int):
         "units": meta["units"],
         "window_start": meta["window_start"],
         "window_end": meta["window_end"],
+        "updated_at": meta.get("updated_at"),
         "point_count": len(points),
         "meta": meta_json,
     }
@@ -152,4 +153,3 @@ def get_gbnc_series_payload(series_id: int):
 def get_gbnc_series_points_payload(series_id: int):
     _, points = get_series_with_points(int(series_id))
     return {"series_id": int(series_id), "items": [{"time": str(r["t"]), "value": float(r["value"])} for r in points]}
-

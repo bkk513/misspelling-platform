@@ -171,6 +171,7 @@ def find_series_by_cache_key(cache_key: str):
                       ds.name AS source_name,
                       ts.window_start,
                       ts.window_end,
+                      ts.updated_at,
                       ts.units,
                       ts.meta_json,
                       (SELECT COUNT(*) FROM time_series_points p WHERE p.series_id = ts.id) AS point_count
