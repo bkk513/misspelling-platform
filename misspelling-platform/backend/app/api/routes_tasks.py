@@ -1,4 +1,4 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 from fastapi.responses import FileResponse
 
 from ..db.core import check_db
@@ -21,8 +21,23 @@ def health():
 
 
 @router.post("/api/tasks/word-analysis")
-def create_task(word: str):
-    return create_word_analysis_task(word, demo_analysis)
+def create_task(
+    word: str,
+    start_year: int | None = None,
+    end_year: int | None = None,
+    smoothing: int | None = None,
+    corpus: str | None = None,
+    variant: list[str] | None = Query(default=None),
+):
+    return create_word_analysis_task(
+        word,
+        demo_analysis,
+        start_year=start_year,
+        end_year=end_year,
+        smoothing=smoothing,
+        corpus=corpus,
+        variants=variant or [],
+    )
 
 
 @router.get("/api/tasks/{task_id}")

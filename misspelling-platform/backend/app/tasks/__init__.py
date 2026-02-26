@@ -20,22 +20,42 @@ from ..services.task_event_service import (
     record_task_success,
 )
 from ..services.timeseries_service import (
+    persist_word_analysis_gbnc_timeseries,
     persist_simulation_stub_timeseries,
     persist_word_analysis_stub_timeseries,
 )
 
 
 @celery_app.task(bind=True)
-def demo_analysis(self, word: str):
+def demo_analysis(self, word: str, params: dict | None = None):
     task_id = self.request.id
     set_task_running(task_id)
     record_task_running(task_id, "word-analysis")
     try:
+        params = dict(params or {})
+        params.setdefault("word", word)
         lexicon = get_or_suggest_variants(word, k=20)
+        selected_variants = params.get("variants") or lexicon.get("variants") or []
+        start_year = int(params.get("start_year") or 1900)
+        end_year = int(params.get("end_year") or 2019)
+        smoothing = int(params.get("smoothing") or 3)
+        corpus = str(params.get("corpus") or "eng_2019")
         for i in range(5):
             time.sleep(1)
             self.update_state(state="PROGRESS", meta={"step": i + 1, "total": 5})
-        ts_bundle = persist_word_analysis_stub_timeseries(task_id, word, lexicon.get("variants") or [])
+        try:
+            ts_bundle = persist_word_analysis_gbnc_timeseries(
+                task_id,
+                word,
+                selected_variants,
+                start_year=start_year,
+                end_year=end_year,
+                corpus=corpus,
+                smoothing=smoothing,
+            )
+        except Exception:
+            ts_bundle = persist_word_analysis_stub_timeseries(task_id, word, selected_variants)
+            ts_bundle["source_kind"] = "stub"
         out_dir = build_output_dir(task_id)
         out_csv = out_dir / "result.csv"
         write_word_analysis_csv(ts_bundle.get("csv_rows") or [], out_csv)
@@ -47,6 +67,7 @@ def demo_analysis(self, word: str):
             "variants_count": max(0, len(ts_bundle.get("variants") or []) - 1),
             "variants": (ts_bundle.get("variants") or [])[1:],
             "variant_source": lexicon.get("source"),
+            "time_series_source": ts_bundle.get("source_kind", "stub"),
             "files": {"csv": f"/api/files/{task_id}/result.csv"},
             "artifacts": [{"kind": "csv", "filename": "result.csv"}],
         }

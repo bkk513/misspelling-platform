@@ -3,7 +3,7 @@ import math
 import random
 from datetime import date, timedelta
 
-from ..db.data_sources_repo import ensure_data_source
+from ..db.data_sources_repo import ensure_data_source, ensure_data_source_configured
 from ..db.time_series_repo import (
     create_series,
     ensure_term,
@@ -11,6 +11,11 @@ from ..db.time_series_repo import (
     get_series_points_for_task,
     insert_series_points,
     list_series_by_task,
+)
+from .gbnc_service import (
+    get_gbnc_series_payload,
+    get_gbnc_series_points_payload,
+    pull_gbnc_series_to_db,
 )
 
 
@@ -81,6 +86,88 @@ def _persist_stub_bundle(task_id: str, task_type: str, canonical: str, point_cou
 
 def persist_word_analysis_stub_timeseries(task_id: str, word: str, variants: list[str] | None = None):
     return _persist_stub_bundle(task_id, "word-analysis", (word or "word").lower(), 60, variant_words=variants)
+
+
+def persist_word_analysis_gbnc_timeseries(
+    task_id: str,
+    word: str,
+    variants: list[str] | None = None,
+    *,
+    start_year: int = 1900,
+    end_year: int = 2019,
+    corpus: str = "eng_2019",
+    smoothing: int = 3,
+):
+    y0 = max(1500, min(2050, int(start_year)))
+    y1 = max(y0, min(2050, int(end_year)))
+    sm = max(0, min(50, int(smoothing)))
+    pull = pull_gbnc_series_to_db(
+        term=(word or "word").lower(),
+        variants=list(variants or []),
+        start_year=y0,
+        end_year=y1,
+        corpus=str(corpus or "eng_2019"),
+        smoothing=sm,
+        actor=f"task:{task_id}",
+    )
+    items = [it for it in (pull.get("items") or []) if int(it.get("point_count") or 0) > 0]
+    if not items:
+        raise ValueError("gbnc returned no points")
+
+    source_id = ensure_data_source_configured("gbnc", "year", {"provider": "google-ngram-viewer"})
+    canonical = str(pull.get("term") or word or "word").strip().lower()
+    term_id = ensure_term(canonical=canonical, category="custom", language="en")
+    csv_rows = []
+    persisted_variants: list[str] = []
+    source_kind = "cache" if pull.get("cached") else "external"
+
+    for item in items:
+        series_id = int(item["series_id"])
+        meta = get_gbnc_series_payload(series_id) or {}
+        points_payload = get_gbnc_series_points_payload(series_id) or {"items": []}
+        variant = str(item.get("variant") or meta.get("variant") or "").strip().lower()
+        points_src = points_payload.get("items") or []
+        if not variant or not points_src:
+            continue
+        variant_id = None if variant == canonical else ensure_variant(term_id, variant, variant_type="external")
+        mapped = []
+        for p in points_src:
+            t = str(p.get("time") or "")[:10]
+            year = int(t[:4]) if t[:4].isdigit() else None
+            if year is None:
+                continue
+            mapped.append({"t": date(year, 1, 1), "value": float(p.get("value") or 0.0)})
+        if not mapped:
+            continue
+        create_id = create_series(
+            term_id=term_id,
+            variant_id=variant_id,
+            source_id=source_id,
+            granularity="year",
+            window_start=mapped[0]["t"],
+            window_end=mapped[-1]["t"],
+            units=str(meta.get("units") or "relative_frequency"),
+            meta={
+                "task_id": task_id,
+                "task_type": "word-analysis",
+                "variant": variant,
+                "term": canonical,
+                "source_kind": source_kind,
+                "gbnc": True,
+                "gbnc_series_id": series_id,
+                "corpus": str(corpus or "eng_2019"),
+                "smoothing": sm,
+                "start_year": y0,
+                "end_year": y1,
+            },
+        )
+        insert_series_points(create_id, mapped)
+        persisted_variants.append(variant)
+        csv_rows.extend({"time": str(p["t"]), "variant": variant, "value": p["value"]} for p in mapped)
+
+    if not csv_rows:
+        raise ValueError("gbnc returned no usable points")
+    return {"variants": persisted_variants, "csv_rows": csv_rows, "source_kind": source_kind}
 
 
 def persist_simulation_stub_timeseries(task_id: str, n: int, steps: int):

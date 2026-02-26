@@ -34,7 +34,16 @@ def _task_display_name(task_type: str | None, params: Any) -> str | None:
         return "simulation-run" + (f": {' '.join(parts)}" if parts else "")
     return str(task_type or "")
 
-def create_word_analysis_task(word: str, celery_task) -> dict:
+def create_word_analysis_task(
+    word: str,
+    celery_task,
+    *,
+    start_year: int | None = None,
+    end_year: int | None = None,
+    smoothing: int | None = None,
+    corpus: str | None = None,
+    variants: list[str] | None = None,
+) -> dict:
     """
     Called by routes_tasks.py: create_word_analysis_task(word, demo_analysis)
     1) enqueue celery task
@@ -43,6 +52,30 @@ def create_word_analysis_task(word: str, celery_task) -> dict:
     """
     task_id = str(uuid4())
     params = {"word": word}
+    if start_year is not None:
+        params["start_year"] = int(start_year)
+    if end_year is not None:
+        params["end_year"] = int(end_year)
+    if smoothing is not None:
+        params["smoothing"] = max(0, min(50, int(smoothing)))
+    if corpus:
+        params["corpus"] = str(corpus).strip()
+    if variants:
+        cleaned = []
+        seen = set()
+        for raw in variants:
+            v = str(raw).strip()
+            if not v:
+                continue
+            key = v.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            cleaned.append(v)
+            if len(cleaned) >= 12:
+                break
+        if cleaned:
+            params["variants"] = cleaned
 
     with get_engine().begin() as conn:
         conn.execute(
@@ -63,7 +96,7 @@ def create_word_analysis_task(word: str, celery_task) -> dict:
         )
     record_task_queued(task_id, "word-analysis", params)
     try:
-        celery_task.apply_async(args=[word], task_id=task_id)
+        celery_task.apply_async(args=[word, params], task_id=task_id)
     except Exception as exc:
         with get_engine().begin() as conn:
             conn.execute(
