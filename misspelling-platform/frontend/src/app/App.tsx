@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { AdminPage } from "../pages/Admin";
 import { HomePage } from "../pages/Home";
+import { SeriesDetailPage } from "../pages/SeriesDetail";
 import { TaskDetailPage } from "../pages/TaskDetail";
 import { goAdmin, goHome, parseRoute, type Route } from "./router";
 
@@ -29,6 +30,7 @@ export function App() {
       <main className="app-main">
         {route.name === "home" && <HomePage />}
         {route.name === "admin" && <AdminPage />}
+        {route.name === "series" && <SeriesDetailPage seriesId={route.seriesId} />}
         {route.name === "task" && <TaskDetailPage taskId={route.taskId} />}
       </main>
     </div>

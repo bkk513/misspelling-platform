@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { goToTask } from "../app/router";
+import { goToSeries, goToTask } from "../app/router";
 import { api, describeApiError, type HealthResponse, type LexiconSuggestResponse, type TaskListItem } from "../lib/api";
 
 export function HomePage() {
@@ -206,7 +206,7 @@ export function HomePage() {
         {gbncResult && (
           <div className="table-wrap">
             <table className="simple-table">
-              <thead><tr><th>series_id</th><th>variant</th><th>points</th><th>source</th></tr></thead>
+              <thead><tr><th>series_id</th><th>variant</th><th>points</th><th>source</th><th /></tr></thead>
               <tbody>
                 {gbncResult.items.map((it) => (
                   <tr key={it.series_id}>
@@ -214,9 +214,10 @@ export function HomePage() {
                     <td>{it.variant}</td>
                     <td>{it.point_count}</td>
                     <td>{gbncResult.cached ? "cache" : "external"}</td>
+                    <td><button onClick={() => goToSeries(it.series_id)}>Open</button></td>
                   </tr>
                 ))}
-                {gbncResult.items.length === 0 && <tr><td colSpan={4} className="muted">No GBNC points were returned for the selected word/range.</td></tr>}
+                {gbncResult.items.length === 0 && <tr><td colSpan={5} className="muted">No GBNC points were returned for the selected word/range.</td></tr>}
               </tbody>
             </table>
           </div>
