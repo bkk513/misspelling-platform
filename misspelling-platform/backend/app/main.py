@@ -3,6 +3,7 @@ import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from .api.routes_data_gbnc import router as gbnc_data_router
 from .api.routes_admin import router as admin_router
 from .api.routes_lexicon import router as lexicon_router
 from .api.routes_tasks import router as tasks_router
@@ -22,6 +23,7 @@ def create_app() -> FastAPI:
     app.include_router(tasks_router)
     app.include_router(timeseries_router)
     app.include_router(lexicon_router)
+    app.include_router(gbnc_data_router)
     app.include_router(admin_router)
     return app
 

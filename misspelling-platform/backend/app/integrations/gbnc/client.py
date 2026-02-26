@@ -52,7 +52,7 @@ def fetch_gbnc_series(
     query = ",".join(names)
     encoded_query = urllib.parse.quote_plus(query, safe='"')
     url = (
-        "https://books.google.com/ngrams/graph?"
+        "https://books.google.com/ngrams/json?"
         f"content={encoded_query}"
         f"&year_start={y0}&year_end={y1}&corpus={CORPORA[corpus]}&smoothing={sm}"
     )

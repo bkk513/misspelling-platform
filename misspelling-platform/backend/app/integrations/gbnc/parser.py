@@ -18,7 +18,16 @@ def _extract_json_fragment(text: str) -> list[dict[str, Any]]:
 
 def parse_graph_response(content: bytes) -> dict[str, list[float]]:
     text = content.decode("utf-8", errors="ignore")
-    rows = _extract_json_fragment(text)
+    try:
+        parsed = json.loads(text)
+        if isinstance(parsed, list):
+            rows = parsed
+        else:
+            rows = []
+    except Exception:
+        rows = []
+    if not rows:
+        rows = _extract_json_fragment(text)
     if not rows:
         timeseries = re.findall(r"\"timeseries\": \[(.*?)\]", text)
         terms = re.findall(r"\{\"ngram\": \"(.*?)\"", text)
