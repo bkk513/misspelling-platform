@@ -39,6 +39,10 @@
       REDIS_URL: redis://redis:6379/0
       CELERY_BROKER_URL: redis://redis:6379/1
       CELERY_RESULT_BACKEND: redis://redis:6379/2
+      BAILIAN_BASE_URL: ${BAILIAN_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
+      BAILIAN_MODEL: ${BAILIAN_MODEL:-qwen-plus}
+      BAILIAN_API_KEY: ${BAILIAN_API_KEY:-}
+      ADMIN_TOKEN: ${ADMIN_TOKEN:-}
     depends_on:
       mysql:
         condition: service_healthy
@@ -58,6 +62,10 @@
       DATABASE_URL: mysql+pymysql://root:root@mysql:3306/misspell
       CELERY_BROKER_URL: redis://redis:6379/1
       CELERY_RESULT_BACKEND: redis://redis:6379/2
+      BAILIAN_BASE_URL: ${BAILIAN_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
+      BAILIAN_MODEL: ${BAILIAN_MODEL:-qwen-plus}
+      BAILIAN_API_KEY: ${BAILIAN_API_KEY:-}
+      ADMIN_TOKEN: ${ADMIN_TOKEN:-}
     depends_on:
       mysql:
         condition: service_healthy

@@ -9,5 +9,6 @@ celery==5.4.0
 redis==5.0.8
 cryptography==42.0.8
 matplotlib==3.9.2
+requests==2.32.3
 
 
