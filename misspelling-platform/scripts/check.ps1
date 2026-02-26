@@ -157,6 +157,26 @@ function Try-CheckTaskEvents {
         Write-Warn ("task_events not complete: " + $_.Exception.Message)
     }
 }
+function Try-CheckLexiconSuggest {
+    try {
+        $resp = Invoke-RestMethod -Method Post -Uri "$($script:BaseUrl)/api/lexicon/variants/suggest?word=demo&k=5" -TimeoutSec 10
+        if ($null -eq $resp) {
+            Write-Warn "llm suggest check returned empty response"
+            return
+        }
+        if ($resp.PSObject.Properties.Name -contains 'llm_enabled' -and $resp.llm_enabled -eq $false) {
+            Write-Warn "llm disabled (BAILIAN_API_KEY not configured); lexicon suggest endpoint fallback/cache path only"
+            return
+        }
+        $count = 0
+        if ($resp.PSObject.Properties.Name -contains 'variants' -and $null -ne $resp.variants) {
+            $count = @($resp.variants).Count
+        }
+        Write-Pass "lexicon suggest endpoint responded (variants=$count)"
+    } catch {
+        Write-Warn ("lexicon suggest endpoint check skipped: " + $_.Exception.Message)
+    }
+}
 function Wait-ForDbTaskSuccess {
     param(
         [Parameter(Mandatory = $true)][string]$ExpectedTaskId,
@@ -276,6 +296,7 @@ CREATE TABLE IF NOT EXISTS tasks (
         Write-Info "tasks table already present; fallback bootstrap skipped"
     }
     Write-Step "Create and verify word-analysis task"
+    $wordCsvSummary = "[WARN] word-analysis artifact csv download check not run"
     $wordCreate = Invoke-RestMethod -Method Post -Uri "$($script:BaseUrl)/api/tasks/word-analysis?word=demo" -TimeoutSec 10
     if (-not $wordCreate.task_id) {
         throw "word-analysis create response missing task_id"
@@ -285,7 +306,29 @@ CREATE TABLE IF NOT EXISTS tasks (
     Start-Sleep -Seconds 7
     $wordRow = Wait-ForDbTaskSuccess -ExpectedTaskId $wordTaskId -ExpectedTaskType 'word-analysis' -TimeoutSeconds 20
     Write-Pass "word-analysis latest DB row SUCCESS (task_id=$($wordRow.task_id))"
+    $wordTaskDetail = Invoke-RestMethod -Method Get -Uri "$($script:BaseUrl)/api/tasks/$wordTaskId" -TimeoutSec 10
+    $wordResultPayload = Convert-JsonIfNeeded $wordTaskDetail.result
+    $wordFilesPayload = if ($null -ne $wordResultPayload) { Convert-JsonIfNeeded $wordResultPayload.files } else { $null }
+    if ($null -ne $wordFilesPayload -and ($wordFilesPayload.PSObject.Properties.Name -contains 'csv')) {
+        $wordCsvUrl = "$($script:BaseUrl)$([string]$wordFilesPayload.csv)"
+        $tmpWordCsv = Join-Path $env:TEMP ("misspelling-check-" + [guid]::NewGuid().ToString('N') + ".csv")
+        try {
+            $respWordCsv = Invoke-WebRequest -Method Get -Uri $wordCsvUrl -OutFile $tmpWordCsv -TimeoutSec 20
+            $wordCsvFile = Get-Item $tmpWordCsv
+            if ($wordCsvFile.Length -le 0) { throw "Downloaded word-analysis CSV is empty" }
+            if ($respWordCsv -and ($respWordCsv.PSObject.Properties.Name -contains 'StatusCode') -and [int]$respWordCsv.StatusCode -ne 200) {
+                throw "word-analysis CSV download returned HTTP $([int]$respWordCsv.StatusCode)"
+            }
+        } finally {
+            if (Test-Path $tmpWordCsv) { Remove-Item -Force $tmpWordCsv }
+        }
+        Write-Pass "word-analysis artifact csv download 200"
+        $wordCsvSummary = "[PASS] word-analysis artifact csv download 200 (task_id=$wordTaskId)"
+    } else {
+        Write-Warn "word-analysis result_json does not contain files.csv (M7)"
+    }
     Try-CheckTaskEvents -TaskId $wordTaskId -ExpectedLevels @('QUEUED', 'SUCCESS')
+    Try-CheckLexiconSuggest
     Write-Step "Check optional simulation-run task"
     $simCreate = Try-CreateSimulationTask
     $simulationSummary = "[SKIP] simulation-run endpoint not implemented"
@@ -366,6 +409,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     Write-Host "[PASS] GET /health db:true"
     Write-Host ("[INFO] schema tables={0}" -f $tableCount)
     Write-Host "[PASS] word-analysis latest task SUCCESS (task_id=$wordTaskId)"
+    Write-Host $wordCsvSummary
     Write-Host $simulationSummary
     Write-Host $simulationPngSummary
     Write-Host ("[INFO] elapsed={0:n1}s" -f $elapsed.TotalSeconds)

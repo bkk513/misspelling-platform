@@ -1,4 +1,7 @@
+import os
+
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from .api.routes_admin import router as admin_router
 from .api.routes_lexicon import router as lexicon_router
@@ -8,6 +11,14 @@ from .api.routes_timeseries import router as timeseries_router
 
 def create_app() -> FastAPI:
     app = FastAPI(title="Misspelling Platform API (MVP)")
+    origins = [o.strip() for o in os.getenv("CORS_ALLOW_ORIGINS", "http://127.0.0.1:5173,http://localhost:5173").split(",") if o.strip()]
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
     app.include_router(tasks_router)
     app.include_router(timeseries_router)
     app.include_router(lexicon_router)
