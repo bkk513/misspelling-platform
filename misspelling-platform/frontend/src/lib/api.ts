@@ -1,7 +1,14 @@
 export type ApiError = Error & { status?: number; bodyText?: string };
 
+const API_BASE = ((import.meta as { env?: Record<string, string | undefined> }).env?.VITE_API_BASE || "http://127.0.0.1:8000").replace(/\/+$/, "");
+
+function apiUrl(path: string) {
+  if (/^https?:\/\//i.test(path)) return path;
+  return `${API_BASE}${path.startsWith("/") ? path : `/${path}`}`;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const resp = await fetch(path, init);
+  const resp = await fetch(apiUrl(path), init);
   const text = await resp.text();
   if (!resp.ok) {
     const err = new Error(`HTTP ${resp.status} ${resp.statusText}`) as ApiError;
@@ -50,8 +57,27 @@ export type TimeSeriesPoints = {
   series_id: number;
   items: Array<{ time: string; value: number }>;
 };
+export type LexiconSuggestResponse = {
+  word: string;
+  term_id?: number;
+  variants: string[];
+  source: "llm" | "cache" | string;
+  version_id?: number | null;
+  llm_enabled?: boolean;
+  warning?: string | null;
+};
+export type AdminAuditLogItem = {
+  id: number;
+  action: string;
+  target_type?: string | null;
+  target_id?: string | null;
+  meta?: unknown;
+  created_at?: string;
+};
+export type AdminAuditLogsResponse = { items: AdminAuditLogItem[] };
 
 export const api = {
+  baseUrl: API_BASE,
   getHealth: () => request<HealthResponse>("/health"),
   createWordAnalysis: (word: string) =>
     request<CreateTaskResponse>(`/api/tasks/word-analysis?word=${encodeURIComponent(word)}`, { method: "POST" }),
@@ -66,7 +92,25 @@ export const api = {
     request<TimeSeriesPoints>(
       `/api/time-series/${encodeURIComponent(taskId)}/points?variant=${encodeURIComponent(variant)}`
     ),
-  fileUrl: (taskId: string, filename: string) => `/api/files/${encodeURIComponent(taskId)}/${encodeURIComponent(filename)}`
+  suggestVariants: (word: string, k = 20) =>
+    request<LexiconSuggestResponse>(`/api/lexicon/variants/suggest?word=${encodeURIComponent(word)}&k=${k}`, { method: "POST" }),
+  adminListAuditLogs: (limit = 50, adminToken = "") =>
+    request<AdminAuditLogsResponse>(`/api/admin/audit-logs?limit=${limit}`, {
+      headers: adminToken ? { "X-Admin-Token": adminToken } : undefined,
+    }),
+  adminAddLexiconVariants: (payload: { word?: string; term_id?: number; variants: string[] }, adminToken = "") =>
+    request<{ ok: boolean; term_id: number; version_id?: number | null; count: number; variants: string[] }>(
+      "/api/admin/lexicon/variants",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(adminToken ? { "X-Admin-Token": adminToken } : {}),
+        },
+        body: JSON.stringify(payload),
+      }
+    ),
+  fileUrl: (taskId: string, filename: string) => apiUrl(`/api/files/${encodeURIComponent(taskId)}/${encodeURIComponent(filename)}`)
 };
 
 export function describeApiError(error: unknown) {

@@ -85,12 +85,18 @@ select {
 }
 
 .field input,
-.field select {
+.field select,
+.field textarea {
   width: 100%;
   border: 1px solid #d1d5db;
   border-radius: 6px;
   padding: 8px 10px;
   background: #fff;
+}
+
+.text-area {
+  min-height: 88px;
+  resize: vertical;
 }
 
 .mono {
@@ -169,6 +175,13 @@ button {
   background: #f9fafb;
   padding: 8px 12px;
   cursor: pointer;
+}
+
+.soft-nav {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  color: #374151;
+  padding: 6px 10px;
 }
 
 button:disabled {
