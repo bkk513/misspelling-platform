@@ -79,3 +79,18 @@ def list_users(limit: int = 100):
             {"n": max(1, min(int(limit), 500))},
         ).mappings().all()
 
+
+def set_user_password_hash(user_id: int, password_hash: str) -> None:
+    with get_engine().begin() as conn:
+        conn.execute(
+            text("UPDATE users SET password_hash=:p, updated_at=CURRENT_TIMESTAMP WHERE id=:id"),
+            {"id": int(user_id), "p": password_hash},
+        )
+
+
+def set_user_active(user_id: int, is_active: bool) -> None:
+    with get_engine().begin() as conn:
+        conn.execute(
+            text("UPDATE users SET is_active=:a, updated_at=CURRENT_TIMESTAMP WHERE id=:id"),
+            {"id": int(user_id), "a": 1 if is_active else 0},
+        )

@@ -10,13 +10,14 @@ export function AdminPage() {
   const [loginMsg, setLoginMsg] = useState("");
   const [auditLogs, setAuditLogs] = useState<AdminAuditLogItem[]>([]);
   const [auditMsg, setAuditMsg] = useState("Loading audit logs...");
-  const [users, setUsers] = useState<Array<{ id: number; username: string; roles: string[] }>>([]);
+  const [users, setUsers] = useState<Array<{ id: number; username: string; roles: string[]; is_active?: number | boolean }>>([]);
   const [usersMsg, setUsersMsg] = useState("");
   const [gbncRows, setGbncRows] = useState<Array<{ series_id: number; canonical: string; variant: string; point_count: number; corpus?: string; updated_at?: string }>>([]);
   const [gbncMsg, setGbncMsg] = useState("");
-  const [word, setWord] = useState("demo");
-  const [variantsInput, setVariantsInput] = useState("demo-x\ndemoo");
-  const [submitMsg, setSubmitMsg] = useState("");
+  const [newUsername, setNewUsername] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [newRole, setNewRole] = useState<"user" | "admin">("user");
+  const [userAdminMsg, setUserAdminMsg] = useState("");
 
   const loadAuditLogs = async (tokenOverride?: string) => {
     try {
@@ -61,18 +62,42 @@ export function AdminPage() {
     void refreshAdmin();
   }, []);
 
-  const submitVariants = async () => {
-    setSubmitMsg("Submitting...");
+  const createUser = async () => {
+    setUserAdminMsg("Creating user...");
     try {
-      const variants = variantsInput
-        .split(/\r?\n|,/)
-        .map((s) => s.trim())
-        .filter(Boolean);
-      const resp = await api.adminAddLexiconVariants({ word, variants }, accessToken, adminTokenCompat.trim());
-      setSubmitMsg(`Saved ${resp.count} variants to term_id=${resp.term_id}, version_id=${resp.version_id ?? "null"}`);
+      await api.adminCreateUser(
+        { username: newUsername.trim(), password: newPassword, role: newRole },
+        accessToken,
+        adminTokenCompat.trim()
+      );
+      setNewPassword("");
+      setUserAdminMsg(`Created user ${newUsername.trim()} (${newRole}).`);
       await refreshAdmin();
     } catch (e) {
-      setSubmitMsg(describeApiError(e));
+      setUserAdminMsg(describeApiError(e));
+    }
+  };
+
+  const resetPassword = async (userId: number, usernameLabel: string) => {
+    const pw = window.prompt(`Reset password for ${usernameLabel}. Enter new password (leave blank to auto-generate):`, "");
+    if (pw === null) return;
+    try {
+      const resp = await api.adminResetUserPassword(userId, pw, accessToken, adminTokenCompat.trim());
+      setUserAdminMsg(`Password reset for ${usernameLabel}. Temporary password: ${resp.temporary_password}`);
+      await refreshAdmin();
+    } catch (e) {
+      setUserAdminMsg(describeApiError(e));
+    }
+  };
+
+  const setActive = async (userId: number, usernameLabel: string, active: boolean) => {
+    if (!window.confirm(`${active ? "Enable" : "Disable"} user ${usernameLabel}?`)) return;
+    try {
+      await api.adminSetUserActive(userId, active, accessToken, adminTokenCompat.trim());
+      setUserAdminMsg(`${active ? "Enabled" : "Disabled"} ${usernameLabel}.`);
+      await refreshAdmin();
+    } catch (e) {
+      setUserAdminMsg(describeApiError(e));
     }
   };
 
@@ -113,21 +138,39 @@ export function AdminPage() {
       {isAdmin && (
         <>
           <section className="panel">
-            <h3>Manual Lexicon Variant Add</h3>
-            <div className="field"><label>word</label><input value={word} onChange={(e) => setWord(e.target.value)} /></div>
-            <div className="field"><label>variants (newline or comma separated)</label><textarea className="text-area" value={variantsInput} onChange={(e) => setVariantsInput(e.target.value)} /></div>
-            <button onClick={() => void submitVariants()}>Submit Variants</button>
-            {submitMsg && <div className="muted" style={{ marginTop: 8 }}>{submitMsg}</div>}
-          </section>
-          <section className="panel">
             <h3>Users</h3>
             {usersMsg && <div className="muted">{usersMsg}</div>}
+            <div className="sub-panel">
+              <div className="row-inline">
+                <input placeholder="new username" value={newUsername} onChange={(e) => setNewUsername(e.target.value)} />
+                <input type="password" placeholder="initial password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
+                <select value={newRole} onChange={(e) => setNewRole((e.target.value as "user" | "admin") || "user")} style={{ width: 120 }}>
+                  <option value="user">user</option>
+                  <option value="admin">admin</option>
+                </select>
+                <button onClick={() => void createUser()} disabled={!newUsername.trim() || !newPassword}>Create User</button>
+              </div>
+              {userAdminMsg && <div className="muted">{userAdminMsg}</div>}
+            </div>
             <div className="table-wrap">
               <table className="simple-table">
-                <thead><tr><th>id</th><th>username</th><th>roles</th></tr></thead>
+                <thead><tr><th>id</th><th>username</th><th>roles</th><th>active</th><th>actions</th></tr></thead>
                 <tbody>
-                  {users.map((u) => <tr key={u.id}><td>{u.id}</td><td>{u.username}</td><td>{(u.roles || []).join(", ")}</td></tr>)}
-                  {users.length === 0 && <tr><td colSpan={3} className="muted">No users.</td></tr>}
+                  {users.map((u) => (
+                    <tr key={u.id}>
+                      <td>{u.id}</td>
+                      <td>{u.username}</td>
+                      <td>{(u.roles || []).join(", ")}</td>
+                      <td>{String(u.is_active ?? true)}</td>
+                      <td className="row-inline" style={{ marginBottom: 0 }}>
+                        <button onClick={() => void resetPassword(u.id, u.username)}>Reset Password</button>
+                        <button onClick={() => void setActive(u.id, u.username, !Boolean(u.is_active))}>
+                          {Boolean(u.is_active) ? "Disable" : "Enable"}
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                  {users.length === 0 && <tr><td colSpan={5} className="muted">No users.</td></tr>}
                 </tbody>
               </table>
             </div>

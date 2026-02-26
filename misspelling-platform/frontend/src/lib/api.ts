@@ -105,6 +105,7 @@ export type AdminAuditLogsResponse = { items: AdminAuditLogItem[] };
 export type AdminUsersResponse = {
   items: Array<{ id: number; username: string; display_name?: string | null; is_active: number | boolean; is_admin: number | boolean; created_at?: string; roles: string[] }>;
 };
+export type AdminUserItem = { id: number; username: string; display_name?: string | null; is_active: number | boolean; is_admin: number | boolean; created_at?: string; roles: string[] };
 export type AdminGbncSeriesResponse = {
   items: Array<{ series_id: number; canonical: string; variant: string; source_name: string; granularity: string; updated_at?: string; corpus?: string; smoothing?: string; point_count: number }>;
 };
@@ -182,6 +183,21 @@ export const api = {
     }),
   adminListUsers: (limit = 100, accessToken = "", adminToken = "") =>
     request<AdminUsersResponse>(`/api/admin/users?limit=${limit}`, { headers: authHeaders(accessToken, adminToken) }),
+  adminCreateUser: (payload: { username: string; password: string; role: "user" | "admin" }, accessToken = "", adminToken = "") =>
+    request<{ ok: boolean; user: AdminUserItem }>(
+      "/api/admin/users",
+      { method: "POST", headers: { "Content-Type": "application/json", ...authHeaders(accessToken, adminToken) }, body: JSON.stringify(payload) }
+    ),
+  adminResetUserPassword: (userId: number, password: string, accessToken = "", adminToken = "") =>
+    request<{ ok: boolean; user_id: number; temporary_password: string }>(
+      `/api/admin/users/${userId}/reset-password`,
+      { method: "POST", headers: { "Content-Type": "application/json", ...authHeaders(accessToken, adminToken) }, body: JSON.stringify({ password }) }
+    ),
+  adminSetUserActive: (userId: number, is_active: boolean, accessToken = "", adminToken = "") =>
+    request<{ ok: boolean; user: AdminUserItem }>(
+      `/api/admin/users/${userId}`,
+      { method: "PATCH", headers: { "Content-Type": "application/json", ...authHeaders(accessToken, adminToken) }, body: JSON.stringify({ is_active }) }
+    ),
   adminListGbncSeries: (limit = 100, accessToken = "", adminToken = "") =>
     request<AdminGbncSeriesResponse>(`/api/admin/gbnc-series?limit=${limit}`, { headers: authHeaders(accessToken, adminToken) }),
   adminAddLexiconVariants: (payload: { word?: string; term_id?: number; variants: string[] }, accessToken = "", adminToken = "") =>

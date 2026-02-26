@@ -91,6 +91,22 @@ This bootstrap is idempotent for repeated startups.
 
 The frontend stores access tokens in `sessionStorage` for local demo only.
 
+## M9 Admin User Management
+
+Admin Console (`/admin`) now supports:
+
+- `GET /api/admin/users`
+- `POST /api/admin/users` (create user with `user` or `admin` role)
+- `POST /api/admin/users/{user_id}/reset-password`
+- `PATCH /api/admin/users/{user_id}` (`is_active` enable/disable)
+
+All of the above require:
+
+- `Authorization: Bearer <access_token>`
+- current user must have `admin` role
+
+`ADMIN_TOKEN` compatibility remains deprecated and should not be used for new deployments.
+
 ## Environment variables summary (M8 Auth)
 
 - `AUTH_TOKEN_SECRET`
@@ -98,4 +114,3 @@ The frontend stores access tokens in `sessionStorage` for local demo only.
 - `INIT_ADMIN_PASSWORD`
 - `ALLOW_ADMIN_TOKEN_COMPAT` (deprecated path switch)
 - `ADMIN_TOKEN` (deprecated compat mode only)
-

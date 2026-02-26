@@ -10,10 +10,12 @@ Provide a minimal but complete researcher/admin demo UI for Framework v1 without
 
 - Health status (`GET /health`)
 - Suggest misspelling variants (`POST /api/lexicon/variants/suggest`)
-- Create `word-analysis` task
+- Create `word-analysis` task (GBNC params merged into the same form: `start_year/end_year/smoothing/corpus`)
+- Select variants (LLM/cache suggestions + manual add/remove) before running word-analysis
 - Create `simulation-run` task
 - Recent task list (`GET /api/tasks`)
 - Jump to task detail page
+- Delete completed tasks (`DELETE /api/tasks/{task_id}`)
 
 ### `/tasks/{task_id}` Task Detail
 
@@ -23,11 +25,12 @@ Provide a minimal but complete researcher/admin demo UI for Framework v1 without
 - Time series metadata/points (`GET /api/time-series/{task_id}`, `/points`)
 - Multi-line variant chart (default top 6 variants, optional expand)
 
-### `/admin` Admin (Weak Auth Demo)
+### `/admin` Admin (Role-Based Login)
 
-- Optional admin token input (`X-Admin-Token`)
+- Username/password login (`/api/auth/login`) and admin role check (`/api/auth/me`)
 - Audit log viewer (`GET /api/admin/audit-logs`)
-- Manual lexicon variant append (`POST /api/admin/lexicon/variants`)
+- Users management (create user, reset password, enable/disable)
+- GBNC pull records viewer (`GET /api/admin/gbnc-series`)
 
 ## Local start (PowerShell)
 
@@ -66,7 +69,7 @@ npm run dev
 
 1. On Home page, click `Suggest Variants` for `demo`, then click `Run Word Analysis` (or `Simulation Run`) and open the created task.
 2. In Task Detail, observe `Task Lifecycle` (`QUEUED -> RUNNING -> SUCCESS`) and the multi-line `Time Series` plot.
-3. Verify `Artifacts` downloads work (`result.csv`; for `simulation-run`, also `preview.png`), then open `/admin` to inspect `Audit Logs`.
+3. Verify `Artifacts` downloads work (`result.csv`; for `simulation-run`, also `preview.png`), use hover tooltip/legend toggle in `Time Series`, then open `/admin` to inspect users/audit logs.
 
 ## Error handling notes
 
