@@ -31,15 +31,29 @@ def _build_points(task_id: str, label: str, count: int, scale: float):
     return points
 
 
-def _persist_stub_bundle(task_id: str, task_type: str, canonical: str, point_count: int):
+def _persist_stub_bundle(task_id: str, task_type: str, canonical: str, point_count: int, variant_words: list[str] | None = None):
     source_id = ensure_data_source()
     term_id = ensure_term(canonical=canonical, category="custom", language="en")
-    variants = [
-        ("correct", None, 1.00),
-        ("misspelling_1", ensure_variant(term_id, f"{canonical}e"), 0.68),
-        ("misspelling_2", ensure_variant(term_id, f"{canonical}{canonical[-1:] or 'x'}"), 0.52),
-    ]
-    for variant_label, variant_id, scale in variants:
+    variant_specs = [("correct", None, 1.00)]
+    selected = []
+    if variant_words:
+        seen = {canonical}
+        for item in variant_words:
+            norm = str(item).strip().lower()
+            if not norm or norm in seen:
+                continue
+            seen.add(norm)
+            selected.append(norm)
+            if len(selected) >= 5:
+                break
+    if not selected:
+        selected = [f"{canonical}e", f"{canonical}{canonical[-1:] or 'x'}"]
+    for idx, variant_text in enumerate(selected):
+        scale = max(0.2, 0.72 - (idx * 0.12))
+        variant_specs.append((variant_text, ensure_variant(term_id, variant_text), scale))
+
+    csv_rows = []
+    for variant_label, variant_id, scale in variant_specs:
         points = _build_points(task_id, variant_label, point_count, scale)
         series_id = create_series(
             term_id=term_id,
@@ -58,10 +72,15 @@ def _persist_stub_bundle(task_id: str, task_type: str, canonical: str, point_cou
             },
         )
         insert_series_points(series_id, points)
+        csv_rows.extend(
+            {"time": str(p["t"]), "variant": variant_label, "value": p["value"]}
+            for p in points
+        )
+    return {"variants": [v[0] for v in variant_specs], "csv_rows": csv_rows}
 
 
-def persist_word_analysis_stub_timeseries(task_id: str, word: str):
-    _persist_stub_bundle(task_id, "word-analysis", (word or "word").lower(), 60)
+def persist_word_analysis_stub_timeseries(task_id: str, word: str, variants: list[str] | None = None):
+    return _persist_stub_bundle(task_id, "word-analysis", (word or "word").lower(), 60, variant_words=variants)
 
 
 def persist_simulation_stub_timeseries(task_id: str, n: int, steps: int):

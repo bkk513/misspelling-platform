@@ -7,10 +7,13 @@ from ..celery_app import celery_app
 from ..db.tasks_repo import set_task_failure, set_task_running, set_task_success
 from ..services.artifact_service import (
     build_output_dir,
+    register_word_analysis_artifacts,
     register_simulation_artifacts,
+    write_word_analysis_csv,
     write_simulation_csv,
     write_simulation_preview_png,
 )
+from ..services.lexicon_service import get_or_suggest_variants
 from ..services.task_event_service import (
     record_task_failure,
     record_task_running,
@@ -28,11 +31,25 @@ def demo_analysis(self, word: str):
     set_task_running(task_id)
     record_task_running(task_id, "word-analysis")
     try:
+        lexicon = get_or_suggest_variants(word, k=20)
         for i in range(5):
             time.sleep(1)
             self.update_state(state="PROGRESS", meta={"step": i + 1, "total": 5})
-        result = {"word": word, "message": "analysis done", "dummy_metric": 42}
-        persist_word_analysis_stub_timeseries(task_id, word)
+        ts_bundle = persist_word_analysis_stub_timeseries(task_id, word, lexicon.get("variants") or [])
+        out_dir = build_output_dir(task_id)
+        out_csv = out_dir / "result.csv"
+        write_word_analysis_csv(ts_bundle.get("csv_rows") or [], out_csv)
+        register_word_analysis_artifacts(task_id, out_csv)
+        result = {
+            "word": word,
+            "message": "analysis done",
+            "dummy_metric": 42,
+            "variants_count": max(0, len(ts_bundle.get("variants") or []) - 1),
+            "variants": (ts_bundle.get("variants") or [])[1:],
+            "variant_source": lexicon.get("source"),
+            "files": {"csv": f"/api/files/{task_id}/result.csv"},
+            "artifacts": [{"kind": "csv", "filename": "result.csv"}],
+        }
         set_task_success(task_id, json.dumps(result))
         record_task_success(task_id, "word-analysis")
         return result

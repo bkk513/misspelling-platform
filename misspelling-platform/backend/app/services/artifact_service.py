@@ -24,6 +24,13 @@ def write_simulation_csv(series: list[dict], out_csv: Path) -> None:
         w.writerows(series)
 
 
+def write_word_analysis_csv(rows: list[dict], out_csv: Path) -> None:
+    with out_csv.open("w", newline="", encoding="utf-8") as f:
+        w = csv.DictWriter(f, fieldnames=["time", "variant", "value"])
+        w.writeheader()
+        w.writerows(rows)
+
+
 def write_simulation_preview_png(series: list[dict], out_png: Path) -> None:
     import matplotlib
 
@@ -72,6 +79,10 @@ def register_artifact(
 def register_simulation_artifacts(task_id: str, out_csv: Path, out_png: Path) -> None:
     register_artifact(task_id, "csv", "result.csv", out_csv, "text/csv")
     register_artifact(task_id, "png", "preview.png", out_png, "image/png")
+
+
+def register_word_analysis_artifacts(task_id: str, out_csv: Path) -> None:
+    register_artifact(task_id, "csv", "result.csv", out_csv, "text/csv")
 
 
 def list_task_artifacts_payload(task_id: str) -> dict:
