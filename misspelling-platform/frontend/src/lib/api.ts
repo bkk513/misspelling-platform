@@ -36,6 +36,14 @@ export type AuthMeResponse = {
   user: { id: number; username: string; display_name?: string | null; roles: string[] };
 };
 export type CreateTaskResponse = { task_id: string };
+export type WordAnalysisCreateArgs = {
+  word: string;
+  start_year?: number;
+  end_year?: number;
+  smoothing?: number;
+  corpus?: string;
+  variants?: string[];
+};
 export type TaskListItem = {
   task_id: string;
   task_type: string;
@@ -136,8 +144,17 @@ export const api = {
     request<AuthMeResponse>("/api/auth/me", {
       headers: authHeaders(accessToken),
     }),
-  createWordAnalysis: (word: string) =>
-    request<CreateTaskResponse>(`/api/tasks/word-analysis?word=${encodeURIComponent(word)}`, { method: "POST" }),
+  createWordAnalysis: (args: string | WordAnalysisCreateArgs) => {
+    const payload = typeof args === "string" ? { word: args } : args;
+    const q = new URLSearchParams();
+    q.set("word", payload.word);
+    if (payload.start_year != null) q.set("start_year", String(payload.start_year));
+    if (payload.end_year != null) q.set("end_year", String(payload.end_year));
+    if (payload.smoothing != null) q.set("smoothing", String(payload.smoothing));
+    if (payload.corpus) q.set("corpus", payload.corpus);
+    for (const v of payload.variants ?? []) q.append("variant", v);
+    return request<CreateTaskResponse>(`/api/tasks/word-analysis?${q.toString()}`, { method: "POST" });
+  },
   createSimulation: (n: number, steps: number) =>
     request<CreateTaskResponse>(`/api/tasks/simulation-run?n=${n}&steps=${steps}`, { method: "POST" }),
   listTasks: (limit = 20) => request<TaskListResponse>(`/api/tasks?limit=${limit}`),

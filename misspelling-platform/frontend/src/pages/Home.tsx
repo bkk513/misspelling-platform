@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { goToSeries, goToTask } from "../app/router";
+import { goToTask } from "../app/router";
 import { api, describeApiError, type HealthResponse, type LexiconSuggestResponse, type TaskListItem } from "../lib/api";
 
 export function HomePage() {
@@ -14,18 +14,17 @@ export function HomePage() {
   const [items, setItems] = useState<TaskListItem[]>([]);
   const [variantInfo, setVariantInfo] = useState<LexiconSuggestResponse | null>(null);
   const [variantMsg, setVariantMsg] = useState("");
+  const [selectedVariants, setSelectedVariants] = useState<string[]>([]);
+  const [manualVariant, setManualVariant] = useState("");
   const [loginUser, setLoginUser] = useState(() => window.sessionStorage.getItem("user_login_username") ?? "");
   const [loginPass, setLoginPass] = useState("");
   const [userToken, setUserToken] = useState(() => window.sessionStorage.getItem("user_access_token") ?? "");
   const [meInfo, setMeInfo] = useState<{ username: string; roles: string[] } | null>(null);
   const [authMsg, setAuthMsg] = useState("");
-  const [gbncStartYear, setGbncStartYear] = useState("2018");
-  const [gbncEndYear, setGbncEndYear] = useState("2019");
-  const [gbncCorpus, setGbncCorpus] = useState("eng_2019");
-  const [gbncSmoothing, setGbncSmoothing] = useState("0");
-  const [gbncBusy, setGbncBusy] = useState(false);
-  const [gbncMsg, setGbncMsg] = useState("");
-  const [gbncResult, setGbncResult] = useState<{ cached: boolean; items: Array<{ series_id: number; variant: string; point_count: number }> } | null>(null);
+  const [waStartYear, setWaStartYear] = useState("1900");
+  const [waEndYear, setWaEndYear] = useState("2019");
+  const [waCorpus, setWaCorpus] = useState("eng_2019");
+  const [waSmoothing, setWaSmoothing] = useState("3");
 
   const refresh = async () => {
     try {
@@ -52,6 +51,12 @@ export function HomePage() {
   }, [userToken, loginUser]);
 
   useEffect(() => {
+    setVariantInfo(null);
+    setVariantMsg("");
+    setSelectedVariants([]);
+  }, [word]);
+
+  useEffect(() => {
     if (!userToken) {
       setMeInfo(null);
       return;
@@ -70,7 +75,17 @@ export function HomePage() {
   const createWord = async () => {
     setBusy("word");
     try {
-      const r = await api.createWordAnalysis(word.trim() || "demo");
+      const variants = Array.from(
+        new Set(selectedVariants.map((v) => v.trim()).filter(Boolean))
+      );
+      const r = await api.createWordAnalysis({
+        word: word.trim() || "demo",
+        start_year: Number(waStartYear) || 1900,
+        end_year: Number(waEndYear) || 2019,
+        smoothing: Math.max(0, Math.min(50, Number(waSmoothing) || 0)),
+        corpus: waCorpus.trim() || "eng_2019",
+        variants,
+      });
       setLastTaskId(r.task_id);
       await refresh();
       goToTask(r.task_id);
@@ -86,6 +101,7 @@ export function HomePage() {
     try {
       const r = await api.suggestVariants(word.trim() || "demo", 10);
       setVariantInfo(r);
+      setSelectedVariants((prev) => Array.from(new Set([...prev, ...(r.variants ?? [])])));
       setVariantMsg("");
     } catch (e) {
       setVariantInfo(null);
@@ -120,24 +136,17 @@ export function HomePage() {
     }
   };
 
-  const pullGbnc = async () => {
-    setGbncBusy(true);
-    try {
-      const resp = await api.gbncPull({
-        word: word.trim() || "demo",
-        start_year: Number(gbncStartYear) || 2018,
-        end_year: Number(gbncEndYear) || 2019,
-        corpus: gbncCorpus.trim() || "eng_2019",
-        smoothing: Number(gbncSmoothing) || 0,
-      });
-      setGbncResult({ cached: !!resp.cached, items: resp.items ?? [] });
-      setGbncMsg(`GBNC pull ${resp.cached ? "cache hit" : "completed"}: ${(resp.items ?? []).length} series`);
-    } catch (e) {
-      setGbncResult(null);
-      setGbncMsg(describeApiError(e));
-    } finally {
-      setGbncBusy(false);
-    }
+  const toggleVariant = (variant: string) => {
+    setSelectedVariants((prev) =>
+      prev.includes(variant) ? prev.filter((v) => v !== variant) : [...prev, variant]
+    );
+  };
+
+  const addManualVariant = () => {
+    const v = manualVariant.trim();
+    if (!v) return;
+    setSelectedVariants((prev) => (prev.includes(v) ? prev : [...prev, v]));
+    setManualVariant("");
   };
 
   return (
@@ -160,9 +169,28 @@ export function HomePage() {
         <div>
           <h3>Word Analysis (Micro)</h3>
           <div className="field"><label>word</label><input value={word} onChange={(e) => setWord(e.target.value)} /></div>
+          <div className="grid-two">
+            <div className="field"><label>start_year</label><input value={waStartYear} onChange={(e) => setWaStartYear(e.target.value)} /></div>
+            <div className="field"><label>end_year</label><input value={waEndYear} onChange={(e) => setWaEndYear(e.target.value)} /></div>
+            <div className="field"><label>smoothing</label><input value={waSmoothing} onChange={(e) => setWaSmoothing(e.target.value)} /></div>
+            <div className="field"><label>corpus</label><input value={waCorpus} onChange={(e) => setWaCorpus(e.target.value)} /></div>
+          </div>
           <div className="row-inline">
             <button onClick={suggestVariants} disabled={busy !== ""}>{busy === "word" ? "Working..." : "Suggest Variants"}</button>
             <button onClick={createWord} disabled={busy !== ""}>{busy === "word" ? "Working..." : "Run Word Analysis"}</button>
+          </div>
+          <div className="row-inline" style={{ marginTop: 8 }}>
+            <input
+              placeholder="manual variant (Enter)"
+              value={manualVariant}
+              onChange={(e) => setManualVariant(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addManualVariant(); } }}
+              style={{ flex: 1 }}
+            />
+            <button onClick={addManualVariant} disabled={busy !== ""}>Add Variant</button>
+          </div>
+          <div className="muted" style={{ marginTop: 6 }}>
+            Selected variants for next run: {selectedVariants.length ? selectedVariants.join(", ") : "(none; use correct spelling only)"}
           </div>
           {variantMsg && <div className="error-text">{variantMsg}</div>}
           {variantInfo && (
@@ -177,9 +205,23 @@ export function HomePage() {
               ))}
               {variantInfo.llm_error && <div className="error-text">LLM: {variantInfo.llm_error}</div>}
               <div className="chip-list">
-                {(variantInfo.variants ?? []).map((v) => <span key={v} className="chip mono">{v}</span>)}
+                {(variantInfo.variants ?? []).map((v) => (
+                  <label key={v} className="chip" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                    <input type="checkbox" checked={selectedVariants.includes(v)} onChange={() => toggleVariant(v)} />
+                    <span className="mono">{v}</span>
+                  </label>
+                ))}
                 {(variantInfo.variants ?? []).length === 0 && <span className="muted">No variants returned.</span>}
               </div>
+            </div>
+          )}
+          {selectedVariants.length > 0 && (
+            <div className="chip-list" style={{ marginTop: 8 }}>
+              {selectedVariants.map((v) => (
+                <button key={`sel-${v}`} type="button" className="chip mono" onClick={() => toggleVariant(v)}>
+                  {v} ×
+                </button>
+              ))}
             </div>
           )}
         </div>
@@ -189,39 +231,6 @@ export function HomePage() {
           <div className="field"><label>steps</label><input value={steps} onChange={(e) => setSteps(e.target.value)} /></div>
           <button onClick={createSim} disabled={busy !== ""}>{busy === "sim" ? "Submitting..." : "Create"}</button>
         </div>
-      </section>
-      <section className="panel">
-        <h3>GBNC Pull (Yearly Frequency)</h3>
-        <div className="grid-two">
-          <div className="field"><label>word</label><input value={word} onChange={(e) => setWord(e.target.value)} /></div>
-          <div className="field"><label>corpus</label><input value={gbncCorpus} onChange={(e) => setGbncCorpus(e.target.value)} /></div>
-          <div className="field"><label>start_year</label><input value={gbncStartYear} onChange={(e) => setGbncStartYear(e.target.value)} /></div>
-          <div className="field"><label>end_year</label><input value={gbncEndYear} onChange={(e) => setGbncEndYear(e.target.value)} /></div>
-          <div className="field"><label>smoothing</label><input value={gbncSmoothing} onChange={(e) => setGbncSmoothing(e.target.value)} /></div>
-        </div>
-        <div className="row-inline">
-          <button onClick={pullGbnc} disabled={gbncBusy}>{gbncBusy ? "Pulling..." : "Pull GBNC"}</button>
-          {gbncMsg && <span className="muted">{gbncMsg}</span>}
-        </div>
-        {gbncResult && (
-          <div className="table-wrap">
-            <table className="simple-table">
-              <thead><tr><th>series_id</th><th>variant</th><th>points</th><th>source</th><th /></tr></thead>
-              <tbody>
-                {gbncResult.items.map((it) => (
-                  <tr key={it.series_id}>
-                    <td className="mono">{it.series_id}</td>
-                    <td>{it.variant}</td>
-                    <td>{it.point_count}</td>
-                    <td>{gbncResult.cached ? "cache" : "external"}</td>
-                    <td><button onClick={() => goToSeries(it.series_id)}>Open</button></td>
-                  </tr>
-                ))}
-                {gbncResult.items.length === 0 && <tr><td colSpan={5} className="muted">No GBNC points were returned for the selected word/range.</td></tr>}
-              </tbody>
-            </table>
-          </div>
-        )}
       </section>
       <section className="panel">
         <h3>Recent Tasks</h3>

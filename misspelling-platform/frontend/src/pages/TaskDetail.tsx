@@ -40,6 +40,7 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
   const [tsSeries, setTsSeries] = useState<Array<{ name: string; points: Array<{ time: string; value: number }> }>>([]);
 
   const taskObj = useMemo(() => asObject(task?.result), [task?.result]);
+  const taskParams = useMemo(() => asObject(task?.params), [task?.params]);
   const taskType = useMemo(() => {
     const queued = events?.items?.find((e) => e.event_type === "QUEUED");
     const meta = asObject(queued?.meta);
@@ -125,11 +126,7 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
         const err = e as { status?: number };
         setTsVariants([]);
         setTsSeries([]);
-        setTsInfo(
-          err?.status === 404
-            ? "未写入时序数据。"
-            : describeApiError(e)
-        );
+        setTsInfo(err?.status === 404 ? "Time series not persisted for this task." : describeApiError(e));
       });
     return () => {
       cancelled = true;
@@ -260,6 +257,11 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
       <section className="panel">
         <h3 style={{ marginTop: 0 }}>Time Series</h3>
         <div className="muted" style={{ marginBottom: 10 }}>{tsInfo}</div>
+        {(taskParams?.start_year != null || taskParams?.end_year != null || taskParams?.smoothing != null || taskParams?.corpus != null) && (
+          <div className="muted" style={{ marginBottom: 10 }}>
+            Params: start_year={String(taskParams?.start_year ?? "-")} end_year={String(taskParams?.end_year ?? "-")} smoothing={String(taskParams?.smoothing ?? "-")} corpus={String(taskParams?.corpus ?? "-")}
+          </div>
+        )}
         {tsVariants.length > 0 && (
           <>
             <div className="row-inline">
