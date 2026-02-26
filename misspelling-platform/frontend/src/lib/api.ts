@@ -19,7 +19,22 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return (text ? JSON.parse(text) : null) as T;
 }
 
+function authHeaders(accessToken = "", adminToken = ""): Record<string, string> {
+  const headers: Record<string, string> = {};
+  if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
+  if (adminToken) headers["X-Admin-Token"] = adminToken;
+  return headers;
+}
+
 export type HealthResponse = { status: string; db: boolean };
+export type AuthLoginResponse = {
+  access_token: string;
+  token_type: string;
+  user: { id: number; username: string; roles: string[] };
+};
+export type AuthMeResponse = {
+  user: { id: number; username: string; display_name?: string | null; roles: string[] };
+};
 export type CreateTaskResponse = { task_id: string };
 export type TaskListItem = {
   task_id: string;
@@ -79,10 +94,47 @@ export type AdminAuditLogItem = {
   created_at?: string;
 };
 export type AdminAuditLogsResponse = { items: AdminAuditLogItem[] };
+export type AdminUsersResponse = {
+  items: Array<{ id: number; username: string; display_name?: string | null; is_active: number | boolean; is_admin: number | boolean; created_at?: string; roles: string[] }>;
+};
+export type AdminGbncSeriesResponse = {
+  items: Array<{ series_id: number; canonical: string; variant: string; source_name: string; granularity: string; updated_at?: string; corpus?: string; smoothing?: string; point_count: number }>;
+};
+export type GbncPullResponse = {
+  source: string;
+  cached: boolean;
+  term: string;
+  variants: string[];
+  variant_source?: string;
+  items: Array<{ series_id: number; variant: string; point_count: number }>;
+};
+export type GbncSeriesDetail = {
+  series_id: number;
+  source: string;
+  word: string;
+  variant: string;
+  granularity: string;
+  units?: string;
+  window_start?: string;
+  window_end?: string;
+  point_count: number;
+  meta?: unknown;
+};
+export type GbncSeriesPoints = { series_id: number; items: Array<{ time: string; value: number }> };
 
 export const api = {
   baseUrl: API_BASE,
   getHealth: () => request<HealthResponse>("/health"),
+  authLogin: (username: string, password: string) =>
+    request<AuthLoginResponse>("/api/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password }),
+    }),
+  authMe: (accessToken: string) =>
+    request<AuthMeResponse>("/api/auth/me", {
+      headers: authHeaders(accessToken),
+    }),
   createWordAnalysis: (word: string) =>
     request<CreateTaskResponse>(`/api/tasks/word-analysis?word=${encodeURIComponent(word)}`, { method: "POST" }),
   createSimulation: (n: number, steps: number) =>
@@ -98,18 +150,29 @@ export const api = {
     ),
   suggestVariants: (word: string, k = 20) =>
     request<LexiconSuggestResponse>(`/api/lexicon/variants/suggest?word=${encodeURIComponent(word)}&k=${k}`, { method: "POST" }),
-  adminListAuditLogs: (limit = 50, adminToken = "") =>
+  gbncPull: (args: { word: string; start_year: number; end_year: number; corpus: string; smoothing: number }) =>
+    request<GbncPullResponse>(
+      `/api/data/gbnc/pull?word=${encodeURIComponent(args.word)}&start_year=${args.start_year}&end_year=${args.end_year}&corpus=${encodeURIComponent(args.corpus)}&smoothing=${args.smoothing}`,
+      { method: "POST" }
+    ),
+  getGbncSeries: (seriesId: number) => request<GbncSeriesDetail>(`/api/data/gbnc/series/${seriesId}`),
+  getGbncSeriesPoints: (seriesId: number) => request<GbncSeriesPoints>(`/api/data/gbnc/series/${seriesId}/points`),
+  adminListAuditLogs: (limit = 50, accessToken = "", adminToken = "") =>
     request<AdminAuditLogsResponse>(`/api/admin/audit-logs?limit=${limit}`, {
-      headers: { "X-Admin-Token": adminToken },
+      headers: authHeaders(accessToken, adminToken),
     }),
-  adminAddLexiconVariants: (payload: { word?: string; term_id?: number; variants: string[] }, adminToken = "") =>
+  adminListUsers: (limit = 100, accessToken = "", adminToken = "") =>
+    request<AdminUsersResponse>(`/api/admin/users?limit=${limit}`, { headers: authHeaders(accessToken, adminToken) }),
+  adminListGbncSeries: (limit = 100, accessToken = "", adminToken = "") =>
+    request<AdminGbncSeriesResponse>(`/api/admin/gbnc-series?limit=${limit}`, { headers: authHeaders(accessToken, adminToken) }),
+  adminAddLexiconVariants: (payload: { word?: string; term_id?: number; variants: string[] }, accessToken = "", adminToken = "") =>
     request<{ ok: boolean; term_id: number; version_id?: number | null; count: number; variants: string[] }>(
       "/api/admin/lexicon/variants",
       {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "X-Admin-Token": adminToken,
+          ...authHeaders(accessToken, adminToken),
         },
         body: JSON.stringify(payload),
       }
@@ -119,7 +182,7 @@ export const api = {
 
 export function describeApiError(error: unknown) {
   const err = error as ApiError;
-  if (err?.status === 401) return "401: unauthorized. Check X-Admin-Token / ADMIN_TOKEN configuration.";
+  if (err?.status === 401) return "401: unauthorized. Please login or check admin token compatibility mode.";
   if (err?.status === 404) return "404: resource not found or feature not enabled.";
   if (err?.status === 500) return "500: backend exception. Check docker compose logs api/worker.";
   if (err instanceof Error) return err.message;
