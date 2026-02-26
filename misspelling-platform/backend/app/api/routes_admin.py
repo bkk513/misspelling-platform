@@ -12,7 +12,7 @@ router = APIRouter()
 def require_admin_token(x_admin_token: str | None = Header(default=None)) -> dict[str, Any]:
     configured = os.getenv("ADMIN_TOKEN", "").strip()
     if not configured:
-        return {"auth": "disabled"}
+        raise HTTPException(status_code=401, detail="admin token not configured on server")
     if x_admin_token != configured:
         raise HTTPException(status_code=401, detail="invalid admin token")
     return {"auth": "ok"}

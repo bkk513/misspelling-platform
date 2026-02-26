@@ -17,7 +17,7 @@ def _model() -> str:
 
 
 def _api_key() -> str:
-    return os.getenv("BAILIAN_API_KEY", "").strip()
+    return os.getenv("DASHSCOPE_API_KEY", "").strip() or os.getenv("BAILIAN_API_KEY", "").strip()
 
 
 def _timeout() -> float:
@@ -69,13 +69,27 @@ def _parse_content(content: Any) -> list[str]:
     return []
 
 
-def suggest_variants(word: str, k: int = 20) -> list[str]:
+def _sanitize_error_message(text: str) -> str:
+    if not text:
+        return ""
+    masked = text
+    for secret in (
+        os.getenv("DASHSCOPE_API_KEY", "").strip(),
+        os.getenv("BAILIAN_API_KEY", "").strip(),
+    ):
+        if secret:
+            masked = masked.replace(secret, "***")
+    masked = re.sub(r"Bearer\s+[A-Za-z0-9._-]+", "Bearer ***", masked, flags=re.IGNORECASE)
+    return masked[:500]
+
+
+def suggest_variants_with_meta(word: str, k: int = 20) -> dict[str, Any]:
     canonical = _normalize(word)
     if not canonical:
-        return []
+        return {"variants": [], "error": None, "disabled": True}
     api_key = _api_key()
     if not api_key:
-        return []
+        return {"variants": [], "error": "api key not configured", "disabled": True}
     try:
         resp = requests.post(
             f"{_base_url()}/chat/completions",
@@ -123,11 +137,16 @@ def suggest_variants(word: str, k: int = 20) -> list[str]:
             out.append(norm)
             if len(out) >= max(1, min(int(k), 50)):
                 break
-        return out
+        return {"variants": out, "error": None, "disabled": False}
     except Exception as exc:
+        error_text = _sanitize_error_message(str(exc))
         record_audit_error(
             source="llm_bailian",
             message="variant suggestion failed",
-            meta={"word": canonical, "error": str(exc)[:500]},
+            meta={"word": canonical, "error": error_text},
         )
-        return []
+        return {"variants": [], "error": error_text or "request failed", "disabled": False}
+
+
+def suggest_variants(word: str, k: int = 20) -> list[str]:
+    return list(suggest_variants_with_meta(word, k).get("variants") or [])

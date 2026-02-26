@@ -3,7 +3,7 @@ import re
 from typing import Any
 
 from ..db.lexicon_repo import bump_version, get_or_create_term, list_terms, list_variants, upsert_variants
-from ..providers.llm_bailian import suggest_variants
+from ..providers.llm_bailian import suggest_variants_with_meta
 from .audit_log_service import record_audit
 
 
@@ -37,10 +37,24 @@ def _heuristic_variants(word: str, k: int) -> list[str]:
     return out
 
 
+def _llm_enabled() -> bool:
+    return bool(os.getenv("DASHSCOPE_API_KEY", "").strip() or os.getenv("BAILIAN_API_KEY", "").strip())
+
+
 def get_or_suggest_variants(word: str, k: int = 20) -> dict[str, Any]:
     canonical = normalize_word(word)
+    llm_enabled = _llm_enabled()
     if not canonical:
-        return {"word": "", "variants": [], "source": "cache", "version_id": None, "llm_enabled": bool(os.getenv("BAILIAN_API_KEY"))}
+        return {
+            "word": "",
+            "variants": [],
+            "source": "heuristic",
+            "version_id": None,
+            "llm_enabled": llm_enabled,
+            "warnings": ["empty input"],
+            "warning": "empty input",
+            "llm_error": None,
+        }
     term_id = get_or_create_term(canonical)
     term, cached_rows = list_variants(term_id)
     if cached_rows:
@@ -50,23 +64,32 @@ def get_or_suggest_variants(word: str, k: int = 20) -> dict[str, Any]:
             "variants": [str(r["variant"]) for r in cached_rows][: max(1, min(int(k), 50))],
             "source": "cache",
             "version_id": next((r["version_id"] for r in cached_rows if r["version_id"] is not None), None),
-            "llm_enabled": bool(os.getenv("BAILIAN_API_KEY", "").strip()),
+            "llm_enabled": llm_enabled,
+            "warnings": [],
+            "warning": None,
+            "llm_error": None,
         }
-    llm_enabled = bool(os.getenv("BAILIAN_API_KEY", "").strip())
-    variants = suggest_variants(canonical, k=max(1, min(int(k), 50)))
-    warning = None
+    llm_meta = suggest_variants_with_meta(canonical, k=max(1, min(int(k), 50)))
+    variants = list(llm_meta.get("variants") or [])
+    warnings: list[str] = []
+    llm_error = str(llm_meta.get("error") or "") or None
     source_tag = "llm"
     if not variants:
         variants = _heuristic_variants(canonical, k=max(1, min(int(k), 50)))
         if not llm_enabled:
-            warning = "llm disabled; using heuristic fallback"
-            record_audit("LLM_DISABLED", "llm_bailian", canonical, {"word": canonical, "level": "WARN", "message": warning})
+            warnings.append("llm disabled; using heuristic fallback")
+            record_audit("LLM_DISABLED", "llm_bailian", canonical, {"word": canonical, "level": "WARN", "message": warnings[-1]})
+            source_tag = "heuristic"
+        elif llm_error:
+            warnings.append("llm request failed; using heuristic fallback")
+            source_tag = "heuristic"
         else:
-            warning = "llm returned empty; using heuristic fallback"
-            record_audit("LLM_EMPTY", "llm_bailian", canonical, {"word": canonical, "level": "WARN", "message": warning})
+            warnings.append("llm returned empty; using heuristic fallback")
+            record_audit("LLM_EMPTY", "llm_bailian", canonical, {"word": canonical, "level": "WARN", "message": warnings[-1]})
+            source_tag = "heuristic"
     version_id = bump_version(f"M7 variants for {canonical}") if variants else None
     if variants:
-        upsert_variants(term_id, variants, source="llm" if llm_enabled else "heuristic", version_id=version_id)
+        upsert_variants(term_id, variants, source=source_tag, version_id=version_id)
         record_audit("LEXICON_VARIANTS_UPSERT", "lexicon_term", str(term_id), {"word": canonical, "count": len(variants), "source": source_tag})
     return {
         "word": canonical,
@@ -75,7 +98,9 @@ def get_or_suggest_variants(word: str, k: int = 20) -> dict[str, Any]:
         "source": source_tag,
         "version_id": version_id,
         "llm_enabled": llm_enabled,
-        "warning": warning,
+        "warnings": warnings,
+        "warning": warnings[0] if warnings else None,
+        "llm_error": llm_error,
         "term": dict(term) if term else None,
     }
 

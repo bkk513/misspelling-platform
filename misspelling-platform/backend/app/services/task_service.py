@@ -15,6 +15,25 @@ OUTPUT_ROOT = Path("/app/outputs")
 def build_output_path(task_id: str, filename: str) -> Path:
     return OUTPUT_ROOT / task_id / filename
 
+
+def _task_display_name(task_type: str | None, params: Any) -> str | None:
+    payload = _normalize_jsonish(params)
+    if not isinstance(payload, dict):
+        return task_type
+    if task_type == "word-analysis":
+        word = str(payload.get("word") or "").strip()
+        return f"word-analysis: {word}" if word else "word-analysis"
+    if task_type == "simulation-run":
+        n = payload.get("n")
+        steps = payload.get("steps")
+        parts = []
+        if n is not None:
+            parts.append(f"n={n}")
+        if steps is not None:
+            parts.append(f"steps={steps}")
+        return "simulation-run" + (f": {' '.join(parts)}" if parts else "")
+    return str(task_type or "")
+
 def create_word_analysis_task(word: str, celery_task) -> dict:
     """
     Called by routes_tasks.py: create_word_analysis_task(word, demo_analysis)
@@ -138,7 +157,7 @@ def get_task_payload(task_id: str, async_result_factory=None) -> Dict[str, Any]:
     with get_engine().begin() as conn:
         row = conn.execute(
             text("""
-                SELECT task_id, status, params_json, result_json, error_text
+                SELECT task_id, task_type, status, params_json, result_json, error_text
                 FROM tasks
                 WHERE task_id=:task_id
             """),
@@ -160,6 +179,7 @@ def get_task_payload(task_id: str, async_result_factory=None) -> Dict[str, Any]:
         "params": _normalize_jsonish(row["params_json"]),
         "result": _normalize_jsonish(row["result_json"]),
         "error": _normalize_jsonish(row["error_text"]),
+        "display_name": _task_display_name(row.get("task_type"), row.get("params_json")),
     }
     if async_result_factory is not None and row["status"] in ("QUEUED", "RUNNING"):
         res = async_result_factory(task_id)
@@ -189,6 +209,7 @@ def list_task_payload(limit: int = 20) -> Dict[str, Any]:
                 "task_type": r["task_type"],
                 "status": r["status"],
                 "params_json": _normalize_jsonish(r["params_json"]),
+                "display_name": _task_display_name(r.get("task_type"), r.get("params_json")),
                 "created_at": r["created_at"],
                 "updated_at": r["updated_at"],
             }
