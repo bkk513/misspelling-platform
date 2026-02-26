@@ -96,3 +96,37 @@ def list_term_variants_payload(term_id: int) -> dict[str, Any]:
             for r in rows
         ],
     }
+
+
+def admin_add_variants_payload(
+    *,
+    term_id: int | None,
+    word: str | None,
+    variants: list[str],
+    actor: str = "admin",
+) -> dict[str, Any]:
+    normalized_variants = []
+    seen = set()
+    for item in variants:
+        norm = normalize_word(str(item))
+        if norm and norm not in seen:
+            seen.add(norm)
+            normalized_variants.append(norm)
+    canonical = normalize_word(word or "")
+    if term_id is None:
+        term_id = get_or_create_term(canonical or (normalized_variants[0] if normalized_variants else ""))
+    version_id = bump_version(f"M7 admin variants update term_id={term_id}") if normalized_variants else None
+    inserted = upsert_variants(int(term_id), normalized_variants, source="admin", version_id=version_id, variant_type="manual")
+    record_audit(
+        "ADMIN_LEXICON_VARIANTS_UPSERT",
+        "lexicon_term",
+        str(term_id),
+        {"actor": actor, "count": inserted, "variants": normalized_variants[:20]},
+    )
+    return {
+        "ok": True,
+        "term_id": int(term_id),
+        "version_id": version_id,
+        "count": inserted,
+        "variants": normalized_variants,
+    }
