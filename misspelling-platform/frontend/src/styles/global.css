@@ -54,6 +54,14 @@ select {
   padding: 16px;
 }
 
+.sub-panel {
+  margin-top: 10px;
+  border: 1px solid #edf1f5;
+  background: #fafbfd;
+  border-radius: 6px;
+  padding: 10px;
+}
+
 .stack {
   display: grid;
   gap: 16px;
@@ -175,6 +183,21 @@ button {
   background: #f9fafb;
   padding: 8px 12px;
   cursor: pointer;
+}
+
+.chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.chip {
+  border: 1px solid #dbe3ec;
+  background: #fff;
+  border-radius: 999px;
+  padding: 4px 8px;
+  font-size: 12px;
 }
 
 .soft-nav {

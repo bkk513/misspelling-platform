@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { goToTask } from "../app/router";
-import { api, describeApiError, type HealthResponse, type TaskListItem } from "../lib/api";
+import { api, describeApiError, type HealthResponse, type LexiconSuggestResponse, type TaskListItem } from "../lib/api";
 
 export function HomePage() {
   const [health, setHealth] = useState<HealthResponse | null>(null);
@@ -12,6 +12,8 @@ export function HomePage() {
   const [lastTaskId, setLastTaskId] = useState("");
   const [listErr, setListErr] = useState("");
   const [items, setItems] = useState<TaskListItem[]>([]);
+  const [variantInfo, setVariantInfo] = useState<LexiconSuggestResponse | null>(null);
+  const [variantMsg, setVariantMsg] = useState("");
 
   const refresh = async () => {
     try {
@@ -38,8 +40,23 @@ export function HomePage() {
       const r = await api.createWordAnalysis(word.trim() || "demo");
       setLastTaskId(r.task_id);
       await refresh();
+      goToTask(r.task_id);
     } catch (e) {
       setHealthErr(describeApiError(e));
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const suggestVariants = async () => {
+    setBusy("word");
+    try {
+      const r = await api.suggestVariants(word.trim() || "demo", 10);
+      setVariantInfo(r);
+      setVariantMsg("");
+    } catch (e) {
+      setVariantInfo(null);
+      setVariantMsg(describeApiError(e));
     } finally {
       setBusy("");
     }
@@ -69,7 +86,25 @@ export function HomePage() {
         <div>
           <h3>Word Analysis (Micro)</h3>
           <div className="field"><label>word</label><input value={word} onChange={(e) => setWord(e.target.value)} /></div>
-          <button onClick={createWord} disabled={busy !== ""}>{busy === "word" ? "Submitting..." : "Create"}</button>
+          <div className="row-inline">
+            <button onClick={suggestVariants} disabled={busy !== ""}>{busy === "word" ? "Working..." : "Suggest Variants"}</button>
+            <button onClick={createWord} disabled={busy !== ""}>{busy === "word" ? "Working..." : "Run Word Analysis"}</button>
+          </div>
+          {variantMsg && <div className="error-text">{variantMsg}</div>}
+          {variantInfo && (
+            <div className="sub-panel">
+              <div className="row-inline">
+                <span className="muted">source={variantInfo.source}</span>
+                <span className="muted">llm_enabled={String(variantInfo.llm_enabled ?? false)}</span>
+                {variantInfo.version_id != null && <span className="muted">version_id={variantInfo.version_id}</span>}
+              </div>
+              {variantInfo.warning && <div className="muted">{variantInfo.warning}</div>}
+              <div className="chip-list">
+                {(variantInfo.variants ?? []).map((v) => <span key={v} className="chip mono">{v}</span>)}
+                {(variantInfo.variants ?? []).length === 0 && <span className="muted">No variants returned.</span>}
+              </div>
+            </div>
+          )}
         </div>
         <div>
           <h3>Simulation Run (Macro)</h3>
