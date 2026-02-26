@@ -155,3 +155,74 @@ def get_series_points_for_task(task_id: str, variant: str = "correct"):
             .all()
         )
         return int(series["id"]), rows
+
+
+def find_series_by_cache_key(cache_key: str):
+    with get_engine().begin() as conn:
+        return (
+            conn.execute(
+                text(
+                    """
+                    SELECT
+                      ts.id AS series_id,
+                      lt.canonical,
+                      COALESCE(lv.variant, JSON_UNQUOTE(JSON_EXTRACT(ts.meta_json, '$.variant')), 'correct') AS variant,
+                      ts.granularity,
+                      ds.name AS source_name,
+                      ts.window_start,
+                      ts.window_end,
+                      ts.units,
+                      ts.meta_json,
+                      (SELECT COUNT(*) FROM time_series_points p WHERE p.series_id = ts.id) AS point_count
+                    FROM time_series ts
+                    JOIN data_sources ds ON ds.id = ts.source_id
+                    JOIN lexicon_terms lt ON lt.id = ts.term_id
+                    LEFT JOIN lexicon_variants lv ON lv.id = ts.variant_id
+                    WHERE JSON_UNQUOTE(JSON_EXTRACT(ts.meta_json, '$.gbnc_cache_key')) = :cache_key
+                    ORDER BY ts.id
+                    """
+                ),
+                {"cache_key": cache_key},
+            )
+            .mappings()
+            .all()
+        )
+
+
+def get_series_with_points(series_id: int):
+    with get_engine().begin() as conn:
+        meta = (
+            conn.execute(
+                text(
+                    """
+                    SELECT
+                      ts.id AS series_id,
+                      ds.name AS source_name,
+                      lt.canonical,
+                      ts.granularity,
+                      ts.window_start,
+                      ts.window_end,
+                      ts.units,
+                      ts.meta_json,
+                      COALESCE(lv.variant, JSON_UNQUOTE(JSON_EXTRACT(ts.meta_json, '$.variant')), 'correct') AS variant
+                    FROM time_series ts
+                    JOIN data_sources ds ON ds.id = ts.source_id
+                    JOIN lexicon_terms lt ON lt.id = ts.term_id
+                    LEFT JOIN lexicon_variants lv ON lv.id = ts.variant_id
+                    WHERE ts.id = :series_id
+                    """
+                ),
+                {"series_id": series_id},
+            )
+            .mappings()
+            .first()
+        )
+        points = (
+            conn.execute(
+                text("SELECT t, value FROM time_series_points WHERE series_id = :series_id ORDER BY t"),
+                {"series_id": series_id},
+            )
+            .mappings()
+            .all()
+        )
+        return meta, points

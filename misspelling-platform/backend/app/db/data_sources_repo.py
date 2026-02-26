@@ -6,6 +6,10 @@ from .core import get_engine
 
 
 def ensure_data_source(name: str = "stub_local", granularity: str = "day") -> int:
+    return ensure_data_source_configured(name=name, granularity=granularity, config={"stub": True})
+
+
+def ensure_data_source_configured(name: str, granularity: str, config: dict | None = None) -> int:
     with get_engine().begin() as conn:
         conn.execute(
             text(
@@ -18,6 +22,6 @@ def ensure_data_source(name: str = "stub_local", granularity: str = "day") -> in
                   updated_at=CURRENT_TIMESTAMP
                 """
             ),
-            {"name": name, "granularity": granularity, "config_json": json.dumps({"stub": True})},
+            {"name": name, "granularity": granularity, "config_json": json.dumps(config or {})},
         )
         return int(conn.execute(text("SELECT LAST_INSERT_ID()")).scalar_one())
