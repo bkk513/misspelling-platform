@@ -11,6 +11,8 @@ import { AdminUsersPage } from "../pages/AdminUsers";
 import { HomePage } from "../pages/Home";
 import { LoginPage } from "../pages/Login";
 import { PlaceholderPage } from "../pages/Placeholder";
+import { ReportCenterPage } from "../pages/ReportCenter";
+import { ResearcherSettingsPage } from "../pages/ResearcherSettings";
 import { TaskCenterPage } from "../pages/TaskCenter";
 import { TaskDetailPage } from "../pages/TaskDetail";
 import { TimeSeriesExplorerPage } from "../pages/TimeSeriesExplorer";
@@ -190,6 +192,8 @@ export function App() {
   if (route.key === "variants") content = <VariantStudioPage />;
   if (route.key === "time-series") content = <TimeSeriesExplorerPage />;
   if (route.key === "artifacts") content = <ArtifactLibraryPage />;
+  if (route.key === "reports") content = <ReportCenterPage />;
+  if (route.key === "settings") content = <ResearcherSettingsPage />;
 
   return (
     <ConfigProvider>
