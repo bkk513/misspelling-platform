@@ -6,6 +6,7 @@ from ..services.task_service import (
     build_output_path,
     create_simulation_task,
     create_word_analysis_task,
+    delete_task_payload,
     get_task_payload,
     list_task_payload,
 )
@@ -44,6 +45,11 @@ def get_task_artifacts(task_id: str):
 @router.get("/api/tasks")
 def list_tasks(limit: int = 20):
     return list_task_payload(limit)
+
+
+@router.delete("/api/tasks/{task_id}")
+def delete_task(task_id: str):
+    return delete_task_payload(task_id)
 
 
 @router.post("/api/tasks/simulation-run")
