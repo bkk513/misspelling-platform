@@ -1,7 +1,7 @@
 :root {
   color: #1f2937;
-  background: #f5f7fa;
-  font-family: "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  background: #f3f5f9;
+  font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
 }
 
 * {
@@ -10,46 +10,65 @@
 
 body {
   margin: 0;
-  background: #f5f7fa;
+  background: #f3f5f9;
 }
 
-button,
-input,
-select {
-  font: inherit;
-}
-
-.app-shell {
+.enterprise-layout {
   min-height: 100vh;
 }
 
-.app-header {
+.enterprise-sider {
+  border-right: 1px solid #1f293722;
+}
+
+.enterprise-logo {
+  height: 56px;
+  display: flex;
+  align-items: center;
+  padding: 0 20px;
+  font-weight: 600;
+  color: #e2e8f0;
+  border-bottom: 1px solid #334155;
+}
+
+.admin-logo {
+  color: #fecaca;
+}
+
+.enterprise-header {
+  background: #fff;
+  border-bottom: 1px solid #e5e7eb;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 16px 24px;
-  border-bottom: 1px solid #e5e7eb;
-  background: #ffffff;
+  padding: 0 16px;
+  gap: 8px;
 }
 
-.app-main {
-  max-width: 1120px;
-  margin: 0 auto;
-  padding: 20px;
+.enterprise-content {
+  padding: 14px;
 }
 
-.link-button {
-  background: none;
-  border: none;
-  padding: 0;
-  color: #111827;
-  font-weight: 600;
-  cursor: pointer;
+.enterprise-content-body {
+  margin-top: 10px;
+}
+
+.login-screen,
+.boot-screen {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.login-card {
+  width: min(460px, 100%);
 }
 
 .panel {
   background: #fff;
-  border: 1px solid #e5e7eb;
+  border: 1px solid #d9e1eb;
   border-radius: 8px;
   padding: 16px;
 }
@@ -163,15 +182,16 @@ select {
   margin-top: 6px;
 }
 
-button {
-  border: 1px solid #d1d5db;
-  border-radius: 6px;
-  background: #f9fafb;
-  padding: 8px 12px;
-  cursor: pointer;
-}
+@media (max-width: 1024px) {
+  .enterprise-sider {
+    display: none;
+  }
 
-button:disabled {
-  cursor: not-allowed;
-  opacity: 0.6;
+  .enterprise-header {
+    padding: 0 10px;
+  }
+
+  .enterprise-content {
+    padding: 10px;
+  }
 }
