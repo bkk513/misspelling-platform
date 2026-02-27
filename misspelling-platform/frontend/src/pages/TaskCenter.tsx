@@ -71,7 +71,15 @@ export function TaskCenterPage() {
           loading={loading}
           pagination={{ pageSize: 10, showSizeChanger: true }}
           columns={[
-            { title: "Task ID", dataIndex: "task_id", render: (v: string) => <Typography.Text code>{v}</Typography.Text> },
+            {
+              title: "Task",
+              render: (_: unknown, row: TaskListItem) => (
+                <Space direction="vertical" size={0}>
+                  <Typography.Text>{row.display_name || row.task_type}</Typography.Text>
+                  <Typography.Text code>{row.task_id}</Typography.Text>
+                </Space>
+              )
+            },
             { title: "Type", dataIndex: "task_type" },
             { title: "Status", dataIndex: "status", render: (v: string) => <Tag color={color(v)}>{v}</Tag> },
             { title: "Created", dataIndex: "created_at", sorter: (a: TaskListItem, b: TaskListItem) => String(a.created_at || "").localeCompare(String(b.created_at || "")) },
