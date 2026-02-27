@@ -9,6 +9,7 @@ from ..services.task_service import (
     get_task_payload,
     list_task_payload,
 )
+from ..services.artifact_service import list_task_artifacts_payload
 from ..services.task_event_service import list_task_events_payload
 from ..tasks import demo_analysis, simulation_run
 
@@ -33,6 +34,11 @@ def get_task(task_id: str):
 @router.get("/api/tasks/{task_id}/events")
 def get_task_events(task_id: str, limit: int = 200):
     return list_task_events_payload(task_id, limit)
+
+
+@router.get("/api/tasks/{task_id}/artifacts")
+def get_task_artifacts(task_id: str):
+    return list_task_artifacts_payload(task_id)
 
 
 @router.get("/api/tasks")

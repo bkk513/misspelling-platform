@@ -8,8 +8,10 @@ import { LoginPage } from "../pages/Login";
 import { PlaceholderPage } from "../pages/Placeholder";
 import { TaskCenterPage } from "../pages/TaskCenter";
 import { TaskDetailPage } from "../pages/TaskDetail";
+import { TimeSeriesExplorerPage } from "../pages/TimeSeriesExplorer";
 import { VariantStudioPage } from "../pages/VariantStudio";
 import { WordAnalysisWorkbenchPage } from "../pages/WordAnalysisWorkbench";
+import { ArtifactLibraryPage } from "../pages/ArtifactLibrary";
 import {
   goHome,
   goToAdmin,
@@ -166,6 +168,8 @@ export function App() {
   if (route.key === "task-detail" && route.taskId) content = <TaskDetailPage taskId={route.taskId} />;
   if (route.key === "word-analysis") content = <WordAnalysisWorkbenchPage />;
   if (route.key === "variants") content = <VariantStudioPage />;
+  if (route.key === "time-series") content = <TimeSeriesExplorerPage />;
+  if (route.key === "artifacts") content = <ArtifactLibraryPage />;
 
   return (
     <ConfigProvider>

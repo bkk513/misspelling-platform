@@ -56,6 +56,17 @@ export type VariantSuggestResponse = {
   source?: "llm" | "cache" | "heuristic";
   warnings?: string[];
 };
+export type TaskArtifactsResponse = {
+  task_id: string;
+  items: Array<{
+    task_id: string;
+    kind: string;
+    filename: string;
+    path: string;
+    meta_json?: unknown;
+    created_at?: string;
+  }>;
+};
 
 export const api = {
   getHealth: () => request<HealthResponse>("/health"),
@@ -67,6 +78,8 @@ export const api = {
   getTask: (taskId: string) => request<TaskDetailResponse>(`/api/tasks/${encodeURIComponent(taskId)}`),
   getTaskEvents: (taskId: string, limit = 200) =>
     request<TaskEventsResponse>(`/api/tasks/${encodeURIComponent(taskId)}/events?limit=${limit}`),
+  getTaskArtifacts: (taskId: string) =>
+    request<TaskArtifactsResponse>(`/api/tasks/${encodeURIComponent(taskId)}/artifacts`),
   getTimeSeriesMeta: (taskId: string) => request<TimeSeriesMeta>(`/api/time-series/${encodeURIComponent(taskId)}`),
   getTimeSeriesPoints: (taskId: string, variant: string) =>
     request<TimeSeriesPoints>(
