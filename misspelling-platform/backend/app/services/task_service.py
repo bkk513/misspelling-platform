@@ -177,6 +177,7 @@ def list_task_payload(limit: int = 20) -> Dict[str, Any]:
             text("""
                 SELECT task_id, task_type, status, params_json, created_at, updated_at
                 FROM tasks
+                WHERE status <> 'DELETED'
                 ORDER BY id DESC
                 LIMIT :limit
             """),
@@ -195,3 +196,39 @@ def list_task_payload(limit: int = 20) -> Dict[str, Any]:
             for r in rows
         ]
     }
+
+
+def delete_task_payload(task_id: str) -> Dict[str, Any]:
+    with get_engine().begin() as conn:
+        row = conn.execute(
+            text("SELECT task_id, status FROM tasks WHERE task_id=:task_id LIMIT 1"),
+            {"task_id": task_id},
+        ).mappings().first()
+        if not row:
+            return {"task_id": task_id, "deleted": False, "reason": "NOT_FOUND"}
+        if str(row["status"]).upper() in ("RUNNING", "QUEUED", "PROGRESS"):
+            return {"task_id": task_id, "deleted": False, "reason": "TASK_ACTIVE"}
+
+        conn.execute(
+            text("UPDATE tasks SET status='DELETED', updated_at=CURRENT_TIMESTAMP WHERE task_id=:task_id"),
+            {"task_id": task_id},
+        )
+        conn.execute(text("DELETE FROM task_events WHERE task_id=:task_id"), {"task_id": task_id})
+        conn.execute(text("DELETE FROM task_artifacts WHERE task_id=:task_id"), {"task_id": task_id})
+        conn.execute(
+            text(
+                """
+                DELETE p FROM time_series_points p
+                JOIN time_series s ON s.id = p.series_id
+                WHERE JSON_UNQUOTE(JSON_EXTRACT(s.meta_json, '$.task_id')) = :task_id
+                """
+            ),
+            {"task_id": task_id},
+        )
+        conn.execute(
+            text(
+                "DELETE FROM time_series WHERE JSON_UNQUOTE(JSON_EXTRACT(meta_json, '$.task_id')) = :task_id"
+            ),
+            {"task_id": task_id},
+        )
+    return {"task_id": task_id, "deleted": True}

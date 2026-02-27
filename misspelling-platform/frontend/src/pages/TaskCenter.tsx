@@ -81,7 +81,23 @@ export function TaskCenterPage() {
                 <Space>
                   <Button size="small" icon={<EyeOutlined />} onClick={() => goToTask(row.task_id)}>Detail</Button>
                   <Button size="small" icon={<CopyOutlined />} onClick={() => navigator.clipboard?.writeText(row.task_id).then(() => message.success("Task ID copied"))}>Copy</Button>
-                  <Popconfirm title="Delete task" description="Delete API will be fully wired in M10 Commit 4." onConfirm={() => message.info("Delete endpoint pending in next commit")}> 
+                  <Popconfirm
+                    title="Delete task"
+                    description="The task will be soft-deleted and removed from active lists."
+                    onConfirm={async () => {
+                      try {
+                        const resp = await api.deleteTask(row.task_id);
+                        if (!resp.deleted) {
+                          message.warning(resp.reason || "Delete rejected");
+                          return;
+                        }
+                        message.success("Task deleted");
+                        await refresh();
+                      } catch (e) {
+                        message.error(describeApiError(e));
+                      }
+                    }}
+                  >
                     <Button size="small" icon={<DeleteOutlined />} danger>Delete</Button>
                   </Popconfirm>
                 </Space>

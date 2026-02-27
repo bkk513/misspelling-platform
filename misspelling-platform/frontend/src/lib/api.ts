@@ -31,6 +31,7 @@ export type TaskDetailResponse = {
   error?: unknown;
   progress?: unknown;
 };
+export type DeleteTaskResponse = { task_id: string; deleted: boolean; reason?: string };
 export type TaskEventsResponse = {
   task_id: string;
   items: Array<{ event_type: string; message: string; meta?: unknown; created_at?: string }>;
@@ -75,6 +76,7 @@ export const api = {
   createSimulation: (n: number, steps: number) =>
     request<CreateTaskResponse>(`/api/tasks/simulation-run?n=${n}&steps=${steps}`, { method: "POST" }),
   listTasks: (limit = 20) => request<TaskListResponse>(`/api/tasks?limit=${limit}`),
+  deleteTask: (taskId: string) => request<DeleteTaskResponse>(`/api/tasks/${encodeURIComponent(taskId)}`, { method: "DELETE" }),
   getTask: (taskId: string) => request<TaskDetailResponse>(`/api/tasks/${encodeURIComponent(taskId)}`),
   getTaskEvents: (taskId: string, limit = 200) =>
     request<TaskEventsResponse>(`/api/tasks/${encodeURIComponent(taskId)}/events?limit=${limit}`),
