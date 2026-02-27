@@ -6,6 +6,7 @@ import { api } from "../lib/api";
 import { HomePage } from "../pages/Home";
 import { LoginPage } from "../pages/Login";
 import { PlaceholderPage } from "../pages/Placeholder";
+import { TaskCenterPage } from "../pages/TaskCenter";
 import { TaskDetailPage } from "../pages/TaskDetail";
 import {
   goHome,
@@ -23,7 +24,6 @@ type Session = { username: string; role: "guest" | "user" | "admin" };
 const SESSION_KEY = "mp-session";
 
 const researcherNotes: Record<string, string> = {
-  tasks: "Enterprise task table will be implemented in Commit 2.",
   "word-analysis": "GBNC parameter controls and variant selector will be implemented in Commit 3.",
   variants: "Variant cache and manual editing workflow will be implemented in Commit 3.",
   "time-series": "Series grid and chart interactions will be implemented in Commit 4.",
@@ -160,6 +160,7 @@ export function App() {
 
   let content = <PlaceholderPage title={route.key} description={researcherNotes[route.key] ?? "Module scaffolding ready."} />;
   if (route.key === "dashboard") content = <HomePage />;
+  if (route.key === "tasks") content = <TaskCenterPage />;
   if (route.key === "task-detail" && route.taskId) content = <TaskDetailPage taskId={route.taskId} />;
 
   return (
