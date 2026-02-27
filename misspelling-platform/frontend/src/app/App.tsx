@@ -8,6 +8,7 @@ import { LoginPage } from "../pages/Login";
 import { PlaceholderPage } from "../pages/Placeholder";
 import { TaskCenterPage } from "../pages/TaskCenter";
 import { TaskDetailPage } from "../pages/TaskDetail";
+import { VariantStudioPage } from "../pages/VariantStudio";
 import { WordAnalysisWorkbenchPage } from "../pages/WordAnalysisWorkbench";
 import {
   goHome,
@@ -164,6 +165,7 @@ export function App() {
   if (route.key === "tasks") content = <TaskCenterPage />;
   if (route.key === "task-detail" && route.taskId) content = <TaskDetailPage taskId={route.taskId} />;
   if (route.key === "word-analysis") content = <WordAnalysisWorkbenchPage />;
+  if (route.key === "variants") content = <VariantStudioPage />;
 
   return (
     <ConfigProvider>
