@@ -4,6 +4,9 @@ import { AdminLayout } from "../layouts/AdminLayout";
 import { ResearcherLayout } from "../layouts/ResearcherLayout";
 import { api, setAccessToken } from "../lib/api";
 import { AdminDashboardPage } from "../pages/AdminDashboard";
+import { AdminAuditLogsPage } from "../pages/AdminAuditLogs";
+import { AdminDataSourcesPage } from "../pages/AdminDataSources";
+import { AdminSettingsPage } from "../pages/AdminSettings";
 import { AdminUsersPage } from "../pages/AdminUsers";
 import { HomePage } from "../pages/Home";
 import { LoginPage } from "../pages/Login";
@@ -132,7 +135,14 @@ export function App() {
         <>
           {route.key === "dashboard" && <AdminDashboardPage />}
           {route.key === "users" && <AdminUsersPage />}
-          {route.key !== "dashboard" && route.key !== "users" && (
+          {route.key === "audit-logs" && <AdminAuditLogsPage />}
+          {route.key === "data-sources" && <AdminDataSourcesPage />}
+          {route.key === "settings" && <AdminSettingsPage />}
+          {route.key !== "dashboard" &&
+            route.key !== "users" &&
+            route.key !== "audit-logs" &&
+            route.key !== "data-sources" &&
+            route.key !== "settings" && (
             <PlaceholderPage
               title={route.key === "dashboard" ? "Admin Dashboard" : route.key}
               description={adminNotes[route.key]}
