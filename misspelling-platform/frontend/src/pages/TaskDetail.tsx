@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { message } from "antd";
 import { goToTask } from "../app/router";
 import { LineChart } from "../components/LineChart";
 import { api, describeApiError, type TaskDetailResponse, type TaskEventsResponse } from "../lib/api";
@@ -38,6 +39,7 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
   const [tsVariants, setTsVariants] = useState<string[]>([]);
   const [tsVariant, setTsVariant] = useState("correct");
   const [tsPoints, setTsPoints] = useState<Array<{ time: string; value: number }>>([]);
+  const [lastRefreshAt, setLastRefreshAt] = useState<string>("-");
 
   const taskObj = useMemo(() => asObject(task?.result), [task?.result]);
   const taskType = useMemo(() => {
@@ -47,13 +49,14 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
     return typeof t === "string" ? t : "-";
   }, [events]);
 
-  const refresh = async (resetTicks = false) => {
+  const refresh = async (resetTicks = false, manual = false) => {
     if (resetTicks) setTicks(0);
     try {
       setTask(await api.getTask(taskId));
       setTaskErr("");
     } catch (e) {
       setTaskErr(describeApiError(e));
+      if (manual) message.error("Refresh failed.");
     }
     try {
       setEvents(await api.getTaskEvents(taskId));
@@ -68,6 +71,8 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
         setEventsInfo(msg);
       }
     }
+    setLastRefreshAt(new Date().toLocaleTimeString());
+    if (manual) message.success("Task state refreshed.");
   };
 
   useEffect(() => {
@@ -164,13 +169,21 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
           <div className="row-inline">
             <button onClick={() => navigator.clipboard?.writeText(taskId).catch(() => {})}>Copy TaskID</button>
             <button onClick={() => setPolling((v) => !v)}>{polling ? "Stop Auto Refresh" : "Resume Auto Refresh"}</button>
-            <button onClick={() => void refresh()}>Refresh Now</button>
+            <button onClick={() => void refresh(false, true)}>Refresh Now</button>
           </div>
         </div>
         <div className="row-inline">
           <span className="muted">Task Type: {taskType}</span>
           <span style={{ color: statusTone(task?.state), fontWeight: 600 }}>Status: {task?.state ?? "loading..."}</span>
           <span className="muted">Polling: {polling ? `on (${ticks * 2}s)` : `off (${ticks >= 30 ? "auto-stopped at 60s" : "manual"})`}</span>
+        </div>
+        <div className="row-inline">
+          <strong className="muted">Last refresh:</strong>
+          <span>{lastRefreshAt}</span>
+          <strong className="muted">Events:</strong>
+          <span>{events?.items?.length ?? 0}</span>
+          <strong className="muted">Points:</strong>
+          <span>{tsPoints.length}</span>
         </div>
         {taskErr && <div className="error-text">{taskErr}</div>}
       </section>
