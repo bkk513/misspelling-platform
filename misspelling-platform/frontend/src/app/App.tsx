@@ -8,6 +8,7 @@ import { LoginPage } from "../pages/Login";
 import { PlaceholderPage } from "../pages/Placeholder";
 import { TaskCenterPage } from "../pages/TaskCenter";
 import { TaskDetailPage } from "../pages/TaskDetail";
+import { WordAnalysisWorkbenchPage } from "../pages/WordAnalysisWorkbench";
 import {
   goHome,
   goToAdmin,
@@ -162,6 +163,7 @@ export function App() {
   if (route.key === "dashboard") content = <HomePage />;
   if (route.key === "tasks") content = <TaskCenterPage />;
   if (route.key === "task-detail" && route.taskId) content = <TaskDetailPage taskId={route.taskId} />;
+  if (route.key === "word-analysis") content = <WordAnalysisWorkbenchPage />;
 
   return (
     <ConfigProvider>
