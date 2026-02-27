@@ -50,6 +50,12 @@ export type TimeSeriesPoints = {
   series_id: number;
   items: Array<{ time: string; value: number }>;
 };
+export type VariantSuggestResponse = {
+  word: string;
+  variants: string[];
+  source?: "llm" | "cache" | "heuristic";
+  warnings?: string[];
+};
 
 export const api = {
   getHealth: () => request<HealthResponse>("/health"),
@@ -65,6 +71,11 @@ export const api = {
   getTimeSeriesPoints: (taskId: string, variant: string) =>
     request<TimeSeriesPoints>(
       `/api/time-series/${encodeURIComponent(taskId)}/points?variant=${encodeURIComponent(variant)}`
+    ),
+  suggestVariants: (word: string, k = 12) =>
+    request<VariantSuggestResponse>(
+      `/api/lexicon/variants/suggest?word=${encodeURIComponent(word)}&k=${k}`,
+      { method: "POST" }
     ),
   fileUrl: (taskId: string, filename: string) => `/api/files/${encodeURIComponent(taskId)}/${encodeURIComponent(filename)}`
 };
