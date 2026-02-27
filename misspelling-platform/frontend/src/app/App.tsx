@@ -2,7 +2,9 @@ import { Alert, Button, Card, ConfigProvider } from "antd";
 import { useEffect, useMemo, useState } from "react";
 import { AdminLayout } from "../layouts/AdminLayout";
 import { ResearcherLayout } from "../layouts/ResearcherLayout";
-import { api } from "../lib/api";
+import { api, setAccessToken } from "../lib/api";
+import { AdminDashboardPage } from "../pages/AdminDashboard";
+import { AdminUsersPage } from "../pages/AdminUsers";
 import { HomePage } from "../pages/Home";
 import { LoginPage } from "../pages/Login";
 import { PlaceholderPage } from "../pages/Placeholder";
@@ -23,7 +25,7 @@ import {
   type Route
 } from "./router";
 
-type Session = { username: string; role: "guest" | "user" | "admin" };
+type Session = { username: string; role: "guest" | "user" | "admin"; token?: string };
 
 const SESSION_KEY = "mp-session";
 
@@ -47,13 +49,13 @@ const adminNotes: Record<AdminRouteKey, string> = {
 function loadSession(): Session {
   try {
     const raw = window.localStorage.getItem(SESSION_KEY);
-    if (!raw) return { username: "guest", role: "guest" };
+    if (!raw) return { username: "guest", role: "guest", token: "" };
     const data = JSON.parse(raw) as Session;
     if (["guest", "user", "admin"].includes(data.role) && data.username) return data;
   } catch {
     // ignore invalid local state
   }
-  return { username: "guest", role: "guest" };
+  return { username: "guest", role: "guest", token: "" };
 }
 
 export function App() {
@@ -70,6 +72,7 @@ export function App() {
 
   useEffect(() => {
     window.localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+    setAccessToken(session.token || "");
   }, [session]);
 
   useEffect(() => {
@@ -81,18 +84,19 @@ export function App() {
 
   const onLogin = async (username: string, password: string) => {
     if (!username || !password) throw new Error("Username and password are required");
-    const role: Session["role"] = username.toLowerCase() === "admin" ? "admin" : "user";
-    setSession({ username, role });
+    const resp = await api.login(username, password);
+    const role: Session["role"] = resp.user.roles.includes("admin") ? "admin" : "user";
+    setSession({ username: resp.user.username, role, token: resp.access_token });
     role === "admin" ? goToAdmin("dashboard") : goToApp("dashboard");
   };
 
   const onGuest = () => {
-    setSession({ username: "guest", role: "guest" });
+    setSession({ username: "guest", role: "guest", token: "" });
     goToApp("dashboard");
   };
 
   const onLogout = () => {
-    setSession({ username: "guest", role: "guest" });
+    setSession({ username: "guest", role: "guest", token: "" });
     goToLogin();
   };
 
@@ -125,10 +129,16 @@ export function App() {
           />
         </Card>
       ) : (
-        <PlaceholderPage
-          title={route.key === "dashboard" ? "Admin Dashboard" : route.key}
-          description={adminNotes[route.key]}
-        />
+        <>
+          {route.key === "dashboard" && <AdminDashboardPage />}
+          {route.key === "users" && <AdminUsersPage />}
+          {route.key !== "dashboard" && route.key !== "users" && (
+            <PlaceholderPage
+              title={route.key === "dashboard" ? "Admin Dashboard" : route.key}
+              description={adminNotes[route.key]}
+            />
+          )}
+        </>
       );
 
     return (

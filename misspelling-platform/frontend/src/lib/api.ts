@@ -1,7 +1,17 @@
 export type ApiError = Error & { status?: number; bodyText?: string };
 
+let accessToken = "";
+
+export function setAccessToken(token: string) {
+  accessToken = token || "";
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const resp = await fetch(path, init);
+  const headers = new Headers(init?.headers || {});
+  if (accessToken && !headers.has("Authorization")) {
+    headers.set("Authorization", `Bearer ${accessToken}`);
+  }
+  const resp = await fetch(path, { ...init, headers });
   const text = await resp.text();
   if (!resp.ok) {
     const err = new Error(`HTTP ${resp.status} ${resp.statusText}`) as ApiError;
@@ -68,9 +78,37 @@ export type TaskArtifactsResponse = {
     created_at?: string;
   }>;
 };
+export type LoginResponse = {
+  access_token: string;
+  token_type: string;
+  user: { id: number; username: string; roles: string[] };
+};
+export type MeResponse = { id: number; username: string; roles: string[]; is_active: boolean };
+export type AdminUsersResponse = {
+  items: Array<{ id: number; username: string; is_active: boolean; is_admin: boolean; roles: string[]; created_at?: string }>;
+};
+export type AdminAuditResponse = {
+  items: Array<{ id: number; actor_user_id?: number; action: string; target_type?: string; target_id?: string; meta_json?: unknown; created_at?: string }>;
+};
+export type AdminDataSourcesResponse = {
+  items: Array<{ id: number; name: string; is_enabled: boolean; default_granularity: string; last_sync_at?: string; updated_at?: string }>;
+};
+export type AdminSettingsResponse = {
+  allow_guest: boolean;
+  llm_enabled: boolean;
+  gbnc_enabled: boolean;
+  admin_token_compat: boolean;
+};
 
 export const api = {
   getHealth: () => request<HealthResponse>("/health"),
+  login: (username: string, password: string) =>
+    request<LoginResponse>("/api/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password })
+    }),
+  me: () => request<MeResponse>("/api/auth/me"),
   createWordAnalysis: (word: string) =>
     request<CreateTaskResponse>(`/api/tasks/word-analysis?word=${encodeURIComponent(word)}`, { method: "POST" }),
   createSimulation: (n: number, steps: number) =>
@@ -92,6 +130,28 @@ export const api = {
       `/api/lexicon/variants/suggest?word=${encodeURIComponent(word)}&k=${k}`,
       { method: "POST" }
     ),
+  adminUsers: (limit = 50) => request<AdminUsersResponse>(`/api/admin/users?limit=${limit}`),
+  adminCreateUser: (username: string, password: string, role: "admin" | "user") =>
+    request<{ id: number; username: string; role: string }>("/api/admin/users", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password, role })
+    }),
+  adminResetPassword: (userId: number, newPassword: string) =>
+    request<{ ok: boolean }>(`/api/admin/users/${userId}/reset-password`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ new_password: newPassword })
+    }),
+  adminUpdateUserActive: (userId: number, isActive: boolean) =>
+    request<{ ok: boolean }>(`/api/admin/users/${userId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ is_active: isActive })
+    }),
+  adminAuditLogs: (limit = 120) => request<AdminAuditResponse>(`/api/admin/audit-logs?limit=${limit}`),
+  adminDataSources: (limit = 80) => request<AdminDataSourcesResponse>(`/api/admin/data-sources?limit=${limit}`),
+  adminSettings: () => request<AdminSettingsResponse>("/api/admin/settings"),
   fileUrl: (taskId: string, filename: string) => `/api/files/${encodeURIComponent(taskId)}/${encodeURIComponent(filename)}`
 };
 
