@@ -28,6 +28,7 @@ export type TaskListItem = {
   task_id: string;
   task_type: string;
   status: string;
+  display_name?: string;
   params_json?: unknown;
   created_at?: string;
   updated_at?: string;
