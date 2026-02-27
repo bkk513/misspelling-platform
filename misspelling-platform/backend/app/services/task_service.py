@@ -134,6 +134,17 @@ def _normalize_jsonish(value: Any) -> Any:
     return str(value)
 
 
+def _task_display_name(task_type: str, params: Any) -> str:
+    if task_type == "word-analysis" and isinstance(params, dict):
+        word = str(params.get("word", "")).strip() or "word"
+        return f"word-analysis: {word}"
+    if task_type == "simulation-run" and isinstance(params, dict):
+        n = params.get("n", "?")
+        steps = params.get("steps", "?")
+        return f"simulation-run: n={n} steps={steps}"
+    return task_type
+
+
 def get_task_payload(task_id: str, async_result_factory=None) -> Dict[str, Any]:
     with get_engine().begin() as conn:
         row = conn.execute(
@@ -189,6 +200,7 @@ def list_task_payload(limit: int = 20) -> Dict[str, Any]:
                 "task_id": r["task_id"],
                 "task_type": r["task_type"],
                 "status": r["status"],
+                "display_name": _task_display_name(r["task_type"], _normalize_jsonish(r["params_json"])),
                 "params_json": _normalize_jsonish(r["params_json"]),
                 "created_at": r["created_at"],
                 "updated_at": r["updated_at"],
@@ -196,8 +208,6 @@ def list_task_payload(limit: int = 20) -> Dict[str, Any]:
             for r in rows
         ]
     }
-
-
 def delete_task_payload(task_id: str) -> Dict[str, Any]:
     with get_engine().begin() as conn:
         row = conn.execute(
