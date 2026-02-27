@@ -21,3 +21,22 @@ def ensure_data_source(name: str = "stub_local", granularity: str = "day") -> in
             {"name": name, "granularity": granularity, "config_json": json.dumps({"stub": True})},
         )
         return int(conn.execute(text("SELECT LAST_INSERT_ID()")).scalar_one())
+
+
+def list_data_sources(limit: int = 50):
+    with get_engine().begin() as conn:
+        return (
+            conn.execute(
+                text(
+                    """
+                    SELECT id, name, is_enabled, default_granularity, last_sync_at, updated_at
+                    FROM data_sources
+                    ORDER BY id DESC
+                    LIMIT :limit
+                    """
+                ),
+                {"limit": limit},
+            )
+            .mappings()
+            .all()
+        )
