@@ -1,30 +1,36 @@
-import { useEffect, useState } from "react";
-import { goToTask } from "../app/router";
+import { BarChartOutlined, FileSearchOutlined, RocketOutlined } from "@ant-design/icons";
+import { Button, Card, Col, Input, Row, Space, Statistic, Table, Tag, Typography, message } from "antd";
+import { useEffect, useMemo, useState } from "react";
+import { goToApp, goToTask } from "../app/router";
 import { api, describeApiError, type HealthResponse, type TaskListItem } from "../lib/api";
+
+function statusColor(status: string) {
+  const v = status.toUpperCase();
+  if (v === "SUCCESS") return "green";
+  if (v === "FAILURE") return "red";
+  if (v === "RUNNING" || v === "PROGRESS") return "processing";
+  return "default";
+}
 
 export function HomePage() {
   const [health, setHealth] = useState<HealthResponse | null>(null);
-  const [healthErr, setHealthErr] = useState<string>("");
+  const [tasks, setTasks] = useState<TaskListItem[]>([]);
+  const [loading, setLoading] = useState(false);
   const [word, setWord] = useState("demo");
   const [n, setN] = useState("20");
   const [steps, setSteps] = useState("15");
   const [busy, setBusy] = useState<"" | "word" | "sim">("");
-  const [lastTaskId, setLastTaskId] = useState("");
-  const [listErr, setListErr] = useState("");
-  const [items, setItems] = useState<TaskListItem[]>([]);
 
   const refresh = async () => {
+    setLoading(true);
     try {
-      setHealth(await api.getHealth());
-      setHealthErr("");
+      const [h, list] = await Promise.all([api.getHealth(), api.listTasks(12)]);
+      setHealth(h);
+      setTasks(list.items ?? []);
     } catch (e) {
-      setHealthErr(describeApiError(e));
-    }
-    try {
-      setItems((await api.listTasks(10)).items ?? []);
-      setListErr("");
-    } catch (e) {
-      setListErr(describeApiError(e));
+      message.error(describeApiError(e));
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -32,81 +38,83 @@ export function HomePage() {
     void refresh();
   }, []);
 
-  const createWord = async () => {
+  const successRate = useMemo(() => {
+    if (!tasks.length) return 0;
+    const ok = tasks.filter((t) => t.status === "SUCCESS").length;
+    return Math.round((ok / tasks.length) * 100);
+  }, [tasks]);
+
+  const runWord = async () => {
     setBusy("word");
     try {
-      const r = await api.createWordAnalysis(word.trim() || "demo");
-      setLastTaskId(r.task_id);
-      await refresh();
+      const resp = await api.createWordAnalysis(word.trim() || "demo");
+      message.success(`word-analysis queued: ${resp.task_id}`);
+      goToTask(resp.task_id);
     } catch (e) {
-      setHealthErr(describeApiError(e));
+      message.error(describeApiError(e));
     } finally {
       setBusy("");
     }
   };
 
-  const createSim = async () => {
+  const runSimulation = async () => {
     setBusy("sim");
     try {
-      const r = await api.createSimulation(Number(n) || 20, Number(steps) || 15);
-      setLastTaskId(r.task_id);
-      await refresh();
+      const resp = await api.createSimulation(Number(n) || 20, Number(steps) || 15);
+      message.success(`simulation-run queued: ${resp.task_id}`);
+      goToTask(resp.task_id);
     } catch (e) {
-      setListErr(describeApiError(e));
+      message.error(describeApiError(e));
     } finally {
       setBusy("");
     }
   };
 
   return (
-    <div className="stack">
-      <section className="panel">
-        <h2>Researcher Entry</h2>
-        <div className="muted">Health: {health ? `${health.status} / db=${String(health.db)}` : "loading..."}</div>
-        {healthErr && <div className="error-text">{healthErr}</div>}
-      </section>
-      <section className="panel grid-two">
-        <div>
-          <h3>Word Analysis (Micro)</h3>
-          <div className="field"><label>word</label><input value={word} onChange={(e) => setWord(e.target.value)} /></div>
-          <button onClick={createWord} disabled={busy !== ""}>{busy === "word" ? "Submitting..." : "Create"}</button>
-        </div>
-        <div>
-          <h3>Simulation Run (Macro)</h3>
-          <div className="field"><label>n</label><input value={n} onChange={(e) => setN(e.target.value)} /></div>
-          <div className="field"><label>steps</label><input value={steps} onChange={(e) => setSteps(e.target.value)} /></div>
-          <button onClick={createSim} disabled={busy !== ""}>{busy === "sim" ? "Submitting..." : "Create"}</button>
-        </div>
-      </section>
-      <section className="panel">
-        <h3>Recent Tasks</h3>
-        {lastTaskId && (
-          <div className="row-inline">
-            <span className="mono">{lastTaskId}</span>
-            <button onClick={() => goToTask(lastTaskId)}>Open Task Detail</button>
-          </div>
-        )}
-        {listErr && <div className="error-text">{listErr}</div>}
-        <div className="table-wrap">
-          <table className="simple-table">
-            <thead><tr><th>task_id</th><th>type</th><th>status</th><th>created_at</th><th /></tr></thead>
-            <tbody>
-              {items.map((it) => (
-                <tr key={it.task_id}>
-                  <td className="mono">{it.task_id}</td>
-                  <td>{it.task_type}</td>
-                  <td>{it.status}</td>
-                  <td>{it.created_at ?? "-"}</td>
-                  <td><button onClick={() => goToTask(it.task_id)}>Open</button></td>
-                </tr>
-              ))}
-              {items.length === 0 && (
-                <tr><td colSpan={5} className="muted">No tasks returned.</td></tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </section>
-    </div>
+    <Space direction="vertical" size={16} style={{ width: "100%" }}>
+      <Typography.Text type="secondary">
+        当前为 Guest 演示模式：任务与数据暂为共享视图。后续版本将启用 owner 绑定与“我的任务”隔离。
+      </Typography.Text>
+      <Row gutter={16}>
+        <Col xs={24} md={8}><Card><Statistic title="DB Health" value={health?.db ? "ONLINE" : "OFFLINE"} /></Card></Col>
+        <Col xs={24} md={8}><Card><Statistic title="Today Task Volume" value={tasks.length} /></Card></Col>
+        <Col xs={24} md={8}><Card><Statistic title="Recent Success Rate" value={successRate} suffix="%" /></Card></Col>
+      </Row>
+      <Row gutter={16}>
+        <Col xs={24} md={12}>
+          <Card title="Run Word Analysis" extra={<Button icon={<FileSearchOutlined />} onClick={() => goToApp("word-analysis")}>Open Workbench</Button>}>
+            <Space.Compact style={{ width: "100%" }}>
+              <Input value={word} onChange={(e) => setWord(e.target.value)} placeholder="word" />
+              <Button type="primary" loading={busy === "word"} onClick={runWord}>Run</Button>
+            </Space.Compact>
+          </Card>
+        </Col>
+        <Col xs={24} md={12}>
+          <Card title="Run Simulation" extra={<Button icon={<BarChartOutlined />} onClick={() => goToApp("time-series")}>Open Explorer</Button>}>
+            <Space.Compact style={{ width: "100%" }}>
+              <Input value={n} onChange={(e) => setN(e.target.value)} placeholder="n" style={{ width: 120 }} />
+              <Input value={steps} onChange={(e) => setSteps(e.target.value)} placeholder="steps" style={{ width: 120 }} />
+              <Button type="primary" icon={<RocketOutlined />} loading={busy === "sim"} onClick={runSimulation}>Run</Button>
+            </Space.Compact>
+          </Card>
+        </Col>
+      </Row>
+      <Card title="Recent Tasks" extra={<Button onClick={() => void refresh()} loading={loading}>Refresh</Button>}>
+        <Table
+          size="small"
+          rowKey="task_id"
+          loading={loading}
+          dataSource={tasks}
+          pagination={{ pageSize: 6 }}
+          columns={[
+            { title: "Task ID", dataIndex: "task_id", render: (v: string) => <Typography.Text code>{v.slice(0, 12)}...</Typography.Text> },
+            { title: "Type", dataIndex: "task_type" },
+            { title: "Status", dataIndex: "status", render: (v: string) => <Tag color={statusColor(v)}>{v}</Tag> },
+            { title: "Created", dataIndex: "created_at", render: (v: string) => v || "-" },
+            { title: "Action", render: (_: unknown, row: TaskListItem) => <Button size="small" onClick={() => goToTask(row.task_id)}>Detail</Button> }
+          ]}
+        />
+      </Card>
+    </Space>
   );
 }
