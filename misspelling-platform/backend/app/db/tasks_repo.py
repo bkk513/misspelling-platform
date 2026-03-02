@@ -21,6 +21,21 @@ def insert_task(task_id: str, task_type: str, status: str, params_json: str) -> 
         )
 
 
+def get_task_owner(task_id: str):
+    with engine.begin() as conn:
+        row = (
+            conn.execute(
+                text("SELECT owner_user_id FROM tasks WHERE task_id=:task_id LIMIT 1"),
+                {"task_id": task_id},
+            )
+            .mappings()
+            .first()
+        )
+    if not row:
+        return None
+    return row["owner_user_id"]
+
+
 def get_task(task_id: str):
     with engine.begin() as conn:
         return (
