@@ -1,6 +1,7 @@
 export type ApiError = Error & { status?: number; bodyText?: string };
 
 let accessToken = "";
+const API_BASE = String(import.meta.env.VITE_API_BASE || "").trim().replace(/\/$/, "");
 
 export function setAccessToken(token: string) {
   accessToken = token || "";
@@ -11,7 +12,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (accessToken && !headers.has("Authorization")) {
     headers.set("Authorization", `Bearer ${accessToken}`);
   }
-  const resp = await fetch(path, { ...init, headers });
+  const url = path.startsWith("http://") || path.startsWith("https://") ? path : `${API_BASE}${path}`;
+  const resp = await fetch(url, { ...init, headers });
   const text = await resp.text();
   if (!resp.ok) {
     const err = new Error(`HTTP ${resp.status} ${resp.statusText}`) as ApiError;
@@ -23,6 +25,14 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export type HealthResponse = { status: string; db: boolean };
+export type ExtendedHealthResponse = {
+  status: string;
+  db: boolean;
+  redis: boolean;
+  llm_enabled: boolean;
+  gbnc_enabled: boolean;
+  warnings: string[];
+};
 export type CreateTaskResponse = { task_id: string };
 export type TaskListItem = {
   task_id: string;
@@ -34,6 +44,11 @@ export type TaskListItem = {
   updated_at?: string;
 };
 export type TaskListResponse = { items: TaskListItem[] };
+export type TaskBulkDeleteResponse = {
+  requested: number;
+  deleted: string[];
+  skipped: Array<{ task_id: string; reason: string }>;
+};
 export type TaskDetailResponse = {
   task_id: string;
   state: string;
@@ -62,6 +77,25 @@ export type TimeSeriesPoints = {
   series_id: number;
   items: Array<{ time: string; value: number }>;
 };
+export type TimeSeriesListResponse = {
+  items: Array<{
+    series_id: number;
+    source_name: string;
+    canonical: string;
+    granularity: string;
+    window_start?: string;
+    window_end?: string;
+    owner_user_id?: number | null;
+    task_id?: string;
+    variant: string;
+    point_count: number;
+  }>;
+};
+export type SeriesBulkDeleteResponse = {
+  requested: number;
+  deleted: number[];
+  skipped: Array<{ series_id: string; reason: string }>;
+};
 export type VariantSuggestResponse = {
   word: string;
   variants: string[];
@@ -84,6 +118,7 @@ export type LoginResponse = {
   token_type: string;
   user: { id: number; username: string; roles: string[] };
 };
+export type RegisterResponse = LoginResponse;
 export type MeResponse = { id: number; username: string; roles: string[]; is_active: boolean };
 export type AdminUsersResponse = {
   items: Array<{ id: number; username: string; is_active: boolean; is_admin: boolean; roles: string[]; created_at?: string }>;
@@ -103,18 +138,39 @@ export type AdminSettingsResponse = {
 
 export const api = {
   getHealth: () => request<HealthResponse>("/health"),
+  getExtendedHealth: () => request<ExtendedHealthResponse>("/api/health/extended"),
   login: (username: string, password: string) =>
     request<LoginResponse>("/api/auth/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ username, password })
     }),
+  register: (username: string, password: string, displayName?: string, email?: string) =>
+    request<RegisterResponse>("/api/auth/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        username,
+        password,
+        display_name: displayName || undefined,
+        email: email || undefined
+      })
+    }),
   me: () => request<MeResponse>("/api/auth/me"),
   createWordAnalysis: (word: string) =>
     request<CreateTaskResponse>(`/api/tasks/word-analysis?word=${encodeURIComponent(word)}`, { method: "POST" }),
   createSimulation: (n: number, steps: number) =>
     request<CreateTaskResponse>(`/api/tasks/simulation-run?n=${n}&steps=${steps}`, { method: "POST" }),
-  listTasks: (limit = 20) => request<TaskListResponse>(`/api/tasks?limit=${limit}`),
+  listTasks: (limit = 20, scope?: "all" | "guest" | `user:${number}`) =>
+    request<TaskListResponse>(
+      `/api/tasks?limit=${limit}${scope ? `&scope=${encodeURIComponent(scope)}` : ""}`
+    ),
+  bulkDeleteTasks: (taskIds: string[]) =>
+    request<TaskBulkDeleteResponse>("/api/tasks/bulk-delete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ task_ids: taskIds })
+    }),
   deleteTask: (taskId: string) => request<DeleteTaskResponse>(`/api/tasks/${encodeURIComponent(taskId)}`, { method: "DELETE" }),
   getTask: (taskId: string) => request<TaskDetailResponse>(`/api/tasks/${encodeURIComponent(taskId)}`),
   getTaskEvents: (taskId: string, limit = 200) =>
@@ -126,6 +182,16 @@ export const api = {
     request<TimeSeriesPoints>(
       `/api/time-series/${encodeURIComponent(taskId)}/points?variant=${encodeURIComponent(variant)}`
     ),
+  listTimeSeries: (limit = 100, scope?: "all" | "guest" | `user:${number}`) =>
+    request<TimeSeriesListResponse>(
+      `/api/time-series?limit=${limit}${scope ? `&scope=${encodeURIComponent(scope)}` : ""}`
+    ),
+  bulkDeleteSeries: (seriesIds: number[]) =>
+    request<SeriesBulkDeleteResponse>("/api/time-series/bulk-delete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ series_ids: seriesIds })
+    }),
   suggestVariants: (word: string, k = 12) =>
     request<VariantSuggestResponse>(
       `/api/lexicon/variants/suggest?word=${encodeURIComponent(word)}&k=${k}`,
@@ -153,6 +219,12 @@ export const api = {
   adminAuditLogs: (limit = 120) => request<AdminAuditResponse>(`/api/admin/audit-logs?limit=${limit}`),
   adminDataSources: (limit = 80) => request<AdminDataSourcesResponse>(`/api/admin/data-sources?limit=${limit}`),
   adminSettings: () => request<AdminSettingsResponse>("/api/admin/settings"),
+  adminPurge: (scope: "guest" | "user", what: string[], userId?: number) =>
+    request<{ ok: boolean; deleted: Record<string, number> }>("/api/admin/purge", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ scope, user_id: userId, what })
+    }),
   fileUrl: (taskId: string, filename: string) => `/api/files/${encodeURIComponent(taskId)}/${encodeURIComponent(filename)}`
 };
 
