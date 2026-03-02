@@ -6,6 +6,8 @@ import os
 import secrets
 import time
 
+import bcrypt
+
 from ..db.users_repo import (
     count_users,
     create_user,
@@ -13,6 +15,7 @@ from ..db.users_repo import (
     get_user_by_id,
     get_user_by_username,
     list_user_roles,
+    update_user_password,
 )
 
 
@@ -30,6 +33,13 @@ def hash_password(password: str) -> str:
 
 
 def verify_password(password: str, encoded: str) -> bool:
+    encoded = str(encoded or "")
+    if encoded.startswith("$2a$") or encoded.startswith("$2b$") or encoded.startswith("$2y$"):
+        try:
+            return bcrypt.checkpw(password.encode("utf-8"), encoded.encode("utf-8"))
+        except Exception:
+            return False
+
     try:
         algo, rounds, salt_b64, digest_b64 = encoded.split("$", 3)
         if algo != "pbkdf2_sha256":
@@ -85,8 +95,15 @@ def authenticate_user(username: str, password: str):
         return None
     if int(row["is_active"] or 0) != 1:
         return None
-    if not verify_password(password, str(row["password_hash"])):
+    stored_hash = str(row["password_hash"] or "")
+    if not verify_password(password, stored_hash):
         return None
+    if stored_hash.startswith("$2"):
+        try:
+            # Legacy bcrypt hashes are migrated on successful login.
+            update_user_password(int(row["id"]), hash_password(password))
+        except Exception:
+            pass
     roles = list_user_roles(int(row["id"]))
     if not roles:
         roles = ["admin"] if int(row["is_admin"] or 0) == 1 else ["user"]
