@@ -67,6 +67,8 @@ export function App() {
   const [route, setRoute] = useState<Route>(() => parseRoute(window.location.pathname));
   const [session, setSession] = useState<Session>(() => loadSession());
   const [dbOk, setDbOk] = useState(false);
+  const [llmEnabled, setLlmEnabled] = useState(false);
+  const [gbncEnabled, setGbncEnabled] = useState(false);
 
   useEffect(() => {
     const onPop = () => setRoute(parseRoute(window.location.pathname));
@@ -82,9 +84,22 @@ export function App() {
 
   useEffect(() => {
     void api
-      .getHealth()
-      .then((v) => setDbOk(v.db))
-      .catch(() => setDbOk(false));
+      .getExtendedHealth()
+      .then((v) => {
+        setDbOk(v.db);
+        setLlmEnabled(v.llm_enabled);
+        setGbncEnabled(v.gbnc_enabled);
+      })
+      .catch(async () => {
+        try {
+          const v = await api.getHealth();
+          setDbOk(v.db);
+        } catch {
+          setDbOk(false);
+        }
+        setLlmEnabled(false);
+        setGbncEnabled(false);
+      });
   }, [route.scope]);
 
   const onLogin = async (username: string, password: string) => {
@@ -98,6 +113,14 @@ export function App() {
   const onGuest = () => {
     setSession({ username: "guest", role: "guest", token: "" });
     goToApp("dashboard");
+  };
+
+  const onRegister = async (username: string, password: string, displayName?: string, email?: string) => {
+    if (!username || !password) throw new Error("Username and password are required");
+    const resp = await api.register(username, password, displayName, email);
+    const role: Session["role"] = resp.user.roles.includes("admin") ? "admin" : "user";
+    setSession({ username: resp.user.username, role, token: resp.access_token });
+    role === "admin" ? goToAdmin("dashboard") : goToApp("dashboard");
   };
 
   const onLogout = () => {
@@ -116,7 +139,7 @@ export function App() {
   if (route.scope === "login") {
     return (
       <ConfigProvider>
-        <LoginPage onLogin={onLogin} onGuest={onGuest} />
+        <LoginPage onLogin={onLogin} onRegister={onRegister} onGuest={onGuest} />
       </ConfigProvider>
     );
   }
@@ -201,8 +224,8 @@ export function App() {
         routeKey={route.key}
         breadcrumbs={breadcrumbs}
         dbOk={dbOk}
-        llmEnabled={Boolean((import.meta.env.VITE_LLM_ENABLED || "").trim())}
-        gbncEnabled={Boolean((import.meta.env.VITE_GBNC_ENABLED || "").trim())}
+        llmEnabled={llmEnabled}
+        gbncEnabled={gbncEnabled}
         username={session.username}
         role={session.role}
         onLogout={onLogout}
