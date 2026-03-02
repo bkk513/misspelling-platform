@@ -1,4 +1,4 @@
-import { Button, Card, Descriptions, Space, Typography } from "antd";
+ï»¿import { Button, Card, Descriptions, Form, InputNumber, Modal, Space, Typography, message } from "antd";
 import { useEffect, useState } from "react";
 import { api, describeApiError, type AdminSettingsResponse } from "../lib/api";
 
@@ -6,6 +6,8 @@ export function AdminSettingsPage() {
   const [settings, setSettings] = useState<AdminSettingsResponse | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [purgeOpen, setPurgeOpen] = useState(false);
+  const [purgeForm] = Form.useForm<{ user_id?: number }>();
 
   const refresh = async () => {
     setLoading(true);
@@ -38,9 +40,49 @@ export function AdminSettingsPage() {
       </Card>
       <Card title="Policy Note">
         <Typography.Paragraph type="secondary">
-          µ±Ç°ÎªÑİÊ¾½×¶Î£º¹ÜÀíÔ±Ãæ°åÒÀÀµ Bearer + admin role£»ºóĞø½«Ôö¼Ó¸üÏ¸Á£¶È RBAC È¨ÏŞµã¿ØÖÆ¡£
+          å½“å‰ä¸ºæ¼”ç¤ºé˜¶æ®µï¼šç®¡ç†å‘˜é¢æ¿ä¾èµ– Bearer + admin roleï¼›åç»­å°†å¢åŠ æ›´ç»†ç²’åº¦ RBAC æƒé™ç‚¹æ§åˆ¶ã€‚
         </Typography.Paragraph>
       </Card>
+      <Card title="Data Purge (Admin)">
+        <Space wrap>
+          <Button
+            danger
+            onClick={async () => {
+              try {
+                const resp = await api.adminPurge("guest", ["tasks", "series", "artifacts", "lexicon"]);
+                message.success(`Guest purge completed: ${JSON.stringify(resp.deleted)}`);
+              } catch (e) {
+                message.error(describeApiError(e));
+              }
+            }}
+          >
+            Purge Guest Data
+          </Button>
+          <Button onClick={() => setPurgeOpen(true)}>Purge Specific User</Button>
+        </Space>
+      </Card>
+      <Modal
+        title="Purge User Data"
+        open={purgeOpen}
+        onCancel={() => setPurgeOpen(false)}
+        onOk={async () => {
+          try {
+            const values = await purgeForm.validateFields();
+            const resp = await api.adminPurge("user", ["tasks", "series", "artifacts", "lexicon"], values.user_id);
+            message.success(`User purge completed: ${JSON.stringify(resp.deleted)}`);
+            setPurgeOpen(false);
+            purgeForm.resetFields();
+          } catch (e) {
+            message.error(describeApiError(e));
+          }
+        }}
+      >
+        <Form form={purgeForm} layout="vertical">
+          <Form.Item name="user_id" label="User ID" rules={[{ required: true, type: "number", min: 1 }]}>
+            <InputNumber style={{ width: "100%" }} min={1} />
+          </Form.Item>
+        </Form>
+      </Modal>
     </Space>
   );
 }
