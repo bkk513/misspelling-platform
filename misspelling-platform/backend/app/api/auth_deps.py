@@ -13,9 +13,16 @@ def _extract_bearer(authorization: str | None) -> str | None:
 
 
 def get_current_user(authorization: str | None = Header(default=None)):
+    me = get_optional_user(authorization)
+    if me is None:
+        raise HTTPException(status_code=401, detail="Missing bearer token")
+    return me
+
+
+def get_optional_user(authorization: str | None = Header(default=None)):
     token = _extract_bearer(authorization)
     if not token:
-        raise HTTPException(status_code=401, detail="Missing bearer token")
+        return None
     payload = decode_access_token(token)
     if not payload:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
@@ -25,9 +32,15 @@ def get_current_user(authorization: str | None = Header(default=None)):
     return me
 
 
+def is_admin(user: dict | None) -> bool:
+    if not user:
+        return False
+    roles = set(user.get("roles") or [])
+    return "admin" in roles
+
+
 def require_admin(authorization: str | None = Header(default=None)):
     me = get_current_user(authorization)
-    roles = set(me.get("roles") or [])
-    if "admin" not in roles:
+    if not is_admin(me):
         raise HTTPException(status_code=403, detail="Admin role required")
     return me

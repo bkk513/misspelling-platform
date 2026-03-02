@@ -116,6 +116,42 @@ def authenticate_user(username: str, password: str):
     }
 
 
+def validate_password_strength(password: str) -> str | None:
+    if len(password or "") < 8:
+        return "password must be at least 8 characters"
+    if not any(ch.isalpha() for ch in password):
+        return "password must include at least one letter"
+    if not any(ch.isdigit() for ch in password):
+        return "password must include at least one digit"
+    return None
+
+
+def register_user(
+    username: str,
+    password: str,
+    display_name: str | None = None,
+    email: str | None = None,
+):
+    username = (username or "").strip()
+    if not username:
+        raise ValueError("username is required")
+    if get_user_by_username(username):
+        raise ValueError("username already exists")
+    weak_reason = validate_password_strength(password)
+    if weak_reason:
+        raise ValueError(weak_reason)
+
+    user_id = create_user(
+        username=username,
+        password_hash=hash_password(password),
+        is_admin=False,
+        display_name=(display_name or "").strip() or None,
+        email=(email or "").strip() or None,
+    )
+    roles = list_user_roles(user_id)
+    return {"id": user_id, "username": username, "roles": roles}
+
+
 def get_me_from_payload(payload: dict):
     user_id = int(payload.get("uid", 0))
     if user_id <= 0:
