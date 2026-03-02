@@ -4,13 +4,17 @@ import random
 from datetime import date, timedelta
 
 from ..db.data_sources_repo import ensure_data_source
+from ..db.tasks_repo import get_task_owner
 from ..db.time_series_repo import (
     create_series,
+    delete_series_by_ids,
     ensure_term,
     ensure_variant,
     get_series_points_for_task,
     insert_series_points,
+    list_series,
     list_series_by_task,
+    list_series_owners,
 )
 
 
@@ -31,13 +35,28 @@ def _build_points(task_id: str, label: str, count: int, scale: float):
     return points
 
 
+def _is_admin(current_user: dict | None) -> bool:
+    return bool(current_user and "admin" in set(current_user.get("roles") or []))
+
+
+def _owner_id(current_user: dict | None) -> int | None:
+    if not current_user:
+        return None
+    return int(current_user.get("id") or 0) or None
+
+
 def _persist_stub_bundle(task_id: str, task_type: str, canonical: str, point_count: int):
+    owner_user_id = get_task_owner(task_id)
     source_id = ensure_data_source()
-    term_id = ensure_term(canonical=canonical, category="custom", language="en")
+    term_id = ensure_term(canonical=canonical, category="custom", language="en", owner_user_id=owner_user_id)
     variants = [
         ("correct", None, 1.00),
-        ("misspelling_1", ensure_variant(term_id, f"{canonical}e"), 0.68),
-        ("misspelling_2", ensure_variant(term_id, f"{canonical}{canonical[-1:] or 'x'}"), 0.52),
+        ("misspelling_1", ensure_variant(term_id, f"{canonical}e", owner_user_id=owner_user_id), 0.68),
+        (
+            "misspelling_2",
+            ensure_variant(term_id, f"{canonical}{canonical[-1:] or 'x'}", owner_user_id=owner_user_id),
+            0.52,
+        ),
     ]
     for variant_label, variant_id, scale in variants:
         points = _build_points(task_id, variant_label, point_count, scale)
@@ -56,6 +75,7 @@ def _persist_stub_bundle(task_id: str, task_type: str, canonical: str, point_cou
                 "canonical": canonical,
                 "variant": variant_label,
             },
+            owner_user_id=owner_user_id,
         )
         insert_series_points(series_id, points)
 
@@ -70,8 +90,12 @@ def persist_simulation_stub_timeseries(task_id: str, n: int, steps: int):
     _persist_stub_bundle(task_id, "simulation-run", canonical, count)
 
 
-def get_task_timeseries_summary(task_id: str):
-    rows = list_series_by_task(task_id)
+def get_task_timeseries_summary(task_id: str, current_user: dict | None = None):
+    rows = list_series_by_task(
+        task_id,
+        owner_user_id=_owner_id(current_user),
+        include_all=_is_admin(current_user),
+    )
     if not rows:
         return {"task_id": task_id, "items": [], "variants": [], "point_count": 0}
     items = [dict(r) for r in rows]
@@ -86,11 +110,73 @@ def get_task_timeseries_summary(task_id: str):
     }
 
 
-def get_task_timeseries_points(task_id: str, variant: str = "correct"):
-    series_id, rows = get_series_points_for_task(task_id, variant or "correct")
+def get_task_timeseries_points(task_id: str, variant: str = "correct", current_user: dict | None = None):
+    series_id, rows = get_series_points_for_task(
+        task_id,
+        variant or "correct",
+        owner_user_id=_owner_id(current_user),
+        include_all=_is_admin(current_user),
+    )
     return {
         "task_id": task_id,
         "variant": variant or "correct",
         "series_id": series_id,
         "items": [{"time": str(r["t"]), "value": float(r["value"])} for r in rows],
     }
+
+
+def list_series_catalog_payload(limit: int = 100, current_user: dict | None = None, scope: str | None = None):
+    safe_limit = max(1, min(int(limit), 500))
+    include_all = _is_admin(current_user) and scope == "all"
+    owner_user_id = _owner_id(current_user)
+    if _is_admin(current_user) and scope == "guest":
+        owner_user_id = None
+        include_all = False
+    rows = list_series(limit=safe_limit, owner_user_id=owner_user_id, include_all=include_all)
+    return {"items": [dict(r) for r in rows]}
+
+
+def bulk_delete_series_payload(series_ids: list[int], current_user: dict | None = None):
+    safe_ids = []
+    for value in series_ids:
+        try:
+            sid = int(value)
+        except Exception:
+            continue
+        if sid > 0:
+            safe_ids.append(sid)
+
+    if not safe_ids:
+        return {"requested": 0, "deleted": [], "skipped": []}
+
+    owner_user_id = _owner_id(current_user)
+    allow_all = _is_admin(current_user)
+    owners = list_series_owners(safe_ids)
+    allowed: list[int] = []
+    skipped: list[dict[str, str]] = []
+
+    for row in owners:
+        sid = int(row["id"])
+        owner = row["owner_user_id"]
+        if allow_all:
+            allowed.append(sid)
+            continue
+        if owner_user_id is None:
+            if owner is None:
+                allowed.append(sid)
+            else:
+                skipped.append({"series_id": str(sid), "reason": "FORBIDDEN"})
+            continue
+        if owner == owner_user_id:
+            allowed.append(sid)
+        else:
+            skipped.append({"series_id": str(sid), "reason": "FORBIDDEN"})
+
+    if allowed:
+        delete_series_by_ids(allowed)
+    existing_ids = {int(r["id"]) for r in owners}
+    for sid in safe_ids:
+        if sid not in existing_ids:
+            skipped.append({"series_id": str(sid), "reason": "NOT_FOUND"})
+
+    return {"requested": len(safe_ids), "deleted": allowed, "skipped": skipped}
