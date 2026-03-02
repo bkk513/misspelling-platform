@@ -96,16 +96,28 @@ def list_user_roles(user_id: int) -> list[str]:
     return [str(r["name"]) for r in rows]
 
 
-def create_user(username: str, password_hash: str, is_admin: bool = False) -> int:
+def create_user(
+    username: str,
+    password_hash: str,
+    is_admin: bool = False,
+    display_name: str | None = None,
+    email: str | None = None,
+) -> int:
     with get_engine().begin() as conn:
         result = conn.execute(
             text(
                 """
-                INSERT INTO users (username, password_hash, is_active, is_admin)
-                VALUES (:username, :password_hash, 1, :is_admin)
+                INSERT INTO users (username, password_hash, display_name, email, is_active, is_admin)
+                VALUES (:username, :password_hash, :display_name, :email, 1, :is_admin)
                 """
             ),
-            {"username": username, "password_hash": password_hash, "is_admin": 1 if is_admin else 0},
+            {
+                "username": username,
+                "password_hash": password_hash,
+                "display_name": display_name,
+                "email": email,
+                "is_admin": 1 if is_admin else 0,
+            },
         )
         user_id = int(result.lastrowid)
     ensure_user_role(user_id, "admin" if is_admin else "user")

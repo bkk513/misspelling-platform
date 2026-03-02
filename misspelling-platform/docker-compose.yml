@@ -27,7 +27,7 @@
     environment:
       MYSQL_PWD: root
     command: >
-      sh -c "mysql -hmysql -uroot -D misspell < /schema/001_schema.sql"
+      sh -c "for f in /schema/*.sql; do echo Running $$f; mysql -hmysql -uroot -D misspell < $$f; done"
     volumes:
       - ./db/init:/schema:ro
     restart: "no"
@@ -39,6 +39,12 @@
       REDIS_URL: redis://redis:6379/0
       CELERY_BROKER_URL: redis://redis:6379/1
       CELERY_RESULT_BACKEND: redis://redis:6379/2
+      INIT_ADMIN_USERNAME: ${INIT_ADMIN_USERNAME:-}
+      INIT_ADMIN_PASSWORD: ${INIT_ADMIN_PASSWORD:-}
+      DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:-}
+      BAILIAN_API_KEY: ${BAILIAN_API_KEY:-}
+      BAILIAN_BASE_URL: ${BAILIAN_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
+      BAILIAN_MODEL: ${BAILIAN_MODEL:-qwen-plus}
     depends_on:
       mysql:
         condition: service_healthy
@@ -58,6 +64,10 @@
       DATABASE_URL: mysql+pymysql://root:root@mysql:3306/misspell
       CELERY_BROKER_URL: redis://redis:6379/1
       CELERY_RESULT_BACKEND: redis://redis:6379/2
+      DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:-}
+      BAILIAN_API_KEY: ${BAILIAN_API_KEY:-}
+      BAILIAN_BASE_URL: ${BAILIAN_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
+      BAILIAN_MODEL: ${BAILIAN_MODEL:-qwen-plus}
     depends_on:
       mysql:
         condition: service_healthy
