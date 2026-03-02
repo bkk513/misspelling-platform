@@ -21,11 +21,14 @@ export function TaskCenterPage() {
   const [status, setStatus] = useState<string>("all");
   const [q, setQ] = useState("");
   const [range, setRange] = useState<[string, string] | null>(null);
+  const [scope, setScope] = useState<string>("default");
+  const [selectedRowKeys, setSelectedRowKeys] = useState<string[]>([]);
 
   const refresh = async () => {
     setLoading(true);
     try {
-      const list = await api.listTasks(120);
+      const nextScope = scope === "default" ? undefined : (scope as "all" | "guest");
+      const list = await api.listTasks(120, nextScope);
       setItems(list.items ?? []);
     } catch (e) {
       message.error(describeApiError(e));
@@ -36,7 +39,7 @@ export function TaskCenterPage() {
 
   useEffect(() => {
     void refresh();
-  }, []);
+  }, [scope]);
 
   const filtered = useMemo(() => {
     return items.filter((row) => {
@@ -61,14 +64,57 @@ export function TaskCenterPage() {
           <Input placeholder="Search task_id/type" value={q} onChange={(e) => setQ(e.target.value)} style={{ width: 220 }} />
           <Select value={type} onChange={setType} style={{ width: 180 }} options={[{ value: "all", label: "All Types" }, ...types.map((v) => ({ value: v, label: v }))]} />
           <Select value={status} onChange={setStatus} style={{ width: 180 }} options={[{ value: "all", label: "All Status" }, ...statuses.map((v) => ({ value: v, label: v }))]} />
+          <Select
+            value={scope}
+            onChange={setScope}
+            style={{ width: 180 }}
+            options={[
+              { value: "default", label: "Scope: Default" },
+              { value: "guest", label: "Scope: Guest" },
+              { value: "all", label: "Scope: All (Admin)" }
+            ]}
+          />
           <DatePicker.RangePicker onChange={(v) => setRange(v ? [v[0]!.format("YYYY-MM-DD"), v[1]!.format("YYYY-MM-DD")] : null)} />
+          <Button onClick={() => { setQ(""); setType("all"); setStatus("all"); setRange(null); setScope("default"); }}>
+            Clear Filters
+          </Button>
         </Space>
       </Card>
-      <Card title="Task Center">
+      <Card
+        title="Task Center"
+        extra={
+          <Space>
+            <Typography.Text type="secondary">Selected: {selectedRowKeys.length}</Typography.Text>
+            <Popconfirm
+              title="Delete selected tasks"
+              description="Only accessible tasks will be deleted."
+              disabled={selectedRowKeys.length === 0}
+              onConfirm={async () => {
+                if (selectedRowKeys.length === 0) return;
+                try {
+                  const resp = await api.bulkDeleteTasks(selectedRowKeys.map((v) => String(v)));
+                  if (resp.deleted.length > 0) message.success(`Deleted ${resp.deleted.length} task(s)`);
+                  if (resp.skipped.length > 0) message.warning(`Skipped ${resp.skipped.length} task(s)`);
+                  setSelectedRowKeys([]);
+                  await refresh();
+                } catch (e) {
+                  message.error(describeApiError(e));
+                }
+              }}
+            >
+              <Button danger disabled={selectedRowKeys.length === 0}>Delete Selected</Button>
+            </Popconfirm>
+          </Space>
+        }
+      >
         <Table
           rowKey="task_id"
           dataSource={filtered}
           loading={loading}
+          rowSelection={{
+            selectedRowKeys,
+            onChange: (keys) => setSelectedRowKeys(keys.map((v) => String(v)))
+          }}
           pagination={{ pageSize: 10, showSizeChanger: true }}
           columns={[
             {

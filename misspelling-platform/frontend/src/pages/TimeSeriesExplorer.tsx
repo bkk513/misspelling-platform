@@ -1,24 +1,28 @@
-import { ReloadOutlined } from "@ant-design/icons";
-import { Button, Card, Select, Space, Table, Tag, Typography, message } from "antd";
+ï»¿import { DeleteOutlined, ReloadOutlined } from "@ant-design/icons";
+import { Button, Card, Popconfirm, Select, Space, Table, Tag, Typography, message } from "antd";
 import { useEffect, useState } from "react";
 import { goToTask } from "../app/router";
 import { LineChart } from "../components/LineChart";
-import { api, describeApiError, type TaskListItem, type TimeSeriesMeta } from "../lib/api";
+import { api, describeApiError, type TimeSeriesListResponse, type TimeSeriesMeta } from "../lib/api";
 
 export function TimeSeriesExplorerPage() {
-  const [tasks, setTasks] = useState<TaskListItem[]>([]);
+  const [seriesRows, setSeriesRows] = useState<TimeSeriesListResponse["items"]>([]);
   const [taskId, setTaskId] = useState("");
   const [variant, setVariant] = useState("correct");
   const [meta, setMeta] = useState<TimeSeriesMeta | null>(null);
   const [points, setPoints] = useState<Array<{ time: string; value: number }>>([]);
   const [loading, setLoading] = useState(false);
+  const [scope, setScope] = useState("default");
+  const [selectedSeries, setSelectedSeries] = useState<number[]>([]);
 
-  const loadTasks = async () => {
+  const loadSeries = async () => {
     setLoading(true);
     try {
-      const rows = (await api.listTasks(80)).items ?? [];
-      setTasks(rows);
-      if (!taskId && rows.length > 0) setTaskId(rows[0].task_id);
+      const scopeValue = scope === "default" ? undefined : (scope as "all" | "guest");
+      const rows = (await api.listTimeSeries(120, scopeValue)).items ?? [];
+      setSeriesRows(rows);
+      const withTask = rows.find((r) => r.task_id);
+      if (!taskId && withTask?.task_id) setTaskId(withTask.task_id);
     } catch (e) {
       message.error(describeApiError(e));
     } finally {
@@ -27,8 +31,8 @@ export function TimeSeriesExplorerPage() {
   };
 
   useEffect(() => {
-    void loadTasks();
-  }, []);
+    void loadSeries();
+  }, [scope]);
 
   useEffect(() => {
     if (!taskId) return;
@@ -59,7 +63,7 @@ export function TimeSeriesExplorerPage() {
 
   return (
     <Space direction="vertical" size={16} style={{ width: "100%" }}>
-      <Card title="Time Series Explorer" extra={<Button icon={<ReloadOutlined />} onClick={() => void loadTasks()} loading={loading}>Refresh Tasks</Button>}>
+      <Card title="Time Series Explorer" extra={<Button icon={<ReloadOutlined />} onClick={() => void loadSeries()} loading={loading}>Refresh</Button>}>
         <Space wrap>
           <Select
             showSearch
@@ -67,7 +71,10 @@ export function TimeSeriesExplorerPage() {
             placeholder="Select task"
             value={taskId || undefined}
             onChange={setTaskId}
-            options={tasks.map((t) => ({ value: t.task_id, label: `${t.task_type} | ${t.task_id.slice(0, 12)}...` }))}
+            options={Array.from(new Set(seriesRows.map((r) => r.task_id).filter(Boolean))).map((id) => ({
+              value: id,
+              label: String(id).slice(0, 16) + "..."
+            }))}
           />
           <Select
             style={{ width: 220 }}
@@ -75,15 +82,26 @@ export function TimeSeriesExplorerPage() {
             onChange={setVariant}
             options={(meta?.variants || ["correct"]).map((v) => ({ value: v, label: v }))}
           />
+          <Select
+            style={{ width: 220 }}
+            value={scope}
+            onChange={setScope}
+            options={[
+              { value: "default", label: "Scope: Default" },
+              { value: "guest", label: "Scope: Guest" },
+              { value: "all", label: "Scope: All (Admin)" }
+            ]}
+          />
           <Button onClick={() => taskId && goToTask(taskId)}>Open Task Detail</Button>
         </Space>
         {meta ? (
           <Typography.Paragraph type="secondary" style={{ marginTop: 10 }}>
-            source={meta.source} | word={meta.word} | granularity={meta.granularity} | variants={meta.variants.length} | points={meta.point_count}
+            source={meta.source} | word={meta.word} | granularity={meta.granularity} | variants={meta.variants.length} |
+            points={meta.point_count}
           </Typography.Paragraph>
         ) : (
           <Typography.Paragraph type="secondary" style={{ marginTop: 10 }}>
-            Î´Ğ´ÈëÊ±ĞòÊı¾İ£¬»ò¸ÃÈÎÎñÉĞÎ´Íê³É¡£
+            æœªå†™å…¥æ—¶åºæ•°æ®ï¼Œæˆ–è¯¥ä»»åŠ¡å°šæœªå®Œæˆã€‚
           </Typography.Paragraph>
         )}
       </Card>
@@ -92,17 +110,60 @@ export function TimeSeriesExplorerPage() {
         <LineChart points={points} title={`Time Series (${variant})`} />
       </Card>
 
-      <Card title="Series Inventory">
+      <Card
+        title="Series Inventory"
+        extra={
+          <Space>
+            <Typography.Text type="secondary">Selected: {selectedSeries.length}</Typography.Text>
+            <Popconfirm
+              title="Delete selected series"
+              description="Only accessible series will be deleted."
+              disabled={selectedSeries.length === 0}
+              onConfirm={async () => {
+                if (selectedSeries.length === 0) return;
+                try {
+                  const resp = await api.bulkDeleteSeries(selectedSeries);
+                  if (resp.deleted.length > 0) message.success(`Deleted ${resp.deleted.length} series`);
+                  if (resp.skipped.length > 0) message.warning(`Skipped ${resp.skipped.length} series`);
+                  setSelectedSeries([]);
+                  await loadSeries();
+                } catch (e) {
+                  message.error(describeApiError(e));
+                }
+              }}
+            >
+              <Button icon={<DeleteOutlined />} danger disabled={selectedSeries.length === 0}>
+                Delete Selected
+              </Button>
+            </Popconfirm>
+          </Space>
+        }
+      >
         <Table
           size="small"
           rowKey="series_id"
-          dataSource={meta?.items ?? []}
-          pagination={false}
+          dataSource={seriesRows}
+          rowSelection={{
+            selectedRowKeys: selectedSeries,
+            onChange: (keys) => setSelectedSeries(keys.map((k) => Number(k)).filter((v) => Number.isFinite(v)))
+          }}
+          pagination={{ pageSize: 10 }}
           columns={[
             { title: "Series ID", dataIndex: "series_id" },
+            {
+              title: "Task",
+              dataIndex: "task_id",
+              render: (v: string) => (v ? <Typography.Text code>{v.slice(0, 12)}...</Typography.Text> : "-")
+            },
+            { title: "Word", dataIndex: "canonical" },
             { title: "Variant", dataIndex: "variant", render: (v: string) => <Tag>{v}</Tag> },
+            { title: "Source", dataIndex: "source_name" },
             { title: "Points", dataIndex: "point_count" },
-            { title: "Window", render: (_: unknown, row: { window_start?: string; window_end?: string }) => `${row.window_start || "-"} ~ ${row.window_end || "-"}` }
+            {
+              title: "Window",
+              render: (_: unknown, row: { window_start?: string; window_end?: string }) =>
+                `${row.window_start || "-"} ~ ${row.window_end || "-"}`
+            }
           ]}
         />
       </Card>

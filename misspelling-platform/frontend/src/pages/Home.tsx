@@ -1,8 +1,14 @@
-import { BarChartOutlined, FileSearchOutlined, RocketOutlined } from "@ant-design/icons";
-import { Button, Card, Col, Input, Row, Space, Statistic, Table, Tag, Typography, message } from "antd";
+ï»¿import { BarChartOutlined, FileSearchOutlined, RocketOutlined } from "@ant-design/icons";
+import { Alert, Button, Card, Col, Input, Row, Space, Statistic, Table, Tag, Typography, message } from "antd";
 import { useEffect, useMemo, useState } from "react";
 import { goToApp, goToTask } from "../app/router";
-import { api, describeApiError, type HealthResponse, type TaskListItem } from "../lib/api";
+import {
+  api,
+  describeApiError,
+  type ExtendedHealthResponse,
+  type HealthResponse,
+  type TaskListItem
+} from "../lib/api";
 
 function statusColor(status: string) {
   const v = status.toUpperCase();
@@ -14,6 +20,7 @@ function statusColor(status: string) {
 
 export function HomePage() {
   const [health, setHealth] = useState<HealthResponse | null>(null);
+  const [extended, setExtended] = useState<ExtendedHealthResponse | null>(null);
   const [tasks, setTasks] = useState<TaskListItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [word, setWord] = useState("demo");
@@ -27,6 +34,11 @@ export function HomePage() {
       const [h, list] = await Promise.all([api.getHealth(), api.listTasks(12)]);
       setHealth(h);
       setTasks(list.items ?? []);
+      try {
+        setExtended(await api.getExtendedHealth());
+      } catch {
+        setExtended(null);
+      }
     } catch (e) {
       message.error(describeApiError(e));
     } finally {
@@ -73,28 +85,87 @@ export function HomePage() {
   return (
     <Space direction="vertical" size={16} style={{ width: "100%" }}>
       <Typography.Text type="secondary">
-        µ±Ç°Îª Guest ÑİÊ¾Ä£Ê½£ºÈÎÎñÓëÊı¾İÔİÎª¹²ÏíÊÓÍ¼¡£ºóĞø°æ±¾½«ÆôÓÃ owner °ó¶¨Óë¡°ÎÒµÄÈÎÎñ¡±¸ôÀë¡£
+        å½“å‰ä¸º Guest æ¼”ç¤ºæ¨¡å¼ï¼šä»»åŠ¡ä¸æ•°æ®æš‚ä¸ºå…±äº«è§†å›¾ã€‚åç»­ç‰ˆæœ¬å°†å¯ç”¨ owner ç»‘å®šä¸â€œæˆ‘çš„ä»»åŠ¡â€éš”ç¦»ã€‚
       </Typography.Text>
+      {extended?.warnings && extended.warnings.length > 0 && (
+        <Alert type="warning" showIcon message={`System warnings: ${extended.warnings.join(", ")}`} />
+      )}
       <Row gutter={16}>
-        <Col xs={24} md={8}><Card><Statistic title="DB Health" value={health?.db ? "ONLINE" : "OFFLINE"} /></Card></Col>
-        <Col xs={24} md={8}><Card><Statistic title="Today Task Volume" value={tasks.length} /></Card></Col>
-        <Col xs={24} md={8}><Card><Statistic title="Recent Success Rate" value={successRate} suffix="%" /></Card></Col>
+        <Col xs={24} md={8}>
+          <Card>
+            <Statistic title="DB Health" value={health?.db ? "ONLINE" : "OFFLINE"} />
+          </Card>
+        </Col>
+        <Col xs={24} md={8}>
+          <Card>
+            <Statistic title="Today Task Volume" value={tasks.length} />
+          </Card>
+        </Col>
+        <Col xs={24} md={8}>
+          <Card>
+            <Statistic title="Recent Success Rate" value={successRate} suffix="%" />
+          </Card>
+        </Col>
+      </Row>
+      <Row gutter={16}>
+        <Col xs={24} md={8}>
+          <Card title="Redis Status">
+            <Tag color={extended?.redis ? "green" : "orange"}>{extended?.redis ? "ONLINE" : "DEGRADED"}</Tag>
+          </Card>
+        </Col>
+        <Col xs={24} md={8}>
+          <Card title="LLM Status">
+            <Tag color={extended?.llm_enabled ? "green" : "default"}>
+              {extended?.llm_enabled ? "ENABLED" : "DISABLED"}
+            </Tag>
+          </Card>
+        </Col>
+        <Col xs={24} md={8}>
+          <Card title="GBNC Status">
+            <Tag color={extended?.gbnc_enabled ? "green" : "orange"}>
+              {extended?.gbnc_enabled ? "ENABLED" : "STUB_FALLBACK"}
+            </Tag>
+          </Card>
+        </Col>
       </Row>
       <Row gutter={16}>
         <Col xs={24} md={12}>
-          <Card title="Run Word Analysis" extra={<Button icon={<FileSearchOutlined />} onClick={() => goToApp("word-analysis")}>Open Workbench</Button>}>
+          <Card
+            title="Run Word Analysis"
+            extra={
+              <Button icon={<FileSearchOutlined />} onClick={() => goToApp("word-analysis")}>
+                Open Workbench
+              </Button>
+            }
+          >
             <Space.Compact style={{ width: "100%" }}>
               <Input value={word} onChange={(e) => setWord(e.target.value)} placeholder="word" />
-              <Button type="primary" loading={busy === "word"} onClick={runWord}>Run</Button>
+              <Button type="primary" loading={busy === "word"} onClick={runWord}>
+                Run
+              </Button>
             </Space.Compact>
           </Card>
         </Col>
         <Col xs={24} md={12}>
-          <Card title="Run Simulation" extra={<Button icon={<BarChartOutlined />} onClick={() => goToApp("time-series")}>Open Explorer</Button>}>
+          <Card
+            title="Run Simulation"
+            extra={
+              <Button icon={<BarChartOutlined />} onClick={() => goToApp("time-series")}>
+                Open Explorer
+              </Button>
+            }
+          >
             <Space.Compact style={{ width: "100%" }}>
               <Input value={n} onChange={(e) => setN(e.target.value)} placeholder="n" style={{ width: 120 }} />
-              <Input value={steps} onChange={(e) => setSteps(e.target.value)} placeholder="steps" style={{ width: 120 }} />
-              <Button type="primary" icon={<RocketOutlined />} loading={busy === "sim"} onClick={runSimulation}>Run</Button>
+              <Input
+                value={steps}
+                onChange={(e) => setSteps(e.target.value)}
+                placeholder="steps"
+                style={{ width: 120 }}
+              />
+              <Button type="primary" icon={<RocketOutlined />} loading={busy === "sim"} onClick={runSimulation}>
+                Run
+              </Button>
             </Space.Compact>
           </Card>
         </Col>
@@ -107,8 +178,15 @@ export function HomePage() {
           dataSource={tasks}
           pagination={{ pageSize: 6 }}
           columns={[
-            { title: "Task ID", dataIndex: "task_id", render: (v: string) => <Typography.Text code>{v.slice(0, 12)}...</Typography.Text> },
-            { title: "Type", dataIndex: "task_type" },
+            {
+              title: "Task",
+              render: (_: unknown, row: TaskListItem) => (
+                <Space direction="vertical" size={0}>
+                  <Typography.Text>{row.display_name || row.task_type}</Typography.Text>
+                  <Typography.Text code>{row.task_id.slice(0, 12)}...</Typography.Text>
+                </Space>
+              )
+            },
             { title: "Status", dataIndex: "status", render: (v: string) => <Tag color={statusColor(v)}>{v}</Tag> },
             { title: "Created", dataIndex: "created_at", render: (v: string) => v || "-" },
             { title: "Action", render: (_: unknown, row: TaskListItem) => <Button size="small" onClick={() => goToTask(row.task_id)}>Detail</Button> }
