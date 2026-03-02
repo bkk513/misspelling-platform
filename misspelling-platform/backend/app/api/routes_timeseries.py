@@ -1,15 +1,36 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+from pydantic import BaseModel
 
-from ..services.timeseries_service import get_task_timeseries_points, get_task_timeseries_summary
+from .auth_deps import get_optional_user
+from ..services.timeseries_service import (
+    bulk_delete_series_payload,
+    get_task_timeseries_points,
+    get_task_timeseries_summary,
+    list_series_catalog_payload,
+)
 
 router = APIRouter()
 
 
+class BulkDeleteSeriesBody(BaseModel):
+    series_ids: list[int]
+
+
 @router.get("/api/time-series/{task_id}")
-def get_time_series(task_id: str):
-    return get_task_timeseries_summary(task_id)
+def get_time_series(task_id: str, current_user=Depends(get_optional_user)):
+    return get_task_timeseries_summary(task_id, current_user=current_user)
 
 
 @router.get("/api/time-series/{task_id}/points")
-def get_time_series_points(task_id: str, variant: str = "correct"):
-    return get_task_timeseries_points(task_id, variant)
+def get_time_series_points(task_id: str, variant: str = "correct", current_user=Depends(get_optional_user)):
+    return get_task_timeseries_points(task_id, variant, current_user=current_user)
+
+
+@router.get("/api/time-series")
+def list_time_series(limit: int = 100, scope: str | None = None, current_user=Depends(get_optional_user)):
+    return list_series_catalog_payload(limit=limit, current_user=current_user, scope=scope)
+
+
+@router.post("/api/time-series/bulk-delete")
+def bulk_delete_series(body: BulkDeleteSeriesBody, current_user=Depends(get_optional_user)):
+    return bulk_delete_series_payload(body.series_ids or [], current_user=current_user)
