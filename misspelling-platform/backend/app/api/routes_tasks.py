@@ -4,6 +4,7 @@ from pydantic import BaseModel
 
 from .auth_deps import get_optional_user
 from ..db.core import check_db
+from ..db.audit_logs_repo import insert_audit_log
 from ..services.diagnostics_service import get_extended_health_payload
 from ..services.task_service import (
     build_output_path,
@@ -13,6 +14,7 @@ from ..services.task_service import (
     delete_task_payload,
     get_task_payload,
     list_task_payload,
+    retry_task_payload,
 )
 from ..services.artifact_service import list_task_artifacts_payload
 from ..services.task_event_service import list_task_events_payload
@@ -38,7 +40,15 @@ def health_extended():
 @router.post("/api/tasks/word-analysis")
 def create_task(word: str, current_user=Depends(get_optional_user)):
     owner_user_id = int(current_user["id"]) if current_user else None
-    return create_word_analysis_task(word, demo_analysis, owner_user_id=owner_user_id)
+    result = create_word_analysis_task(word, demo_analysis, owner_user_id=owner_user_id)
+    insert_audit_log(
+        action="TASK_CREATE",
+        actor_user_id=owner_user_id,
+        target_type="task",
+        target_id=result["task_id"],
+        meta={"task_type": "word-analysis", "word": word},
+    )
+    return result
 
 
 @router.get("/api/tasks/{task_id}")
@@ -70,18 +80,61 @@ def list_tasks(limit: int = 20, scope: str | None = None, current_user=Depends(g
 @router.post("/api/tasks/bulk-delete")
 def bulk_delete_tasks(body: BulkDeleteTasksBody, current_user=Depends(get_optional_user)):
     safe_ids = [str(task_id).strip() for task_id in (body.task_ids or []) if str(task_id).strip()]
-    return bulk_delete_task_payload(safe_ids, current_user=current_user)
+    result = bulk_delete_task_payload(safe_ids, current_user=current_user)
+    insert_audit_log(
+        action="TASK_BULK_DELETE",
+        actor_user_id=int(current_user["id"]) if current_user else None,
+        target_type="task",
+        meta={"requested": len(safe_ids), "deleted": result.get("deleted"), "skipped": result.get("skipped")},
+    )
+    return result
 
 
 @router.delete("/api/tasks/{task_id}")
 def delete_task(task_id: str, current_user=Depends(get_optional_user)):
-    return delete_task_payload(task_id, current_user=current_user)
+    result = delete_task_payload(task_id, current_user=current_user)
+    insert_audit_log(
+        action="TASK_DELETE",
+        actor_user_id=int(current_user["id"]) if current_user else None,
+        target_type="task",
+        target_id=task_id,
+        meta={"deleted": bool(result.get("deleted")), "reason": result.get("reason")},
+    )
+    return result
 
 
 @router.post("/api/tasks/simulation-run")
 def create_sim_task(n: int = 30, steps: int = 50, current_user=Depends(get_optional_user)):
     owner_user_id = int(current_user["id"]) if current_user else None
-    return create_simulation_task(n, steps, simulation_run, owner_user_id=owner_user_id)
+    result = create_simulation_task(n, steps, simulation_run, owner_user_id=owner_user_id)
+    insert_audit_log(
+        action="TASK_CREATE",
+        actor_user_id=owner_user_id,
+        target_type="task",
+        target_id=result["task_id"],
+        meta={"task_type": "simulation-run", "n": n, "steps": steps},
+    )
+    return result
+
+
+@router.post("/api/tasks/{task_id}/retry")
+def retry_task(task_id: str, current_user=Depends(get_optional_user)):
+    payload = retry_task_payload(
+        task_id,
+        {
+            "word-analysis": demo_analysis,
+            "simulation-run": simulation_run,
+        },
+        current_user=current_user,
+    )
+    insert_audit_log(
+        action="TASK_RETRY",
+        actor_user_id=int(current_user["id"]) if current_user else None,
+        target_type="task",
+        target_id=task_id,
+        meta=payload,
+    )
+    return payload
 
 
 @router.get("/api/files/{task_id}/{filename}")

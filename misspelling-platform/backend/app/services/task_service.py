@@ -144,6 +144,60 @@ def create_simulation_task(n: int, steps: int, celery_task, owner_user_id: int |
     return {"task_id": task_id}
 
 
+def retry_task_payload(task_id: str, celery_task_map: dict[str, Any], current_user: dict | None = None) -> Dict[str, Any]:
+    with get_engine().begin() as conn:
+        row = conn.execute(
+            text(
+                """
+                SELECT task_id, task_type, status, params_json, owner_user_id
+                FROM tasks
+                WHERE task_id=:task_id
+                LIMIT 1
+                """
+            ),
+            {"task_id": task_id},
+        ).mappings().first()
+    if not row:
+        return {"ok": False, "reason": "NOT_FOUND", "task_id": task_id}
+    if not _can_access_owner(row.get("owner_user_id"), current_user):
+        return {"ok": False, "reason": "FORBIDDEN", "task_id": task_id}
+
+    status = str(row["status"] or "").upper()
+    if status in ("QUEUED", "RUNNING", "PROGRESS"):
+        return {"ok": False, "reason": "TASK_ACTIVE", "task_id": task_id}
+
+    task_type = str(row["task_type"])
+    params = _normalize_jsonish(row["params_json"])
+    if not isinstance(params, dict):
+        return {"ok": False, "reason": "PARAMS_INVALID", "task_id": task_id}
+
+    if task_type == "word-analysis":
+        task = celery_task_map.get("word-analysis")
+        if task is None:
+            return {"ok": False, "reason": "TASK_TYPE_UNSUPPORTED", "task_id": task_id}
+        created = create_word_analysis_task(str(params.get("word", "demo")), task, owner_user_id=row.get("owner_user_id"))
+    elif task_type == "simulation-run":
+        task = celery_task_map.get("simulation-run")
+        if task is None:
+            return {"ok": False, "reason": "TASK_TYPE_UNSUPPORTED", "task_id": task_id}
+        created = create_simulation_task(
+            int(params.get("n", 30) or 30),
+            int(params.get("steps", 50) or 50),
+            task,
+            owner_user_id=row.get("owner_user_id"),
+        )
+    else:
+        return {"ok": False, "reason": "TASK_TYPE_UNSUPPORTED", "task_id": task_id}
+
+    new_task_id = str(created["task_id"])
+    with get_engine().begin() as conn:
+        conn.execute(
+            text("UPDATE tasks SET parent_task_id=:parent_task_id WHERE task_id=:task_id"),
+            {"task_id": new_task_id, "parent_task_id": task_id},
+        )
+    return {"ok": True, "task_id": new_task_id, "parent_task_id": task_id, "task_type": task_type}
+
+
 def _normalize_jsonish(value: Any) -> Any:
     if value is None:
         return None
@@ -201,6 +255,7 @@ def get_task_payload(task_id: str, async_result_factory=None, current_user: dict
             text(
                 """
                 SELECT task_id, status, params_json, result_json, error_text, owner_user_id
+                     , parent_task_id
                 FROM tasks
                 WHERE task_id=:task_id
                 """
@@ -226,6 +281,7 @@ def get_task_payload(task_id: str, async_result_factory=None, current_user: dict
         "params": _normalize_jsonish(row["params_json"]),
         "result": _normalize_jsonish(row["result_json"]),
         "error": _normalize_jsonish(row["error_text"]),
+        "parent_task_id": row.get("parent_task_id"),
     }
     if async_result_factory is not None and row["status"] in ("QUEUED", "RUNNING"):
         res = async_result_factory(task_id)
@@ -245,6 +301,7 @@ def list_task_payload(limit: int = 20, current_user: dict | None = None, scope: 
             text(
                 f"""
                 SELECT task_id, task_type, status, params_json, created_at, updated_at, owner_user_id
+                     , parent_task_id
                 FROM tasks
                 WHERE status <> 'DELETED' AND ({scope_where})
                 ORDER BY id DESC
@@ -264,6 +321,7 @@ def list_task_payload(limit: int = 20, current_user: dict | None = None, scope: 
                 "created_at": r["created_at"],
                 "updated_at": r["updated_at"],
                 "owner_user_id": r.get("owner_user_id"),
+                "parent_task_id": r.get("parent_task_id"),
             }
             for r in rows
         ]
