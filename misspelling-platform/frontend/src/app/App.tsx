@@ -115,9 +115,17 @@ export function App() {
     goToApp("dashboard");
   };
 
-  const onRegister = async (username: string, password: string, displayName?: string, email?: string) => {
+  const onRegisterWithCaptcha = async (
+    username: string,
+    password: string,
+    displayName?: string,
+    email?: string,
+    captchaId?: string,
+    captchaCode?: string
+  ) => {
     if (!username || !password) throw new Error("Username and password are required");
-    const resp = await api.register(username, password, displayName, email);
+    if (!captchaId || !captchaCode) throw new Error("Captcha is required");
+    const resp = await api.register(username, password, displayName, email, captchaId, captchaCode);
     const role: Session["role"] = resp.user.roles.includes("admin") ? "admin" : "user";
     setSession({ username: resp.user.username, role, token: resp.access_token });
     role === "admin" ? goToAdmin("dashboard") : goToApp("dashboard");
@@ -139,7 +147,12 @@ export function App() {
   if (route.scope === "login") {
     return (
       <ConfigProvider>
-        <LoginPage onLogin={onLogin} onRegister={onRegister} onGuest={onGuest} />
+        <LoginPage
+          onLogin={onLogin}
+          onRegister={onRegisterWithCaptcha}
+          onFetchCaptcha={api.getCaptcha}
+          onGuest={onGuest}
+        />
       </ConfigProvider>
     );
   }
@@ -218,6 +231,8 @@ export function App() {
   if (route.key === "reports") content = <ReportCenterPage />;
   if (route.key === "settings") content = <ResearcherSettingsPage />;
 
+  const sessionRenderKey = `${session.role}:${session.username}:${session.token ? "auth" : "guest"}:${route.scope}:${route.key}:${route.scope === "app" && route.key === "task-detail" ? route.taskId || "" : ""}`;
+
   return (
     <ConfigProvider>
       <ResearcherLayout
@@ -231,7 +246,7 @@ export function App() {
         onLogout={onLogout}
         onNavigate={(key) => goToApp(key as Exclude<AppRouteKey, "task-detail">)}
       >
-        {content}
+        <div key={sessionRenderKey}>{content}</div>
       </ResearcherLayout>
     </ConfigProvider>
   );

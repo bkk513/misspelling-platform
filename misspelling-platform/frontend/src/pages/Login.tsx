@@ -1,19 +1,37 @@
 import { LockOutlined, UserOutlined } from "@ant-design/icons";
 import { Alert, Button, Card, Form, Input, Space, Tabs, Typography } from "antd";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import type { CaptchaResponse } from "../lib/api";
 
 export function LoginPage({
   onLogin,
   onRegister,
+  onFetchCaptcha,
   onGuest
 }: {
   onLogin: (username: string, password: string) => Promise<void>;
-  onRegister: (username: string, password: string, displayName?: string, email?: string) => Promise<void>;
+  onRegister: (
+    username: string,
+    password: string,
+    displayName?: string,
+    email?: string,
+    captchaId?: string,
+    captchaCode?: string
+  ) => Promise<void>;
+  onFetchCaptcha: () => Promise<CaptchaResponse>;
   onGuest: () => void;
 }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [mode, setMode] = useState<"login" | "register">("login");
+  const [captcha, setCaptcha] = useState<CaptchaResponse | null>(null);
+
+  useEffect(() => {
+    if (mode !== "register") return;
+    void onFetchCaptcha()
+      .then(setCaptcha)
+      .catch(() => setCaptcha(null));
+  }, [mode, onFetchCaptcha]);
 
   const submit = async (values: { username: string; password: string }) => {
     setBusy(true);
@@ -32,13 +50,26 @@ export function LoginPage({
     password: string;
     display_name?: string;
     email?: string;
+    captcha_code: string;
   }) => {
     setBusy(true);
     setErr("");
     try {
-      await onRegister(values.username, values.password, values.display_name, values.email);
+      await onRegister(
+        values.username,
+        values.password,
+        values.display_name,
+        values.email,
+        captcha?.captcha_id,
+        values.captcha_code
+      );
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Register failed");
+      try {
+        setCaptcha(await onFetchCaptcha());
+      } catch {
+        setCaptcha(null);
+      }
     } finally {
       setBusy(false);
     }
@@ -99,6 +130,24 @@ export function LoginPage({
                       placeholder="At least 8 chars, with letters and numbers"
                       autoComplete="new-password"
                     />
+                  </Form.Item>
+                  <Form.Item label="Captcha (demo text)">
+                    <Space>
+                      <Input value={captcha?.captcha_text || "..."} disabled style={{ width: 160 }} />
+                      <Button
+                        onClick={() => void onFetchCaptcha().then(setCaptcha).catch(() => setCaptcha(null))}
+                        disabled={busy}
+                      >
+                        Refresh
+                      </Button>
+                    </Space>
+                  </Form.Item>
+                  <Form.Item
+                    name="captcha_code"
+                    label="Captcha Code"
+                    rules={[{ required: true, message: "captcha code is required" }]}
+                  >
+                    <Input placeholder="Enter captcha text shown above" />
                   </Form.Item>
                   <Space>
                     <Button type="primary" htmlType="submit" loading={busy}>
