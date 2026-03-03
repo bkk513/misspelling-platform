@@ -5,9 +5,25 @@ type Series = { name: string; points: Point[]; color?: string };
 
 const PALETTE = ["#1d4ed8", "#0d9488", "#dc2626", "#7c3aed", "#2563eb", "#059669", "#b45309", "#be185d"];
 
+function sanitizePoints(rows?: Point[]) {
+  const safe: Point[] = [];
+  for (const row of rows || []) {
+    const value = Number((row as Point).value);
+    const time = String((row as Point).time ?? "").trim();
+    if (!time || !Number.isFinite(value)) continue;
+    safe.push({ time, value });
+  }
+  return safe;
+}
+
 function normalizeSeries(points?: Point[], series?: Series[]) {
-  if (series && series.length > 0) return series.filter((s) => (s.points || []).length > 0);
-  if (points && points.length > 0) return [{ name: "series", points, color: PALETTE[0] }];
+  if (series && series.length > 0) {
+    return series
+      .map((s) => ({ ...s, points: sanitizePoints(s.points) }))
+      .filter((s) => (s.points || []).length > 0);
+  }
+  const safe = sanitizePoints(points);
+  if (safe.length > 0) return [{ name: "series", points: safe, color: PALETTE[0] }];
   return [];
 }
 

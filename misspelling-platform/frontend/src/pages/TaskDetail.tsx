@@ -47,12 +47,21 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
   const prevTaskStateRef = useRef<string>("");
 
   const taskObj = useMemo(() => asObject(task?.result), [task?.result]);
+  const eventItems = useMemo(() => (Array.isArray(events?.items) ? events.items : []), [events]);
   const taskType = useMemo(() => {
-    const queued = events?.items?.find((e) => e.event_type === "QUEUED");
+    const queued = eventItems.find((e) => e.event_type === "QUEUED");
     const meta = asObject(queued?.meta);
-    const t = meta?.task_type;
-    return typeof t === "string" ? t : "-";
-  }, [events]);
+    const fromEvent = meta?.task_type;
+    if (typeof fromEvent === "string" && fromEvent.trim()) {
+      return fromEvent;
+    }
+    const provenance = asObject(taskObj?.provenance);
+    const fromResult = provenance?.task_type;
+    if (typeof fromResult === "string" && fromResult.trim()) {
+      return fromResult;
+    }
+    return "-";
+  }, [eventItems, taskObj]);
 
   const tsPointTotal = useMemo(
     () => Object.values(tsSeriesMap).reduce((sum, points) => sum + points.length, 0),
@@ -271,7 +280,7 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
           <strong className="muted">Last refresh:</strong>
           <span>{lastRefreshAt}</span>
           <strong className="muted">Events:</strong>
-          <span>{events?.items?.length ?? 0}</span>
+          <span>{eventItems.length}</span>
           <strong className="muted">TS points:</strong>
           <span>{tsPointTotal}</span>
           <strong className="muted">TS loaded:</strong>
@@ -302,14 +311,14 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
             <table className="simple-table">
               <thead><tr><th>time</th><th>event</th><th>message</th></tr></thead>
               <tbody>
-                {events.items.map((e, idx) => (
+                {eventItems.map((e, idx) => (
                   <tr key={`${e.event_type}-${e.created_at}-${idx}`}>
                     <td>{e.created_at ?? "-"}</td>
                     <td style={{ color: statusTone(e.event_type), fontWeight: 600 }}>{e.event_type}</td>
                     <td>{e.message}</td>
                   </tr>
                 ))}
-                {events.items.length === 0 && <tr><td colSpan={3} className="muted">No events.</td></tr>}
+                {eventItems.length === 0 && <tr><td colSpan={3} className="muted">No events.</td></tr>}
               </tbody>
             </table>
           </div>
