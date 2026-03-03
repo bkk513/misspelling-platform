@@ -1,10 +1,10 @@
-# DATA_SOURCES.md (M12)
+﻿# DATA_SOURCES.md (M13)
 
 ## Runtime Health
 
 - Legacy: `GET /health` (`status`, `db`) unchanged.
-- Extended: `GET /api/health/extended` adds `redis`, `worker`, `llm_enabled`, `gbnc_enabled`, and per-component diagnostics.
-- Admin diagnostics: `GET /api/admin/diagnostics` (admin-only) adds config fingerprint, last pull summary, and recent audit rows.
+- Extended: `GET /api/health/extended` adds `redis`, `worker`, `llm_enabled`, `gbnc_enabled`, and warnings.
+- Admin diagnostics: `GET /api/admin/diagnostics` (admin-only) returns config fingerprint and recent audit rows.
 
 ## LLM Provider (DashScope-compatible)
 
@@ -21,13 +21,13 @@ Other env:
 
 Behavior:
 
-- LLM recommend API: `POST /api/lexicon/variants/suggest`.
-- Failures degrade to heuristic variants.
-- Audit writes provider/model/latency/ok/error (no secret logged).
+- `POST /api/lexicon/variants/suggest` returns `source=llm|cache|heuristic`.
+- Failures degrade to heuristic variants with warnings.
+- Audit logs persist provider/model/latency/ok/error (no secret material).
 
 ## GBNC Data Source
 
-Integration:
+Integration modules:
 
 - `backend/app/integrations/gbnc/client.py`
 - `backend/app/integrations/gbnc/parser.py`
@@ -38,7 +38,7 @@ API:
 - `GET /api/data/gbnc/series/{series_id}`
 - `GET /api/data/gbnc/series/{series_id}/points`
 
-Word-analysis pipeline also uses GBNC pull internally and writes provenance in task result.
+Word-analysis and M13 algorithm tasks both read from the same GBNC/time-series path.
 
 Env:
 
@@ -47,27 +47,54 @@ Env:
 - `GBNC_RETRIES`
 - `GBNC_USER_AGENT`
 
-## Fallback and Cache Policy
+## Algorithm Data Dependency (M13)
 
-1. Cache probe by `(word, variants, year range, corpus, smoothing, owner scope)`.
-2. Cache hit => reuse existing series and log `DATA_PULL_GBNC_CACHE_HIT`.
-3. Cache miss => pull GBNC.
-4. If network/parsing/provider fails => fallback `source=STUB` with warning and explicit `error_reason`.
-5. All pulls emit audit logs (`DATA_PULL_GBNC`, `DATA_PULL_GBNC_IMPORT`).
+Algorithm tasks:
 
-## Traceability
+- `pcmci-causal`
+- `mrnmr-steady`
+- `deltaT-null`
 
-Persisted entities:
+All use `dataset_builder`:
 
-- `data_sources`
-- `time_series`
-- `time_series_points`
-- `tasks` / `task_events` / `task_artifacts`
-- `audit_logs`
+1. Pull GBNC data (or fallback) through `pull_gbnc_with_fallback`.
+2. Persist into `time_series` / `time_series_points`.
+3. Rebuild aligned matrix (year axis + variants) for adapters.
 
-Each task/report can be traced to:
+Code anchors:
 
-- input params
-- source and warnings
-- generated points count
-- output artifacts (csv/png/html)
+- `backend/app/algos/dataset_builder.py`
+- `backend/app/tasks/__init__.py`
+
+## Fallback and Strict Policy
+
+Default (`ALGO_STRICT_MODE=false`):
+
+- Errors degrade to `SUCCESS + warnings + provenance.mode=stub`.
+
+Strict (`ALGO_STRICT_MODE=true`):
+
+- Adapter failure escalates to `FAILURE`.
+
+This keeps acceptance stable while allowing strict validation mode.
+
+## Provenance and Traceability
+
+For algorithm tasks, `tasks.result_json.provenance` includes:
+
+- `source_repo`
+- `source_repo_commit`
+- `impl`
+- `dataset_source`
+- `mode`
+- `fallback_reason`
+- `params`
+
+Artifacts are persisted in `task_artifacts` and downloaded via `/api/files/{task_id}/{filename}`.
+
+## Cache Policy (GBNC)
+
+1. Check signature cache by word/variants/year-range/corpus/smoothing/owner scope.
+2. Cache hit -> reuse rows and log `DATA_PULL_GBNC_CACHE_HIT`.
+3. Cache miss -> pull GBNC and persist.
+4. If pull fails -> fallback STUB with warning and `error_reason`.

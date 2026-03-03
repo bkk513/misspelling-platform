@@ -1,4 +1,4 @@
-# FRONTEND.md (M12 Enterprise UI)
+﻿# FRONTEND.md (M13)
 
 ## Stack
 
@@ -12,7 +12,7 @@
 - `AdminLayout` for `/admin/*`
 - `Login` at `/login`
 
-Header includes user/role + environment badges (DB/LLM/GBNC).
+Header badges show DB/LLM/GBNC runtime status.
 
 ## Researcher Modules
 
@@ -23,6 +23,9 @@ Header includes user/role + environment badges (DB/LLM/GBNC).
 - `/app/variants`
 - `/app/projects`
 - `/app/analytics`
+- `/app/causal-network` (new)
+- `/app/steady-state` (new)
+- `/app/delta-t-bias` (new)
 - `/app/time-series`
 - `/app/artifacts`
 - `/app/reports`
@@ -38,11 +41,41 @@ Header includes user/role + environment badges (DB/LLM/GBNC).
 
 Admin routes require admin bearer token.
 
-## Session Consistency
+## M13 Algorithm Pages
 
-- Login/logout remounts module content by session-derived key.
-- Prevents transient stale data from previous identity.
-- Task detail polling can be paused/resumed and interval switched.
+### Causal Network (`/app/causal-network`)
+
+- Parameter form: word + year window + smoothing + tau/alpha + variants.
+- Create task via `POST /api/tasks/pcmci-causal`.
+- Preview table loads `result.top_edges` from task detail payload.
+
+### Steady State (`/app/steady-state`)
+
+- Parameter form for MR/NMR.
+- Create task via `POST /api/tasks/mrnmr-steady`.
+- Preview table loads `result.metrics_preview`.
+
+### DeltaT Bias (`/app/delta-t-bias`)
+
+- Parameter form for bootstrap/null settings.
+- Create task via `POST /api/tasks/deltaT-null`.
+- Preview table loads `result.events_preview`.
+
+## Task Detail Enhancements
+
+`/app/tasks/{task_id}` now renders algorithm-specific panel when task type is:
+
+- `pcmci-causal`
+- `mrnmr-steady`
+- `deltaT-null`
+
+Panel shows:
+
+- summary
+- provenance
+- warnings
+- algorithm preview rows
+- `result.csv` and `result.json` artifact checks
 
 ## Local Run
 
@@ -56,22 +89,3 @@ npm run dev
 ```
 
 Open: `http://127.0.0.1:5173`.
-
-## Key UX Flows
-
-1. Login/Register (captcha on register), then open dashboard.
-2. Word Analysis Workbench:
-   - set GBNC params + variants
-   - optional GBNC preview pull
-   - run task and jump detail
-3. Task Detail:
-   - lifecycle events
-   - artifacts download
-   - retry task
-   - export HTML report
-4. Project Manager + Analytics:
-   - create project
-   - add terms, bind tasks
-   - run baseline clustering
-5. Admin console:
-   - users / audit logs / data sources / settings / diagnostics visibility

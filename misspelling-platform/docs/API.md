@@ -1,8 +1,8 @@
-# API.md (M12)
+﻿# API.md (M13)
 
 ## Compatibility Statement
 
-The following legacy contracts remain backward-compatible:
+The following legacy contracts remain backward-compatible (path and semantics unchanged):
 
 - `GET /health`
 - `POST /api/tasks/word-analysis`
@@ -10,8 +10,6 @@ The following legacy contracts remain backward-compatible:
 - `GET /api/tasks`
 - `GET /api/tasks/{task_id}`
 - `GET /api/files/{task_id}/{filename}`
-
-New fields were added, old semantics were not removed.
 
 ## Auth
 
@@ -30,6 +28,9 @@ New fields were added, old semantics were not removed.
 
 - `POST /api/tasks/word-analysis?word=&start_year=&end_year=&smoothing=&corpus=&variants=`
 - `POST /api/tasks/simulation-run?n=&steps=`
+- `POST /api/tasks/pcmci-causal?word=&start_year=&end_year=&smoothing=&corpus=&variants=&tau_max=&alpha_level=&pc_alpha=`
+- `POST /api/tasks/mrnmr-steady?word=&start_year=&end_year=&smoothing=&corpus=&variants=&tipping_index=&kde_bandwidth=&poly_degree=`
+- `POST /api/tasks/deltaT-null?word=&start_year=&end_year=&smoothing=&corpus=&variants=&bootstrap_samples=&event_threshold_quantile=&random_seed=`
 - `GET /api/tasks?limit=&scope=`
 - `GET /api/tasks/{task_id}`
 - `GET /api/tasks/{task_id}/events`
@@ -38,6 +39,16 @@ New fields were added, old semantics were not removed.
 - `DELETE /api/tasks/{task_id}`
 - `POST /api/tasks/bulk-delete`
 - `GET /api/files/{task_id}/{filename}`
+
+### Algorithm Result Envelope
+
+Algorithm tasks (`pcmci-causal`, `mrnmr-steady`, `deltaT-null`) write:
+
+- `result.summary`
+- `result.provenance`
+- `result.artifacts`
+- `result.warnings`
+- preview arrays by type (`top_edges`, `metrics_preview`, `events_preview`)
 
 ## Time Series
 
@@ -94,7 +105,7 @@ New fields were added, old semantics were not removed.
 curl http://127.0.0.1:8000/health
 curl http://127.0.0.1:8000/api/health/extended
 curl -X POST "http://127.0.0.1:8000/api/tasks/word-analysis?word=internet&start_year=2018&end_year=2019&smoothing=1"
-curl -X POST "http://127.0.0.1:8000/api/data/gbnc/pull?word=internet&start_year=2018&end_year=2019&corpus=eng_2019&smoothing=1"
-curl http://127.0.0.1:8000/api/tasks?limit=20
-curl -X POST http://127.0.0.1:8000/api/reports/export/task/<task_id>
+curl -X POST "http://127.0.0.1:8000/api/tasks/pcmci-causal?word=internet&start_year=2018&end_year=2019&smoothing=1&variants=interent"
+curl -X POST "http://127.0.0.1:8000/api/tasks/mrnmr-steady?word=internet&start_year=2018&end_year=2019&smoothing=1&variants=interent"
+curl -X POST "http://127.0.0.1:8000/api/tasks/deltaT-null?word=internet&start_year=2018&end_year=2019&smoothing=1&variants=interent"
 ```
