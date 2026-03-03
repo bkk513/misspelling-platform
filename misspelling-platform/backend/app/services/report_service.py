@@ -44,6 +44,10 @@ def _normalize(value: Any):
     return value
 
 
+def _to_json_text(value: Any) -> str:
+    return json.dumps(value, ensure_ascii=False, indent=2, default=str)
+
+
 def _write_html_report(task_id: str, filename: str, title: str, body_html: str) -> Path:
     out_dir = build_output_dir(task_id)
     path = out_dir / filename
@@ -88,11 +92,11 @@ def create_task_report_payload(task_id: str, current_user: dict | None = None, p
 <h2>Summary</h2>
 <p>task_id={task_id} state={task.get("state")} project_id={project_id or "-"}</p>
 <h2>Parameters</h2>
-<pre>{json.dumps(params, ensure_ascii=False, indent=2)}</pre>
+<pre>{_to_json_text(params)}</pre>
 <h2>Result</h2>
-<pre>{json.dumps(result, ensure_ascii=False, indent=2)}</pre>
+<pre>{_to_json_text(result)}</pre>
 <h2>Time Series</h2>
-<pre>{json.dumps(time_series, ensure_ascii=False, indent=2)}</pre>
+<pre>{_to_json_text(time_series)}</pre>
 <h2>Task Events</h2>
 <table><thead><tr><th>time</th><th>event</th><th>message</th></tr></thead><tbody>{event_rows}</tbody></table>
 """
@@ -142,9 +146,9 @@ def create_project_report_payload(project_id: int, current_user: dict | None = N
 <h2>Project Summary</h2>
 <p>project_id={project_id} tasks={len(tasks)} terms={len(terms)}</p>
 <h2>Terms</h2>
-<pre>{json.dumps(terms, ensure_ascii=False, indent=2)}</pre>
+<pre>{_to_json_text(terms)}</pre>
 <h2>Tasks</h2>
-<pre>{json.dumps(tasks, ensure_ascii=False, indent=2)}</pre>
+<pre>{_to_json_text(tasks)}</pre>
 """
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     filename = f"project-{project_id}-report-{stamp}.html"
