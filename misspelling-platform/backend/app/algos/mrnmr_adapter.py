@@ -1,0 +1,104 @@
+from __future__ import annotations
+
+from typing import Any
+
+import numpy as np
+
+from .types import AlgorithmDataset
+
+
+def _safe_div(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    out = np.zeros_like(a, dtype=float)
+    mask = np.abs(b) > 1e-12
+    out[mask] = a[mask] / b[mask]
+    return out
+
+
+def _density_scores(nmr: np.ndarray, mr: np.ndarray, bandwidth: str) -> np.ndarray:
+    try:
+        from scipy.stats import gaussian_kde
+
+        values = np.vstack([nmr, mr])
+        kde = gaussian_kde(values, bw_method=bandwidth)
+        return kde(values)
+    except Exception:
+        m_nmr = float(np.mean(nmr))
+        m_mr = float(np.mean(mr))
+        d = (nmr - m_nmr) ** 2 + (mr - m_mr) ** 2
+        return 1.0 / (1.0 + d)
+
+
+def run_mrnmr(
+    dataset: AlgorithmDataset,
+    tipping_index: int = 0,
+    kde_bandwidth: str = "scott",
+    poly_degree: int = 20,
+) -> dict[str, Any]:
+    warnings = list(dataset.warnings)
+    if not dataset.series or not dataset.years:
+        return {
+            "summary": {"points": 0, "steady_index": None, "tipping_index": int(tipping_index)},
+            "metrics": [],
+            "warnings": warnings + ["empty_dataset"],
+            "mode": "stub",
+            "impl": "internal_rewrite",
+        }
+
+    correct = np.array(dataset.series[0].values, dtype=float)
+    if len(dataset.series) > 1:
+        miss = np.sum(np.array([s.values for s in dataset.series[1:]], dtype=float), axis=0)
+    else:
+        miss = np.zeros_like(correct)
+        warnings.append("single_variant_dataset")
+
+    total = miss + correct
+    mr = _safe_div(miss, total)
+    nmr = _safe_div(correct, miss)
+    density = _density_scores(nmr, mr, bandwidth=kde_bandwidth)
+    steady_index = int(np.argmax(density)) if len(density) > 0 else 0
+    safe_tip = int(max(0, min(int(tipping_index), len(dataset.years) - 1)))
+
+    metrics = []
+    for idx, year in enumerate(dataset.years):
+        metrics.append(
+            {
+                "year": int(year),
+                "misspelling": float(miss[idx]),
+                "correct": float(correct[idx]),
+                "MR": float(mr[idx]),
+                "NMR": float(nmr[idx]),
+                "density": float(density[idx]),
+            }
+        )
+
+    return {
+        "summary": {
+            "points": len(dataset.years),
+            "tipping_index": safe_tip,
+            "steady_index": steady_index,
+            "tipping_year": int(dataset.years[safe_tip]),
+            "steady_year": int(dataset.years[steady_index]),
+            "poly_degree": int(poly_degree),
+        },
+        "metrics": metrics,
+        "warnings": warnings,
+        "mode": dataset.mode,
+        "impl": "internal_rewrite",
+    }
+
+
+def to_metric_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for item in payload.get("metrics") or []:
+        rows.append(
+            {
+                "year": item.get("year"),
+                "misspelling": item.get("misspelling"),
+                "correct": item.get("correct"),
+                "MR": item.get("MR"),
+                "NMR": item.get("NMR"),
+                "density": item.get("density"),
+            }
+        )
+    return rows
+
