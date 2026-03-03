@@ -176,6 +176,35 @@ function Try-CheckGbncPull {
         return "[WARN] gbnc pull skipped (request failed)"
     }
 }
+function Try-CheckLlmSuggest {
+    $probeWord = "llmprobe" + (Get-Random -Minimum 10000 -Maximum 99999)
+    try {
+        $resp = Invoke-RestMethod -Method Post -Uri "$($script:BaseUrl)/api/lexicon/variants/suggest?word=$probeWord&k=6" -TimeoutSec 40
+        if ($null -eq $resp) {
+            Write-Warn "llm suggest returned empty response"
+            return "[WARN] llm suggest skipped (empty response)"
+        }
+        $source = [string]($resp.source)
+        $warnings = @()
+        if ($resp.PSObject.Properties.Name -contains "warnings" -and $null -ne $resp.warnings) {
+            $warnings = @($resp.warnings)
+        }
+        if ($source -eq "llm") {
+            Write-Pass "llm suggest connected (source=llm)"
+            return "[PASS] llm suggest source=llm"
+        }
+        $llmError = $null
+        if ($resp.PSObject.Properties.Name -contains "llm_error") {
+            $llmError = [string]$resp.llm_error
+        }
+        $briefErr = if ([string]::IsNullOrWhiteSpace($llmError)) { "-" } else { ($llmError.Substring(0, [Math]::Min(120, $llmError.Length))) }
+        Write-Warn ("llm suggest degraded (source={0}, warnings={1}, llm_error={2})" -f $source, ($warnings -join ","), $briefErr)
+        return ("[WARN] llm suggest degraded (source={0}, warnings={1})" -f $source, ($warnings -join ","))
+    } catch {
+        Write-Warn "llm suggest probe failed: $($_.Exception.Message)"
+        return "[WARN] llm suggest probe failed"
+    }
+}
 function Get-DbTableNames {
     $rows = Invoke-MySqlQuery -Sql "SHOW TABLES;" -RawOutput
     if ([string]::IsNullOrWhiteSpace($rows)) {
@@ -316,6 +345,7 @@ try {
     }
     Write-Pass "/health db:true"
     $extendedHealthSummary = Try-CheckExtendedHealth
+    $llmSummary = Try-CheckLlmSuggest
     Write-Step "Inspect DB schema status"
     $tableNames = @(Get-DbTableNames)
     $tableCount = $tableNames.Count
@@ -453,6 +483,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     Write-Host $simulationSummary
     Write-Host $simulationPngSummary
     Write-Host $extendedHealthSummary
+    Write-Host $llmSummary
     Write-Host $adminDiagSummary
     Write-Host $gbncSummary
     Write-Host ("[INFO] elapsed={0:n1}s" -f $elapsed.TotalSeconds)

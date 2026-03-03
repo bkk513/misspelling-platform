@@ -74,7 +74,11 @@ def _env_bool(name: str) -> bool:
 
 
 def _llm_probe() -> dict[str, Any]:
-    key_present = _env_bool("DASHSCOPE_API_KEY") or _env_bool("BAILIAN_API_KEY")
+    dashscope_key = (os.getenv("DASHSCOPE_API_KEY") or "").strip()
+    bailian_key = (os.getenv("BAILIAN_API_KEY") or "").strip()
+    key_present = bool(dashscope_key or bailian_key)
+    key_source = "DASHSCOPE_API_KEY" if dashscope_key else ("BAILIAN_API_KEY" if bailian_key else "none")
+    key_length = len(dashscope_key or bailian_key)
     base_url = (os.getenv("BAILIAN_BASE_URL") or "https://dashscope.aliyuncs.com/compatible-mode/v1").strip()
     model = (os.getenv("BAILIAN_MODEL") or "qwen-plus").strip()
     timeout = int(os.getenv("BAILIAN_TIMEOUT_SECONDS", "8") or "8")
@@ -85,6 +89,8 @@ def _llm_probe() -> dict[str, Any]:
         "last_error": None if key_present else "key_missing",
         "config_fingerprint": {
             "key_present": key_present,
+            "key_source": key_source,
+            "key_length": key_length,
             "model": model,
             "base_url": base_url,
             "timeout_seconds": timeout,
