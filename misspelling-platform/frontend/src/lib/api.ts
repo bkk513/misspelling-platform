@@ -34,6 +34,13 @@ export type ExtendedHealthResponse = {
   warnings: string[];
 };
 export type CreateTaskResponse = { task_id: string };
+export type AlgorithmTaskOptions = {
+  startYear?: number;
+  endYear?: number;
+  smoothing?: number;
+  corpus?: string;
+  variants?: string[];
+};
 export type TaskListItem = {
   task_id: string;
   task_type: string;
@@ -254,6 +261,60 @@ export const api = {
     if (opts?.corpus) params.set("corpus", opts.corpus);
     if (opts?.variants && opts.variants.length > 0) params.set("variants", opts.variants.join(","));
     return request<CreateTaskResponse>(`/api/tasks/word-analysis?${params.toString()}`, { method: "POST" });
+  },
+  createPcmciCausal: (
+    word: string,
+    opts?: AlgorithmTaskOptions & { tauMax?: number; alphaLevel?: number; pcAlpha?: number }
+  ) => {
+    const params = new URLSearchParams();
+    params.set("word", word);
+    if (opts?.startYear) params.set("start_year", String(opts.startYear));
+    if (opts?.endYear) params.set("end_year", String(opts.endYear));
+    if (opts?.smoothing !== undefined) params.set("smoothing", String(opts.smoothing));
+    if (opts?.corpus) params.set("corpus", opts.corpus);
+    if (opts?.variants && opts.variants.length > 0) params.set("variants", opts.variants.join(","));
+    if (opts?.tauMax !== undefined) params.set("tau_max", String(opts.tauMax));
+    if (opts?.alphaLevel !== undefined) params.set("alpha_level", String(opts.alphaLevel));
+    if (opts?.pcAlpha !== undefined) params.set("pc_alpha", String(opts.pcAlpha));
+    return request<CreateTaskResponse>(`/api/tasks/pcmci-causal?${params.toString()}`, { method: "POST" });
+  },
+  createMrnmrSteady: (
+    word: string,
+    opts?: AlgorithmTaskOptions & { tippingIndex?: number; kdeBandwidth?: string; polyDegree?: number }
+  ) => {
+    const params = new URLSearchParams();
+    params.set("word", word);
+    if (opts?.startYear) params.set("start_year", String(opts.startYear));
+    if (opts?.endYear) params.set("end_year", String(opts.endYear));
+    if (opts?.smoothing !== undefined) params.set("smoothing", String(opts.smoothing));
+    if (opts?.corpus) params.set("corpus", opts.corpus);
+    if (opts?.variants && opts.variants.length > 0) params.set("variants", opts.variants.join(","));
+    if (opts?.tippingIndex !== undefined) params.set("tipping_index", String(opts.tippingIndex));
+    if (opts?.kdeBandwidth) params.set("kde_bandwidth", opts.kdeBandwidth);
+    if (opts?.polyDegree !== undefined) params.set("poly_degree", String(opts.polyDegree));
+    return request<CreateTaskResponse>(`/api/tasks/mrnmr-steady?${params.toString()}`, { method: "POST" });
+  },
+  createDeltaTNull: (
+    word: string,
+    opts?: AlgorithmTaskOptions & {
+      bootstrapSamples?: number;
+      eventThresholdQuantile?: number;
+      randomSeed?: number;
+    }
+  ) => {
+    const params = new URLSearchParams();
+    params.set("word", word);
+    if (opts?.startYear) params.set("start_year", String(opts.startYear));
+    if (opts?.endYear) params.set("end_year", String(opts.endYear));
+    if (opts?.smoothing !== undefined) params.set("smoothing", String(opts.smoothing));
+    if (opts?.corpus) params.set("corpus", opts.corpus);
+    if (opts?.variants && opts.variants.length > 0) params.set("variants", opts.variants.join(","));
+    if (opts?.bootstrapSamples !== undefined) params.set("bootstrap_samples", String(opts.bootstrapSamples));
+    if (opts?.eventThresholdQuantile !== undefined) {
+      params.set("event_threshold_quantile", String(opts.eventThresholdQuantile));
+    }
+    if (opts?.randomSeed !== undefined) params.set("random_seed", String(opts.randomSeed));
+    return request<CreateTaskResponse>(`/api/tasks/deltaT-null?${params.toString()}`, { method: "POST" });
   },
   createSimulation: (n: number, steps: number) =>
     request<CreateTaskResponse>(`/api/tasks/simulation-run?n=${n}&steps=${steps}`, { method: "POST" }),

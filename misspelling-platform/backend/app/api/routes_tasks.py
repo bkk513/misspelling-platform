@@ -9,6 +9,9 @@ from ..services.diagnostics_service import get_extended_health_payload
 from ..services.task_service import (
     build_output_path,
     bulk_delete_task_payload,
+    create_delta_t_null_task,
+    create_mrnmr_steady_task,
+    create_pcmci_causal_task,
     create_simulation_task,
     create_word_analysis_task,
     delete_task_payload,
@@ -18,7 +21,7 @@ from ..services.task_service import (
 )
 from ..services.artifact_service import list_task_artifacts_payload
 from ..services.task_event_service import list_task_events_payload
-from ..tasks import demo_analysis, simulation_run
+from ..tasks import deltat_null, demo_analysis, mrnmr_steady, pcmci_causal, simulation_run
 
 router = APIRouter()
 
@@ -145,6 +148,117 @@ def create_sim_task(n: int = 30, steps: int = 50, current_user=Depends(get_optio
     return result
 
 
+@router.post("/api/tasks/pcmci-causal")
+def create_pcmci_task(
+    word: str,
+    start_year: int = 1900,
+    end_year: int = 2019,
+    smoothing: int = 3,
+    corpus: str = "eng_2019",
+    variants: str | None = None,
+    tau_max: int = 8,
+    alpha_level: float = 0.01,
+    pc_alpha: float | None = None,
+    current_user=Depends(get_optional_user),
+):
+    owner_user_id = int(current_user["id"]) if current_user else None
+    selected_variants = [v.strip().lower() for v in str(variants or "").split(",") if v.strip()]
+    params = {
+        "word": word,
+        "start_year": int(start_year),
+        "end_year": int(end_year),
+        "smoothing": int(smoothing),
+        "corpus": corpus,
+        "variants": selected_variants,
+        "tau_max": int(tau_max),
+        "alpha_level": float(alpha_level),
+        "pc_alpha": pc_alpha,
+    }
+    result = create_pcmci_causal_task(params, pcmci_causal, owner_user_id=owner_user_id)
+    insert_audit_log(
+        action="TASK_CREATE",
+        actor_user_id=owner_user_id,
+        target_type="task",
+        target_id=result["task_id"],
+        meta={"task_type": "pcmci-causal", "word": word, "start_year": start_year, "end_year": end_year},
+    )
+    return result
+
+
+@router.post("/api/tasks/mrnmr-steady")
+def create_mrnmr_task(
+    word: str,
+    start_year: int = 1900,
+    end_year: int = 2019,
+    smoothing: int = 3,
+    corpus: str = "eng_2019",
+    variants: str | None = None,
+    tipping_index: int = 0,
+    kde_bandwidth: str = "scott",
+    poly_degree: int = 20,
+    current_user=Depends(get_optional_user),
+):
+    owner_user_id = int(current_user["id"]) if current_user else None
+    selected_variants = [v.strip().lower() for v in str(variants or "").split(",") if v.strip()]
+    params = {
+        "word": word,
+        "start_year": int(start_year),
+        "end_year": int(end_year),
+        "smoothing": int(smoothing),
+        "corpus": corpus,
+        "variants": selected_variants,
+        "tipping_index": int(tipping_index),
+        "kde_bandwidth": kde_bandwidth,
+        "poly_degree": int(poly_degree),
+    }
+    result = create_mrnmr_steady_task(params, mrnmr_steady, owner_user_id=owner_user_id)
+    insert_audit_log(
+        action="TASK_CREATE",
+        actor_user_id=owner_user_id,
+        target_type="task",
+        target_id=result["task_id"],
+        meta={"task_type": "mrnmr-steady", "word": word, "start_year": start_year, "end_year": end_year},
+    )
+    return result
+
+
+@router.post("/api/tasks/deltaT-null")
+def create_delta_t_task(
+    word: str,
+    start_year: int = 1900,
+    end_year: int = 2019,
+    smoothing: int = 3,
+    corpus: str = "eng_2019",
+    variants: str | None = None,
+    bootstrap_samples: int = 500,
+    event_threshold_quantile: float = 0.9,
+    random_seed: int = 42,
+    current_user=Depends(get_optional_user),
+):
+    owner_user_id = int(current_user["id"]) if current_user else None
+    selected_variants = [v.strip().lower() for v in str(variants or "").split(",") if v.strip()]
+    params = {
+        "word": word,
+        "start_year": int(start_year),
+        "end_year": int(end_year),
+        "smoothing": int(smoothing),
+        "corpus": corpus,
+        "variants": selected_variants,
+        "bootstrap_samples": int(bootstrap_samples),
+        "event_threshold_quantile": float(event_threshold_quantile),
+        "random_seed": int(random_seed),
+    }
+    result = create_delta_t_null_task(params, deltat_null, owner_user_id=owner_user_id)
+    insert_audit_log(
+        action="TASK_CREATE",
+        actor_user_id=owner_user_id,
+        target_type="task",
+        target_id=result["task_id"],
+        meta={"task_type": "deltaT-null", "word": word, "start_year": start_year, "end_year": end_year},
+    )
+    return result
+
+
 @router.post("/api/tasks/{task_id}/retry")
 def retry_task(task_id: str, current_user=Depends(get_optional_user)):
     payload = retry_task_payload(
@@ -152,6 +266,9 @@ def retry_task(task_id: str, current_user=Depends(get_optional_user)):
         {
             "word-analysis": demo_analysis,
             "simulation-run": simulation_run,
+            "pcmci-causal": pcmci_causal,
+            "mrnmr-steady": mrnmr_steady,
+            "deltaT-null": deltat_null,
         },
         current_user=current_user,
     )

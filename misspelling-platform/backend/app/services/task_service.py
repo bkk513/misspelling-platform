@@ -54,6 +54,45 @@ def _scope_clause(current_user: dict | None, scope: str | None) -> tuple[str, di
     return "owner_user_id = :owner_user_id", {"owner_user_id": user_id}
 
 
+def _insert_queued_task(task_id: str, task_type: str, params: dict[str, Any], owner_user_id: int | None) -> None:
+    with get_engine().begin() as conn:
+        conn.execute(
+            text(
+                """
+                INSERT INTO tasks (task_id, task_type, status, params_json, owner_user_id)
+                VALUES (:task_id, :task_type, :status, :params_json, :owner_user_id)
+                ON DUPLICATE KEY UPDATE
+                  status=VALUES(status),
+                  params_json=VALUES(params_json),
+                  owner_user_id=VALUES(owner_user_id),
+                  updated_at=CURRENT_TIMESTAMP
+                """
+            ),
+            {
+                "task_id": task_id,
+                "task_type": task_type,
+                "status": "QUEUED",
+                "params_json": json.dumps(params),
+                "owner_user_id": owner_user_id,
+            },
+        )
+
+
+def _mark_task_enqueue_failure(task_id: str, task_type: str, error_text: str) -> None:
+    with get_engine().begin() as conn:
+        conn.execute(
+            text(
+                """
+                UPDATE tasks
+                SET status='FAILURE', error_text=:error_text
+                WHERE task_id=:task_id
+                """
+            ),
+            {"task_id": task_id, "error_text": error_text},
+        )
+    record_task_failure(task_id, task_type, error_text)
+
+
 def create_word_analysis_task(
     word: str,
     celery_task,
@@ -64,44 +103,12 @@ def create_word_analysis_task(
     params = {"word": word}
     if extra_params:
         params.update(extra_params)
-
-    with get_engine().begin() as conn:
-        conn.execute(
-            text(
-                """
-                INSERT INTO tasks (task_id, task_type, status, params_json, owner_user_id)
-                VALUES (:task_id, :task_type, :status, :params_json, :owner_user_id)
-                ON DUPLICATE KEY UPDATE
-                  status=VALUES(status),
-                  params_json=VALUES(params_json),
-                  owner_user_id=VALUES(owner_user_id),
-                  updated_at=CURRENT_TIMESTAMP
-                """
-            ),
-            {
-                "task_id": task_id,
-                "task_type": "word-analysis",
-                "status": "QUEUED",
-                "params_json": json.dumps(params),
-                "owner_user_id": owner_user_id,
-            },
-        )
+    _insert_queued_task(task_id, "word-analysis", params, owner_user_id)
     record_task_queued(task_id, "word-analysis", params)
     try:
         celery_task.apply_async(args=[params], task_id=task_id)
     except Exception as exc:
-        with get_engine().begin() as conn:
-            conn.execute(
-                text(
-                    """
-                    UPDATE tasks
-                    SET status='FAILURE', error_text=:error_text
-                    WHERE task_id=:task_id
-                    """
-                ),
-                {"task_id": task_id, "error_text": str(exc)},
-            )
-        record_task_failure(task_id, "word-analysis", str(exc))
+        _mark_task_enqueue_failure(task_id, "word-analysis", str(exc))
         raise
     return {"task_id": task_id}
 
@@ -109,44 +116,51 @@ def create_word_analysis_task(
 def create_simulation_task(n: int, steps: int, celery_task, owner_user_id: int | None = None) -> dict:
     task_id = str(uuid4())
     params = {"n": n, "steps": steps}
-
-    with get_engine().begin() as conn:
-        conn.execute(
-            text(
-                """
-                INSERT INTO tasks (task_id, task_type, status, params_json, owner_user_id)
-                VALUES (:task_id, :task_type, :status, :params_json, :owner_user_id)
-                ON DUPLICATE KEY UPDATE
-                  status=VALUES(status),
-                  params_json=VALUES(params_json),
-                  owner_user_id=VALUES(owner_user_id),
-                  updated_at=CURRENT_TIMESTAMP
-                """
-            ),
-            {
-                "task_id": task_id,
-                "task_type": "simulation-run",
-                "status": "QUEUED",
-                "params_json": json.dumps(params),
-                "owner_user_id": owner_user_id,
-            },
-        )
+    _insert_queued_task(task_id, "simulation-run", params, owner_user_id)
     record_task_queued(task_id, "simulation-run", params)
     try:
         celery_task.apply_async(args=[n, steps], task_id=task_id)
     except Exception as exc:
-        with get_engine().begin() as conn:
-            conn.execute(
-                text(
-                    """
-                    UPDATE tasks
-                    SET status='FAILURE', error_text=:error_text
-                    WHERE task_id=:task_id
-                    """
-                ),
-                {"task_id": task_id, "error_text": str(exc)},
-            )
-        record_task_failure(task_id, "simulation-run", str(exc))
+        _mark_task_enqueue_failure(task_id, "simulation-run", str(exc))
+        raise
+    return {"task_id": task_id}
+
+
+def create_pcmci_causal_task(params: dict[str, Any], celery_task, owner_user_id: int | None = None) -> dict:
+    task_id = str(uuid4())
+    safe_params = dict(params)
+    _insert_queued_task(task_id, "pcmci-causal", safe_params, owner_user_id)
+    record_task_queued(task_id, "pcmci-causal", safe_params)
+    try:
+        celery_task.apply_async(args=[safe_params], task_id=task_id)
+    except Exception as exc:
+        _mark_task_enqueue_failure(task_id, "pcmci-causal", str(exc))
+        raise
+    return {"task_id": task_id}
+
+
+def create_mrnmr_steady_task(params: dict[str, Any], celery_task, owner_user_id: int | None = None) -> dict:
+    task_id = str(uuid4())
+    safe_params = dict(params)
+    _insert_queued_task(task_id, "mrnmr-steady", safe_params, owner_user_id)
+    record_task_queued(task_id, "mrnmr-steady", safe_params)
+    try:
+        celery_task.apply_async(args=[safe_params], task_id=task_id)
+    except Exception as exc:
+        _mark_task_enqueue_failure(task_id, "mrnmr-steady", str(exc))
+        raise
+    return {"task_id": task_id}
+
+
+def create_delta_t_null_task(params: dict[str, Any], celery_task, owner_user_id: int | None = None) -> dict:
+    task_id = str(uuid4())
+    safe_params = dict(params)
+    _insert_queued_task(task_id, "deltaT-null", safe_params, owner_user_id)
+    record_task_queued(task_id, "deltaT-null", safe_params)
+    try:
+        celery_task.apply_async(args=[safe_params], task_id=task_id)
+    except Exception as exc:
+        _mark_task_enqueue_failure(task_id, "deltaT-null", str(exc))
         raise
     return {"task_id": task_id}
 
@@ -199,6 +213,21 @@ def retry_task_payload(task_id: str, celery_task_map: dict[str, Any], current_us
             task,
             owner_user_id=row.get("owner_user_id"),
         )
+    elif task_type == "pcmci-causal":
+        task = celery_task_map.get("pcmci-causal")
+        if task is None:
+            return {"ok": False, "reason": "TASK_TYPE_UNSUPPORTED", "task_id": task_id}
+        created = create_pcmci_causal_task(params, task, owner_user_id=row.get("owner_user_id"))
+    elif task_type == "mrnmr-steady":
+        task = celery_task_map.get("mrnmr-steady")
+        if task is None:
+            return {"ok": False, "reason": "TASK_TYPE_UNSUPPORTED", "task_id": task_id}
+        created = create_mrnmr_steady_task(params, task, owner_user_id=row.get("owner_user_id"))
+    elif task_type == "deltaT-null":
+        task = celery_task_map.get("deltaT-null")
+        if task is None:
+            return {"ok": False, "reason": "TASK_TYPE_UNSUPPORTED", "task_id": task_id}
+        created = create_delta_t_null_task(params, task, owner_user_id=row.get("owner_user_id"))
     else:
         return {"ok": False, "reason": "TASK_TYPE_UNSUPPORTED", "task_id": task_id}
 
@@ -248,6 +277,15 @@ def _task_display_name(task_type: str, params: Any) -> str:
         n = params.get("n", "?")
         steps = params.get("steps", "?")
         return f"simulation-run: n={n} steps={steps}"
+    if task_type == "pcmci-causal" and isinstance(params, dict):
+        word = str(params.get("word", "")).strip() or "word"
+        return f"pcmci-causal: {word}"
+    if task_type == "mrnmr-steady" and isinstance(params, dict):
+        word = str(params.get("word", "")).strip() or "word"
+        return f"mrnmr-steady: {word}"
+    if task_type == "deltaT-null" and isinstance(params, dict):
+        word = str(params.get("word", "")).strip() or "word"
+        return f"deltaT-null: {word}"
     return task_type
 
 
