@@ -2,6 +2,7 @@ import hashlib
 import math
 import random
 from datetime import date, timedelta
+from typing import Any
 
 from ..db.data_sources_repo import ensure_data_source
 from ..db.tasks_repo import get_task_owner
@@ -180,3 +181,73 @@ def bulk_delete_series_payload(series_ids: list[int], current_user: dict | None 
             skipped.append({"series_id": str(sid), "reason": "NOT_FOUND"})
 
     return {"requested": len(safe_ids), "deleted": allowed, "skipped": skipped}
+
+
+def persist_word_analysis_external_series(
+    task_id: str,
+    word: str,
+    payload: dict[str, Any],
+):
+    owner_user_id = get_task_owner(task_id)
+    source_name = "GBNC" if str(payload.get("source", "")).upper() == "GBNC" else "stub_local"
+    source_id = ensure_data_source(name=source_name, granularity="year")
+    canonical = (word or "word").strip().lower()
+    term_id = ensure_term(canonical=canonical, category="custom", language="en", owner_user_id=owner_user_id)
+
+    series_rows = payload.get("series") or []
+    if not series_rows:
+        series_rows = [{"variant": canonical, "points": []}]
+
+    total_points = 0
+    variants: list[str] = []
+    for item in series_rows:
+        variant = str(item.get("variant") or canonical).strip().lower() or canonical
+        points_raw = item.get("points") or []
+        variants.append(variant)
+        variant_id = None if variant == canonical else ensure_variant(term_id, variant, owner_user_id=owner_user_id)
+
+        if points_raw:
+            years = [int(p.get("year")) for p in points_raw if p.get("year") is not None]
+            window_start = date(min(years), 1, 1)
+            window_end = date(max(years), 1, 1)
+        else:
+            now_year = date.today().year
+            window_start = date(now_year, 1, 1)
+            window_end = date(now_year, 1, 1)
+
+        series_id = create_series(
+            term_id=term_id,
+            variant_id=variant_id,
+            source_id=source_id,
+            granularity="year",
+            window_start=window_start,
+            window_end=window_end,
+            units=str(payload.get("unit") or "relative_frequency"),
+            meta={
+                "task_id": task_id,
+                "task_type": "word-analysis",
+                "canonical": canonical,
+                "variant": variant,
+                "source": payload.get("source"),
+                "warnings": payload.get("warnings") or [],
+                "error_reason": payload.get("error_reason"),
+            },
+            owner_user_id=owner_user_id,
+        )
+        points = []
+        for point in points_raw:
+            year = point.get("year")
+            if year is None:
+                continue
+            value = float(point.get("value") or 0.0)
+            points.append({"t": date(int(year), 1, 1), "value": value})
+        total_points += len(points)
+        if points:
+            insert_series_points(series_id, points)
+
+    return {
+        "source": payload.get("source"),
+        "series_count": len(series_rows),
+        "point_count": total_points,
+        "variants": variants,
+    }

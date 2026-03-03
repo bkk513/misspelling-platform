@@ -38,15 +38,43 @@ def health_extended():
 
 
 @router.post("/api/tasks/word-analysis")
-def create_task(word: str, current_user=Depends(get_optional_user)):
+def create_task(
+    word: str,
+    start_year: int = 1900,
+    end_year: int = 2019,
+    smoothing: int = 3,
+    corpus: str = "eng_2019",
+    variants: str | None = None,
+    current_user=Depends(get_optional_user),
+):
     owner_user_id = int(current_user["id"]) if current_user else None
-    result = create_word_analysis_task(word, demo_analysis, owner_user_id=owner_user_id)
+    selected_variants = [v.strip().lower() for v in str(variants or "").split(",") if v.strip()]
+    result = create_word_analysis_task(
+        word,
+        demo_analysis,
+        owner_user_id=owner_user_id,
+        extra_params={
+            "start_year": int(start_year),
+            "end_year": int(end_year),
+            "smoothing": int(smoothing),
+            "corpus": corpus,
+            "variants": selected_variants,
+        },
+    )
     insert_audit_log(
         action="TASK_CREATE",
         actor_user_id=owner_user_id,
         target_type="task",
         target_id=result["task_id"],
-        meta={"task_type": "word-analysis", "word": word},
+        meta={
+            "task_type": "word-analysis",
+            "word": word,
+            "start_year": start_year,
+            "end_year": end_year,
+            "smoothing": smoothing,
+            "corpus": corpus,
+            "variants_count": len(selected_variants),
+        },
     )
     return result
 

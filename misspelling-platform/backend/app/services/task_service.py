@@ -54,9 +54,16 @@ def _scope_clause(current_user: dict | None, scope: str | None) -> tuple[str, di
     return "owner_user_id = :owner_user_id", {"owner_user_id": user_id}
 
 
-def create_word_analysis_task(word: str, celery_task, owner_user_id: int | None = None) -> dict:
+def create_word_analysis_task(
+    word: str,
+    celery_task,
+    owner_user_id: int | None = None,
+    extra_params: dict[str, Any] | None = None,
+) -> dict:
     task_id = str(uuid4())
     params = {"word": word}
+    if extra_params:
+        params.update(extra_params)
 
     with get_engine().begin() as conn:
         conn.execute(
@@ -81,7 +88,7 @@ def create_word_analysis_task(word: str, celery_task, owner_user_id: int | None 
         )
     record_task_queued(task_id, "word-analysis", params)
     try:
-        celery_task.apply_async(args=[word], task_id=task_id)
+        celery_task.apply_async(args=[params], task_id=task_id)
     except Exception as exc:
         with get_engine().begin() as conn:
             conn.execute(
@@ -175,7 +182,13 @@ def retry_task_payload(task_id: str, celery_task_map: dict[str, Any], current_us
         task = celery_task_map.get("word-analysis")
         if task is None:
             return {"ok": False, "reason": "TASK_TYPE_UNSUPPORTED", "task_id": task_id}
-        created = create_word_analysis_task(str(params.get("word", "demo")), task, owner_user_id=row.get("owner_user_id"))
+        extra = {k: v for k, v in params.items() if k != "word"}
+        created = create_word_analysis_task(
+            str(params.get("word", "demo")),
+            task,
+            owner_user_id=row.get("owner_user_id"),
+            extra_params=extra,
+        )
     elif task_type == "simulation-run":
         task = celery_task_map.get("simulation-run")
         if task is None:
