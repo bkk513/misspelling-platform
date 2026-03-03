@@ -36,6 +36,7 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
   const [ticks, setTicks] = useState(0);
   const [probePngOk, setProbePngOk] = useState<boolean | null>(null);
   const [probeCsvOk, setProbeCsvOk] = useState<boolean | null>(null);
+  const [probeJsonOk, setProbeJsonOk] = useState<boolean | null>(null);
   const [tsInfo, setTsInfo] = useState<string>("Loading...");
   const [tsVariants, setTsVariants] = useState<string[]>([]);
   const [tsSeriesMap, setTsSeriesMap] = useState<Record<string, Array<{ time: string; value: number }>>>({});
@@ -155,11 +156,15 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
     const state = (task?.state || "").toUpperCase();
     if (state !== "SUCCESS") {
       setProbeCsvOk(null);
+      setProbeJsonOk(null);
       return;
     }
     fetch(api.fileUrl(taskId, "result.csv"))
       .then((r) => setProbeCsvOk(r.ok))
       .catch(() => setProbeCsvOk(false));
+    fetch(api.fileUrl(taskId, "result.json"))
+      .then((r) => setProbeJsonOk(r.ok))
+      .catch(() => setProbeJsonOk(false));
   }, [task?.state, taskId]);
 
   useEffect(() => {
@@ -172,10 +177,18 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
   }, [task?.state, taskId, tsPointTotal]);
 
   const csvUrl = api.fileUrl(taskId, "result.csv");
+  const jsonUrl = api.fileUrl(taskId, "result.json");
   const pngUrl = api.fileUrl(taskId, "preview.png");
   const resultFiles = asObject(taskObj?.files);
   const resultPreviewRows = Array.isArray(taskObj?.preview) ? taskObj?.preview : [];
   const provenance = asObject(taskObj?.provenance);
+  const algoSummary = asObject(taskObj?.summary);
+  const algoArtifacts = asObject(taskObj?.artifacts);
+  const algoWarnings = Array.isArray(taskObj?.warnings) ? taskObj?.warnings.map((v) => String(v)) : [];
+  const topEdges = Array.isArray(taskObj?.top_edges) ? taskObj?.top_edges : [];
+  const metricsPreview = Array.isArray(taskObj?.metrics_preview) ? taskObj?.metrics_preview : [];
+  const eventsPreview = Array.isArray(taskObj?.events_preview) ? taskObj?.events_preview : [];
+  const isAlgoTask = ["pcmci-causal", "mrnmr-steady", "deltaT-null"].includes(taskType);
 
   return (
     <div className="stack">
@@ -312,6 +325,12 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
           </span>
         </div>
         <div className="row-inline">
+          <a href={jsonUrl} target="_blank" rel="noreferrer">Download result.json</a>
+          <span className="muted">
+            {probeJsonOk === null ? "JSON status pending..." : probeJsonOk ? "JSON available (HTTP 200)" : "JSON not available (404/5xx)"}
+          </span>
+        </div>
+        <div className="row-inline">
           <a href={pngUrl} target="_blank" rel="noreferrer">Download preview.png</a>
           <span className="muted">
             {probePngOk === null ? "PNG status pending..." : probePngOk ? "PNG available (HTTP 200)" : "PNG not available (404/5xx)"}
@@ -322,16 +341,18 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
             provenance: source={String(provenance.source || "-")} corpus={String(provenance.corpus || "-")} smoothing={String(provenance.smoothing || "-")} points={String(provenance.points_count || "-")}
           </div>
         )}
-        <div className="panel" style={{ marginTop: 12, background: "#fafafa" }}>
-          <div className="muted" style={{ marginBottom: 8 }}>preview.png (simulation-run)</div>
-          <img
-            src={pngUrl}
-            alt="preview artifact"
-            style={{ maxWidth: "100%", border: "1px solid #e5e7eb", borderRadius: 6 }}
-            onLoad={() => setProbePngOk(true)}
-            onError={() => setProbePngOk(false)}
-          />
-        </div>
+        {taskType === "simulation-run" && (
+          <div className="panel" style={{ marginTop: 12, background: "#fafafa" }}>
+            <div className="muted" style={{ marginBottom: 8 }}>preview.png (simulation-run)</div>
+            <img
+              src={pngUrl}
+              alt="preview artifact"
+              style={{ maxWidth: "100%", border: "1px solid #e5e7eb", borderRadius: 6 }}
+              onLoad={() => setProbePngOk(true)}
+              onError={() => setProbePngOk(false)}
+            />
+          </div>
+        )}
         {resultFiles && <div className="muted" style={{ marginTop: 8 }}>Result files payload: {JSON.stringify(resultFiles)}</div>}
         {resultPreviewRows.length > 0 && (
           <div className="muted" style={{ marginTop: 8 }}>
@@ -339,6 +360,79 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
           </div>
         )}
       </section>
+
+      {isAlgoTask && (
+        <section className="panel">
+          <h3 style={{ marginTop: 0 }}>Algorithm Summary</h3>
+          <div className="row-inline">
+            <span className="muted">task_type={taskType}</span>
+            <span className="muted">mode={String(provenance?.mode || "-")}</span>
+            <span className="muted">dataset_source={String(provenance?.dataset_source || "-")}</span>
+          </div>
+          {algoSummary && (
+            <pre className="pre-block" style={{ marginTop: 8 }}>{JSON.stringify(algoSummary, null, 2)}</pre>
+          )}
+          {algoArtifacts && (
+            <pre className="pre-block" style={{ marginTop: 8 }}>{JSON.stringify(algoArtifacts, null, 2)}</pre>
+          )}
+          {algoWarnings.length > 0 && (
+            <div className="error-text" style={{ marginTop: 8 }}>warnings: {algoWarnings.join("; ")}</div>
+          )}
+
+          {taskType === "pcmci-causal" && topEdges.length > 0 && (
+            <div className="table-wrap" style={{ marginTop: 10 }}>
+              <table className="simple-table">
+                <thead><tr><th>source</th><th>target</th><th>lag</th><th>weight</th><th>method</th></tr></thead>
+                <tbody>
+                  {topEdges.slice(0, 20).map((row, idx) => (
+                    <tr key={`edge-${idx}`}>
+                      <td>{String((row as Record<string, unknown>).source ?? "-")}</td>
+                      <td>{String((row as Record<string, unknown>).target ?? "-")}</td>
+                      <td>{String((row as Record<string, unknown>).lag ?? "-")}</td>
+                      <td>{String((row as Record<string, unknown>).weight ?? "-")}</td>
+                      <td>{String((row as Record<string, unknown>).method ?? "-")}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {taskType === "mrnmr-steady" && metricsPreview.length > 0 && (
+            <div className="table-wrap" style={{ marginTop: 10 }}>
+              <table className="simple-table">
+                <thead><tr><th>year</th><th>MR</th><th>NMR</th><th>density</th></tr></thead>
+                <tbody>
+                  {metricsPreview.slice(0, 20).map((row, idx) => (
+                    <tr key={`mrnmr-${idx}`}>
+                      <td>{String((row as Record<string, unknown>).year ?? "-")}</td>
+                      <td>{String((row as Record<string, unknown>).MR ?? "-")}</td>
+                      <td>{String((row as Record<string, unknown>).NMR ?? "-")}</td>
+                      <td>{String((row as Record<string, unknown>).density ?? "-")}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {taskType === "deltaT-null" && eventsPreview.length > 0 && (
+            <div className="table-wrap" style={{ marginTop: 10 }}>
+              <table className="simple-table">
+                <thead><tr><th>year</th><th>index</th></tr></thead>
+                <tbody>
+                  {eventsPreview.slice(0, 20).map((row, idx) => (
+                    <tr key={`deltat-${idx}`}>
+                      <td>{String((row as Record<string, unknown>).year ?? "-")}</td>
+                      <td>{String((row as Record<string, unknown>).index ?? "-")}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+      )}
 
       <section className="panel">
         <h3 style={{ marginTop: 0 }}>Time Series</h3>
