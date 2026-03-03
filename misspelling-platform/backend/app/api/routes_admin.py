@@ -9,6 +9,7 @@ from ..db.core import get_engine
 from ..db.data_sources_repo import list_data_sources
 from ..db.users_repo import create_user, get_user_by_id, list_users, update_user_active, update_user_password
 from ..services.auth_service import hash_password
+from ..services.diagnostics_service import get_admin_diagnostics_payload
 from .auth_deps import require_admin
 
 router = APIRouter()
@@ -145,6 +146,12 @@ def admin_settings(current=Depends(require_admin)):
         "gbnc_enabled": True,
         "admin_token_compat": False,
     }
+
+
+@router.get("/api/admin/diagnostics")
+def admin_diagnostics(current=Depends(require_admin)):
+    payload = get_admin_diagnostics_payload()
+    return payload
 
 
 @router.post("/api/admin/purge")

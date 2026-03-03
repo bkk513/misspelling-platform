@@ -24,6 +24,20 @@ def list_audit_logs(limit: int = 100):
         )
 
 
+def list_recent_audit_logs(limit: int = 50, action_prefix: str | None = None):
+    sql = """
+        SELECT id, actor_user_id, action, target_type, target_id, meta_json, created_at
+        FROM audit_logs
+    """
+    params: dict[str, object] = {"limit": limit}
+    if action_prefix:
+        sql += " WHERE action LIKE :action_prefix"
+        params["action_prefix"] = f"{action_prefix}%"
+    sql += " ORDER BY id DESC LIMIT :limit"
+    with get_engine().begin() as conn:
+        return conn.execute(text(sql), params).mappings().all()
+
+
 def insert_audit_log(
     action: str,
     actor_user_id: int | None = None,

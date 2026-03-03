@@ -1,12 +1,10 @@
-import os
-
-import redis
 from fastapi import APIRouter, Depends
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from .auth_deps import get_optional_user
 from ..db.core import check_db
+from ..services.diagnostics_service import get_extended_health_payload
 from ..services.task_service import (
     build_output_path,
     bulk_delete_task_payload,
@@ -34,28 +32,7 @@ def health():
 
 @router.get("/api/health/extended")
 def health_extended():
-    warnings: list[str] = []
-    db_ok = check_db()
-    redis_url = os.getenv("REDIS_URL", "redis://redis:6379/0")
-    redis_ok = False
-    try:
-        client = redis.from_url(redis_url, socket_timeout=2, socket_connect_timeout=2, decode_responses=True)
-        redis_ok = bool(client.ping())
-    except Exception:
-        warnings.append("redis_unreachable")
-
-    llm_enabled = bool((os.getenv("DASHSCOPE_API_KEY") or os.getenv("BAILIAN_API_KEY") or "").strip())
-    if not llm_enabled:
-        warnings.append("llm_key_missing")
-    gbnc_enabled = True
-    return {
-        "status": "ok" if db_ok else "degraded",
-        "db": db_ok,
-        "redis": redis_ok,
-        "llm_enabled": llm_enabled,
-        "gbnc_enabled": gbnc_enabled,
-        "warnings": warnings,
-    }
+    return get_extended_health_payload()
 
 
 @router.post("/api/tasks/word-analysis")
