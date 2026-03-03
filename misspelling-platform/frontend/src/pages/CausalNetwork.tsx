@@ -29,6 +29,15 @@ export function CausalNetworkPage() {
   const [busy, setBusy] = useState(false);
   const [latestTaskId, setLatestTaskId] = useState("");
   const [edges, setEdges] = useState<Array<Record<string, unknown>>>([]);
+  const edgeChartRows = [...edges]
+    .map((row) => ({
+      source: String((row as Record<string, unknown>).source ?? "-"),
+      target: String((row as Record<string, unknown>).target ?? "-"),
+      weight: Number((row as Record<string, unknown>).weight ?? 0) || 0
+    }))
+    .sort((a, b) => Math.abs(b.weight) - Math.abs(a.weight))
+    .slice(0, 12);
+  const edgeMax = Math.max(1e-9, ...edgeChartRows.map((row) => Math.abs(row.weight)));
 
   const run = async () => {
     setBusy(true);
@@ -93,6 +102,28 @@ export function CausalNetworkPage() {
       </Card>
 
       <Card title="Top Edges Preview">
+        {edgeChartRows.length > 0 && (
+          <div className="panel" style={{ marginBottom: 12, background: "#fafafa" }}>
+            <div className="muted" style={{ marginBottom: 8 }}>Top Edge Weights (|weight|)</div>
+            {edgeChartRows.map((row, idx) => (
+              <div key={`edge-chart-${idx}`} style={{ marginBottom: 6 }}>
+                <div className="row-inline" style={{ justifyContent: "space-between" }}>
+                  <span>{row.source} → {row.target}</span>
+                  <span>{row.weight.toFixed(4)}</span>
+                </div>
+                <div style={{ background: "#e5e7eb", height: 8, borderRadius: 4, overflow: "hidden" }}>
+                  <div
+                    style={{
+                      width: `${Math.max(2, (Math.abs(row.weight) / edgeMax) * 100)}%`,
+                      height: 8,
+                      background: row.weight >= 0 ? "#2563eb" : "#dc2626"
+                    }}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
         <Table
           rowKey={(_, idx) => String(idx)}
           dataSource={edges}

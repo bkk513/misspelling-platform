@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+﻿import { useEffect, useMemo, useRef, useState } from "react";
 import { message } from "antd";
 import { goToTask } from "../app/router";
 import { LineChart } from "../components/LineChart";
@@ -26,6 +26,11 @@ function statusTone(state?: string) {
   return "#6b7280";
 }
 
+function toNumber(value: unknown, fallback = 0) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
 export function TaskDetailPage({ taskId }: { taskId: string }) {
   const [task, setTask] = useState<TaskDetailResponse | null>(null);
   const [taskErr, setTaskErr] = useState("");
@@ -44,6 +49,11 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
   const [tsLoadedAt, setTsLoadedAt] = useState<string>("-");
   const [lastRefreshAt, setLastRefreshAt] = useState<string>("-");
   const [actionBusy, setActionBusy] = useState<"" | "retry" | "report">("");
+  const [algoData, setAlgoData] = useState<{
+    edges: Array<Record<string, unknown>>;
+    metrics: Array<Record<string, unknown>>;
+    events: Array<Record<string, unknown>>;
+  }>({ edges: [], metrics: [], events: [] });
   const prevTaskStateRef = useRef<string>("");
 
   const taskObj = useMemo(() => asObject(task?.result), [task?.result]);
@@ -56,7 +66,8 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
         return {
           event_type: String(row.event_type || "-"),
           message: String(row.message || ""),
-          created_at: row.created_at ? String(row.created_at) : "-"
+          created_at: row.created_at ? String(row.created_at) : "-",
+          meta: row.meta
         };
       });
   }, [events]);
@@ -178,6 +189,8 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
     if (state !== "SUCCESS") {
       setProbeCsvOk(null);
       setProbeJsonOk(null);
+      setProbePngOk(null);
+      setAlgoData({ edges: [], metrics: [], events: [] });
       return;
     }
     fetch(api.fileUrl(taskId, "result.csv"))
@@ -186,7 +199,40 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
     fetch(api.fileUrl(taskId, "result.json"))
       .then((r) => setProbeJsonOk(r.ok))
       .catch(() => setProbeJsonOk(false));
+    fetch(api.fileUrl(taskId, "preview.png"))
+      .then((r) => setProbePngOk(r.ok))
+      .catch(() => setProbePngOk(false));
   }, [task?.state, taskId]);
+
+  useEffect(() => {
+    const state = (task?.state || "").toUpperCase();
+    if (state !== "SUCCESS") {
+      return;
+    }
+    const knownType = ["pcmci-causal", "mrnmr-steady", "deltaT-null"].includes(taskType) ? taskType : "";
+    if (!knownType) {
+      return;
+    }
+    const url = api.fileUrl(taskId, "result.json");
+    fetch(url)
+      .then(async (resp) => {
+        if (!resp.ok) {
+          throw new Error(`result.json HTTP ${resp.status}`);
+        }
+        return resp.json();
+      })
+      .then((payload) => {
+        const obj = asObject(payload);
+        setAlgoData({
+          edges: Array.isArray(obj?.edges) ? (obj?.edges as Array<Record<string, unknown>>) : [],
+          metrics: Array.isArray(obj?.metrics) ? (obj?.metrics as Array<Record<string, unknown>>) : [],
+          events: Array.isArray(obj?.events) ? (obj?.events as Array<Record<string, unknown>>) : []
+        });
+      })
+      .catch(() => {
+        setAlgoData({ edges: [], metrics: [], events: [] });
+      });
+  }, [task?.state, taskId, taskType]);
 
   useEffect(() => {
     const currentState = String(task?.state || "").toUpperCase();
@@ -209,6 +255,31 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
   const topEdges = Array.isArray(taskObj?.top_edges) ? taskObj?.top_edges : [];
   const metricsPreview = Array.isArray(taskObj?.metrics_preview) ? taskObj?.metrics_preview : [];
   const eventsPreview = Array.isArray(taskObj?.events_preview) ? taskObj?.events_preview : [];
+  const edgesData = algoData.edges.length > 0 ? algoData.edges : topEdges;
+  const metricsData = algoData.metrics.length > 0 ? algoData.metrics : metricsPreview;
+  const deltaEventsData = algoData.events.length > 0 ? algoData.events : eventsPreview;
+  const mrSeries = metricsData
+    .map((row) => ({
+      time: String((row as Record<string, unknown>).year ?? ""),
+      mr: toNumber((row as Record<string, unknown>).MR, NaN),
+      nmr: toNumber((row as Record<string, unknown>).NMR, NaN)
+    }))
+    .filter((row) => row.time && Number.isFinite(row.mr) && Number.isFinite(row.nmr));
+  const deltaSeries = deltaEventsData
+    .map((row) => ({
+      time: String((row as Record<string, unknown>).year ?? ""),
+      value: toNumber((row as Record<string, unknown>).index, NaN)
+    }))
+    .filter((row) => row.time && Number.isFinite(row.value));
+  const edgeChartRows = [...edgesData]
+    .map((row) => ({
+      source: String((row as Record<string, unknown>).source ?? "-"),
+      target: String((row as Record<string, unknown>).target ?? "-"),
+      weight: toNumber((row as Record<string, unknown>).weight, 0)
+    }))
+    .sort((a, b) => Math.abs(b.weight) - Math.abs(a.weight))
+    .slice(0, 12);
+  const edgeMax = Math.max(1e-9, ...edgeChartRows.map((row) => Math.abs(row.weight)));
   const isAlgoTask = ["pcmci-causal", "mrnmr-steady", "deltaT-null"].includes(taskType);
 
   return (
@@ -362,9 +433,9 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
             provenance: source={String(provenance.source || "-")} corpus={String(provenance.corpus || "-")} smoothing={String(provenance.smoothing || "-")} points={String(provenance.points_count || "-")}
           </div>
         )}
-        {taskType === "simulation-run" && (
+        {(taskType === "simulation-run" || isAlgoTask) && probePngOk && (
           <div className="panel" style={{ marginTop: 12, background: "#fafafa" }}>
-            <div className="muted" style={{ marginBottom: 8 }}>preview.png (simulation-run)</div>
+            <div className="muted" style={{ marginBottom: 8 }}>preview.png ({taskType})</div>
             <img
               src={pngUrl}
               alt="preview artifact"
@@ -400,12 +471,35 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
             <div className="error-text" style={{ marginTop: 8 }}>warnings: {algoWarnings.join("; ")}</div>
           )}
 
-          {taskType === "pcmci-causal" && topEdges.length > 0 && (
+          {taskType === "pcmci-causal" && edgeChartRows.length > 0 && (
+            <div className="panel" style={{ marginTop: 10, background: "#fafafa" }}>
+              <div className="muted" style={{ marginBottom: 8 }}>Top Edge Weights (|weight|)</div>
+              {edgeChartRows.map((row, idx) => (
+                <div key={`edge-chart-${idx}`} style={{ marginBottom: 6 }}>
+                  <div className="row-inline" style={{ justifyContent: "space-between" }}>
+                    <span>{row.source} -&gt; {row.target}</span>
+                    <span>{row.weight.toFixed(4)}</span>
+                  </div>
+                  <div style={{ background: "#e5e7eb", height: 8, borderRadius: 4, overflow: "hidden" }}>
+                    <div
+                      style={{
+                        width: `${Math.max(2, (Math.abs(row.weight) / edgeMax) * 100)}%`,
+                        height: 8,
+                        background: row.weight >= 0 ? "#2563eb" : "#dc2626"
+                      }}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {taskType === "pcmci-causal" && edgesData.length > 0 && (
             <div className="table-wrap" style={{ marginTop: 10 }}>
               <table className="simple-table">
                 <thead><tr><th>source</th><th>target</th><th>lag</th><th>weight</th><th>method</th></tr></thead>
                 <tbody>
-                  {topEdges.slice(0, 20).map((row, idx) => (
+                  {edgesData.slice(0, 20).map((row, idx) => (
                     <tr key={`edge-${idx}`}>
                       <td>{String((row as Record<string, unknown>).source ?? "-")}</td>
                       <td>{String((row as Record<string, unknown>).target ?? "-")}</td>
@@ -419,12 +513,22 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
             </div>
           )}
 
-          {taskType === "mrnmr-steady" && metricsPreview.length > 0 && (
+          {taskType === "mrnmr-steady" && mrSeries.length > 0 && (
+            <LineChart
+              title="MR / NMR Curves"
+              series={[
+                { name: "MR", points: mrSeries.map((row) => ({ time: row.time, value: row.mr })) },
+                { name: "NMR", points: mrSeries.map((row) => ({ time: row.time, value: row.nmr })) }
+              ]}
+            />
+          )}
+
+          {taskType === "mrnmr-steady" && metricsData.length > 0 && (
             <div className="table-wrap" style={{ marginTop: 10 }}>
               <table className="simple-table">
                 <thead><tr><th>year</th><th>MR</th><th>NMR</th><th>density</th></tr></thead>
                 <tbody>
-                  {metricsPreview.slice(0, 20).map((row, idx) => (
+                  {metricsData.slice(0, 20).map((row, idx) => (
                     <tr key={`mrnmr-${idx}`}>
                       <td>{String((row as Record<string, unknown>).year ?? "-")}</td>
                       <td>{String((row as Record<string, unknown>).MR ?? "-")}</td>
@@ -437,12 +541,19 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
             </div>
           )}
 
-          {taskType === "deltaT-null" && eventsPreview.length > 0 && (
+          {taskType === "deltaT-null" && deltaSeries.length > 0 && (
+            <LineChart
+              title="DeltaT Event Indices by Year"
+              series={[{ name: "event_index", points: deltaSeries }]}
+            />
+          )}
+
+          {taskType === "deltaT-null" && deltaEventsData.length > 0 && (
             <div className="table-wrap" style={{ marginTop: 10 }}>
               <table className="simple-table">
                 <thead><tr><th>year</th><th>index</th></tr></thead>
                 <tbody>
-                  {eventsPreview.slice(0, 20).map((row, idx) => (
+                  {deltaEventsData.slice(0, 20).map((row, idx) => (
                     <tr key={`deltat-${idx}`}>
                       <td>{String((row as Record<string, unknown>).year ?? "-")}</td>
                       <td>{String((row as Record<string, unknown>).index ?? "-")}</td>
@@ -475,3 +586,4 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
     </div>
   );
 }
+
