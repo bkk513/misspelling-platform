@@ -55,6 +55,26 @@ def write_word_analysis_csv(rows: list[dict], out_csv: Path) -> None:
         w.writerows(rows)
 
 
+def write_rows_csv(rows: list[dict], out_csv: Path, fieldnames: list[str] | None = None) -> None:
+    if not rows:
+        names = fieldnames or []
+        with out_csv.open("w", newline="", encoding="utf-8") as f:
+            w = csv.DictWriter(f, fieldnames=names)
+            if names:
+                w.writeheader()
+        return
+    names = fieldnames or list(rows[0].keys())
+    with out_csv.open("w", newline="", encoding="utf-8") as f:
+        w = csv.DictWriter(f, fieldnames=names)
+        w.writeheader()
+        w.writerows(rows)
+
+
+def write_json_file(payload: dict, out_json: Path) -> None:
+    with out_json.open("w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False, indent=2)
+
+
 def register_artifact(
     task_id: str,
     kind: str,
