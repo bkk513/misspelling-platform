@@ -4,6 +4,8 @@ export type AppRouteKey =
   | "task-detail"
   | "word-analysis"
   | "variants"
+  | "projects"
+  | "analytics"
   | "time-series"
   | "artifacts"
   | "reports"
@@ -42,6 +44,8 @@ export function parseRoute(pathname: string): Route {
       "tasks",
       "word-analysis",
       "variants",
+      "projects",
+      "analytics",
       "time-series",
       "artifacts",
       "reports",

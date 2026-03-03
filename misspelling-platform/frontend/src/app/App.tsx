@@ -11,11 +11,13 @@ import { AdminUsersPage } from "../pages/AdminUsers";
 import { HomePage } from "../pages/Home";
 import { LoginPage } from "../pages/Login";
 import { PlaceholderPage } from "../pages/Placeholder";
+import { ProjectManagerPage } from "../pages/ProjectManager";
 import { ReportCenterPage } from "../pages/ReportCenter";
 import { ResearcherSettingsPage } from "../pages/ResearcherSettings";
 import { TaskCenterPage } from "../pages/TaskCenter";
 import { TaskDetailPage } from "../pages/TaskDetail";
 import { TimeSeriesExplorerPage } from "../pages/TimeSeriesExplorer";
+import { AnalyticsCenterPage } from "../pages/AnalyticsCenter";
 import { VariantStudioPage } from "../pages/VariantStudio";
 import { WordAnalysisWorkbenchPage } from "../pages/WordAnalysisWorkbench";
 import { ArtifactLibraryPage } from "../pages/ArtifactLibrary";
@@ -37,6 +39,8 @@ const SESSION_KEY = "mp-session";
 const researcherNotes: Record<string, string> = {
   "word-analysis": "GBNC parameter controls and variant selector will be implemented in Commit 3.",
   variants: "Variant cache and manual editing workflow will be implemented in Commit 3.",
+  projects: "Project manager binds terms/tasks for meso-level analytics and report export.",
+  analytics: "Baseline clustering and summary analytics are persisted to analytics_runs.",
   "time-series": "Series grid and chart interactions will be implemented in Commit 4.",
   artifacts: "Artifact list, preview and download shortcuts will be implemented in Commit 4.",
   reports: "Report draft flow will be implemented in Commit 6.",
@@ -227,6 +231,8 @@ export function App() {
   if (route.key === "task-detail" && route.taskId) content = <TaskDetailPage taskId={route.taskId} />;
   if (route.key === "word-analysis") content = <WordAnalysisWorkbenchPage />;
   if (route.key === "variants") content = <VariantStudioPage />;
+  if (route.key === "projects") content = <ProjectManagerPage />;
+  if (route.key === "analytics") content = <AnalyticsCenterPage />;
   if (route.key === "time-series") content = <TimeSeriesExplorerPage />;
   if (route.key === "artifacts") content = <ArtifactLibraryPage />;
   if (route.key === "reports") content = <ReportCenterPage />;

@@ -4,7 +4,9 @@ import {
   DashboardOutlined,
   FileSearchOutlined,
   FileTextOutlined,
+  FolderOpenOutlined,
   LineChartOutlined,
+  NodeIndexOutlined,
   SettingOutlined,
   TagsOutlined
 } from "@ant-design/icons";
@@ -24,6 +26,8 @@ const menuItems: MenuItem[] = [
   { key: "tasks", label: "Task Center", icon: <AppstoreOutlined /> },
   { key: "word-analysis", label: "Word Analysis", icon: <FileSearchOutlined /> },
   { key: "variants", label: "Variant Studio", icon: <TagsOutlined /> },
+  { key: "projects", label: "Project Manager", icon: <FolderOpenOutlined /> },
+  { key: "analytics", label: "Analytics Center", icon: <NodeIndexOutlined /> },
   { key: "time-series", label: "Time Series", icon: <LineChartOutlined /> },
   { key: "artifacts", label: "Artifact Library", icon: <BarChartOutlined /> },
   { key: "reports", label: "Report Center", icon: <FileTextOutlined /> },
