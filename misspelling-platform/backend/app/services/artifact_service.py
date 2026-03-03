@@ -3,6 +3,7 @@ import csv
 from pathlib import Path
 
 from ..db.task_artifacts_repo import list_artifacts, upsert_artifact
+from ..db.tasks_repo import get_task_owner
 
 OUTPUT_ROOT = Path("/app/outputs")
 
@@ -47,6 +48,13 @@ def write_simulation_preview_png(series: list[dict], out_png: Path) -> None:
     plt.close(fig)
 
 
+def write_word_analysis_csv(rows: list[dict], out_csv: Path) -> None:
+    with out_csv.open("w", newline="", encoding="utf-8") as f:
+        w = csv.DictWriter(f, fieldnames=["time", "variant", "value"])
+        w.writeheader()
+        w.writerows(rows)
+
+
 def register_artifact(
     task_id: str,
     kind: str,
@@ -55,6 +63,7 @@ def register_artifact(
     content_type: str | None = None,
 ) -> None:
     size = path.stat().st_size if path.exists() else None
+    owner_user_id = get_task_owner(task_id)
     meta = {}
     if content_type:
         meta["content_type"] = content_type
@@ -66,6 +75,7 @@ def register_artifact(
         filename=filename,
         path=str(path),
         meta_json=json.dumps(meta) if meta else None,
+        owner_user_id=owner_user_id,
     )
 
 
@@ -74,8 +84,12 @@ def register_simulation_artifacts(task_id: str, out_csv: Path, out_png: Path) ->
     register_artifact(task_id, "png", "preview.png", out_png, "image/png")
 
 
+def register_word_analysis_artifact(task_id: str, out_csv: Path) -> None:
+    register_artifact(task_id, "csv", "result.csv", out_csv, "text/csv")
+
+
 def list_task_artifacts_payload(task_id: str) -> dict:
-    rows = list_artifacts(task_id)
+    rows = list_artifacts(task_id, include_all=True)
     return {
         "task_id": task_id,
         "items": [

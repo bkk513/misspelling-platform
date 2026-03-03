@@ -1,13 +1,29 @@
 from fastapi import FastAPI
 
+from .api.routes_analytics import router as analytics_router
+from .api.routes_admin import router as admin_router
+from .api.routes_auth import router as auth_router
+from .api.routes_data import router as data_router
+from .api.routes_lexicon import router as lexicon_router
+from .api.routes_projects import router as projects_router
+from .api.routes_reports import router as reports_router
 from .api.routes_tasks import router as tasks_router
 from .api.routes_timeseries import router as timeseries_router
+from .services.auth_service import ensure_init_admin_from_env
 
 
 def create_app() -> FastAPI:
+    ensure_init_admin_from_env()
     app = FastAPI(title="Misspelling Platform API (MVP)")
+    app.include_router(auth_router)
+    app.include_router(admin_router)
     app.include_router(tasks_router)
+    app.include_router(data_router)
     app.include_router(timeseries_router)
+    app.include_router(lexicon_router)
+    app.include_router(projects_router)
+    app.include_router(analytics_router)
+    app.include_router(reports_router)
     return app
 
 

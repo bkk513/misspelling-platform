@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { message } from "antd";
 import { goToTask } from "../app/router";
 import { LineChart } from "../components/LineChart";
 import { api, describeApiError, type TaskDetailResponse, type TaskEventsResponse } from "../lib/api";
@@ -31,13 +32,18 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
   const [events, setEvents] = useState<TaskEventsResponse | null>(null);
   const [eventsInfo, setEventsInfo] = useState("");
   const [polling, setPolling] = useState(true);
+  const [pollInterval, setPollInterval] = useState(2000);
   const [ticks, setTicks] = useState(0);
   const [probePngOk, setProbePngOk] = useState<boolean | null>(null);
   const [probeCsvOk, setProbeCsvOk] = useState<boolean | null>(null);
   const [tsInfo, setTsInfo] = useState<string>("Loading...");
   const [tsVariants, setTsVariants] = useState<string[]>([]);
-  const [tsVariant, setTsVariant] = useState("correct");
-  const [tsPoints, setTsPoints] = useState<Array<{ time: string; value: number }>>([]);
+  const [tsSeriesMap, setTsSeriesMap] = useState<Record<string, Array<{ time: string; value: number }>>>({});
+  const [tsLoading, setTsLoading] = useState(false);
+  const [tsLoadedAt, setTsLoadedAt] = useState<string>("-");
+  const [lastRefreshAt, setLastRefreshAt] = useState<string>("-");
+  const [actionBusy, setActionBusy] = useState<"" | "retry" | "report">("");
+  const prevTaskStateRef = useRef<string>("");
 
   const taskObj = useMemo(() => asObject(task?.result), [task?.result]);
   const taskType = useMemo(() => {
@@ -47,13 +53,19 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
     return typeof t === "string" ? t : "-";
   }, [events]);
 
-  const refresh = async (resetTicks = false) => {
+  const tsPointTotal = useMemo(
+    () => Object.values(tsSeriesMap).reduce((sum, points) => sum + points.length, 0),
+    [tsSeriesMap]
+  );
+
+  const refresh = async (resetTicks = false, manual = false) => {
     if (resetTicks) setTicks(0);
     try {
       setTask(await api.getTask(taskId));
       setTaskErr("");
     } catch (e) {
       setTaskErr(describeApiError(e));
+      if (manual) message.error("Refresh failed.");
     }
     try {
       setEvents(await api.getTaskEvents(taskId));
@@ -68,6 +80,49 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
         setEventsInfo(msg);
       }
     }
+    setLastRefreshAt(new Date().toLocaleTimeString());
+    if (manual) message.success("Task state refreshed.");
+  };
+
+  const loadTimeSeries = async (manual = false) => {
+    setTsLoading(true);
+    try {
+      const meta = await api.getTimeSeriesMeta(taskId);
+      const variants = meta.variants?.length ? meta.variants : ["correct"];
+      const pointRows = await Promise.all(
+        variants.map(async (variant) => {
+          try {
+            const resp = await api.getTimeSeriesPoints(taskId, variant);
+            return { variant, items: resp.items ?? [] };
+          } catch {
+            return { variant, items: [] as Array<{ time: string; value: number }> };
+          }
+        })
+      );
+      const nextMap: Record<string, Array<{ time: string; value: number }>> = {};
+      for (const row of pointRows) {
+        nextMap[row.variant] = row.items;
+      }
+      setTsVariants(variants);
+      setTsSeriesMap(nextMap);
+      setTsInfo(
+        `source=${meta.source} word=${meta.word} granularity=${meta.granularity} variants=${variants.length} points=${meta.point_count}`
+      );
+      setTsLoadedAt(new Date().toLocaleTimeString());
+      if (manual) message.success("Time-series refreshed.");
+    } catch (e) {
+      const err = e as { status?: number };
+      setTsVariants([]);
+      setTsSeriesMap({});
+      setTsInfo(
+        err?.status === 404
+          ? "This task has no time-series data (optional module not enabled or data not written)."
+          : describeApiError(e)
+      );
+      if (manual) message.error("Time-series refresh failed.");
+    } finally {
+      setTsLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -76,23 +131,25 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
     setProbeCsvOk(null);
     setTsInfo("Loading...");
     setTsVariants([]);
-    setTsVariant("correct");
-    setTsPoints([]);
+    setTsSeriesMap({});
+    setTsLoadedAt("-");
+    prevTaskStateRef.current = "";
+    void loadTimeSeries(false);
   }, [taskId]);
 
   useEffect(() => {
     if (!polling) return;
-    if (ticks >= 30) return;
+    if (ticks >= Math.ceil(60000 / pollInterval)) return;
     const id = window.setTimeout(() => {
       void refresh();
       setTicks((t) => t + 1);
-    }, 2000);
+    }, pollInterval);
     return () => window.clearTimeout(id);
-  }, [polling, ticks, taskId]);
+  }, [polling, ticks, taskId, pollInterval]);
 
   useEffect(() => {
-    if (ticks >= 30) setPolling(false);
-  }, [ticks]);
+    if (ticks >= Math.ceil(60000 / pollInterval)) setPolling(false);
+  }, [ticks, pollInterval]);
 
   useEffect(() => {
     const state = (task?.state || "").toUpperCase();
@@ -106,52 +163,19 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
   }, [task?.state, taskId]);
 
   useEffect(() => {
-    let cancelled = false;
-    api.getTimeSeriesMeta(taskId)
-      .then((meta) => {
-        if (cancelled) return;
-        const variants = meta.variants?.length ? meta.variants : ["correct"];
-        setTsVariants(variants);
-        setTsVariant((v) => (variants.includes(v) ? v : variants[0]));
-        setTsInfo(`source=${meta.source} word=${meta.word} granularity=${meta.granularity} points=${meta.point_count}`);
-      })
-      .catch((e) => {
-        if (cancelled) return;
-        const err = e as { status?: number };
-        setTsVariants([]);
-        setTsPoints([]);
-        setTsInfo(
-          err?.status === 404
-            ? "This task has no time-series data (optional module not enabled or data not written)."
-            : describeApiError(e)
-        );
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [taskId]);
-
-  useEffect(() => {
-    if (!tsVariant || tsVariants.length === 0) return;
-    let cancelled = false;
-    api.getTimeSeriesPoints(taskId, tsVariant)
-      .then((resp) => {
-        if (!cancelled) setTsPoints(resp.items ?? []);
-      })
-      .catch((e) => {
-        if (cancelled) return;
-        setTsPoints([]);
-        setTsInfo(describeApiError(e));
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [taskId, tsVariant, tsVariants.length]);
+    const currentState = String(task?.state || "").toUpperCase();
+    const prevState = prevTaskStateRef.current;
+    prevTaskStateRef.current = currentState;
+    if (currentState === "SUCCESS" && (prevState !== "SUCCESS" || tsPointTotal === 0)) {
+      void loadTimeSeries(false);
+    }
+  }, [task?.state, taskId, tsPointTotal]);
 
   const csvUrl = api.fileUrl(taskId, "result.csv");
   const pngUrl = api.fileUrl(taskId, "preview.png");
   const resultFiles = asObject(taskObj?.files);
   const resultPreviewRows = Array.isArray(taskObj?.preview) ? taskObj?.preview : [];
+  const provenance = asObject(taskObj?.provenance);
 
   return (
     <div className="stack">
@@ -164,13 +188,81 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
           <div className="row-inline">
             <button onClick={() => navigator.clipboard?.writeText(taskId).catch(() => {})}>Copy TaskID</button>
             <button onClick={() => setPolling((v) => !v)}>{polling ? "Stop Auto Refresh" : "Resume Auto Refresh"}</button>
-            <button onClick={() => void refresh()}>Refresh Now</button>
+            <select
+              value={pollInterval}
+              onChange={(e) => {
+                const next = Number(e.target.value);
+                if (!Number.isFinite(next) || next <= 0) return;
+                setTicks(0);
+                setPollInterval(next);
+                setPolling(true);
+              }}
+            >
+              <option value={2000}>2s (demo)</option>
+              <option value={15000}>15s</option>
+              <option value={30000}>30s</option>
+              <option value={60000}>60s</option>
+            </select>
+            <button onClick={() => void refresh(false, true)}>Refresh Now</button>
+            <button
+              disabled={actionBusy === "retry"}
+              onClick={async () => {
+                setActionBusy("retry");
+                try {
+                  const resp = await api.retryTask(taskId);
+                  if (!resp.ok || !resp.task_id) {
+                    message.warning(resp.reason || "Retry rejected");
+                  } else {
+                    message.success(`Retry queued: ${resp.task_id}`);
+                    goToTask(resp.task_id);
+                  }
+                } catch (e) {
+                  message.error(describeApiError(e));
+                } finally {
+                  setActionBusy("");
+                }
+              }}
+            >
+              Retry Task
+            </button>
+            <button
+              disabled={actionBusy === "report"}
+              onClick={async () => {
+                setActionBusy("report");
+                try {
+                  const resp = await api.createTaskReport(taskId);
+                  message.success(`Report generated: ${resp.filename}`);
+                  window.open(resp.download_url, "_blank", "noopener,noreferrer");
+                } catch (e) {
+                  message.error(describeApiError(e));
+                } finally {
+                  setActionBusy("");
+                }
+              }}
+            >
+              Export Report
+            </button>
           </div>
         </div>
         <div className="row-inline">
           <span className="muted">Task Type: {taskType}</span>
           <span style={{ color: statusTone(task?.state), fontWeight: 600 }}>Status: {task?.state ?? "loading..."}</span>
-          <span className="muted">Polling: {polling ? `on (${ticks * 2}s)` : `off (${ticks >= 30 ? "auto-stopped at 60s" : "manual"})`}</span>
+          <span className="muted">
+            Polling:{" "}
+            {polling
+              ? `on (interval=${Math.round(pollInterval / 1000)}s, elapsed~${Math.round((ticks * pollInterval) / 1000)}s)`
+              : `off (${ticks >= Math.ceil(60000 / pollInterval) ? "auto-stopped at 60s" : "manual"})`}
+          </span>
+        </div>
+        <div className="row-inline">
+          <strong className="muted">Last refresh:</strong>
+          <span>{lastRefreshAt}</span>
+          <strong className="muted">Events:</strong>
+          <span>{events?.items?.length ?? 0}</span>
+          <strong className="muted">TS points:</strong>
+          <span>{tsPointTotal}</span>
+          <strong className="muted">TS loaded:</strong>
+          <span>{tsLoadedAt}</span>
         </div>
         {taskErr && <div className="error-text">{taskErr}</div>}
       </section>
@@ -225,6 +317,11 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
             {probePngOk === null ? "PNG status pending..." : probePngOk ? "PNG available (HTTP 200)" : "PNG not available (404/5xx)"}
           </span>
         </div>
+        {provenance && (
+          <div className="muted" style={{ marginTop: 8 }}>
+            provenance: source={String(provenance.source || "-")} corpus={String(provenance.corpus || "-")} smoothing={String(provenance.smoothing || "-")} points={String(provenance.points_count || "-")}
+          </div>
+        )}
         <div className="panel" style={{ marginTop: 12, background: "#fafafa" }}>
           <div className="muted" style={{ marginBottom: 8 }}>preview.png (simulation-run)</div>
           <img
@@ -246,18 +343,18 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
       <section className="panel">
         <h3 style={{ marginTop: 0 }}>Time Series</h3>
         <div className="muted" style={{ marginBottom: 10 }}>{tsInfo}</div>
+        <div className="row-inline">
+          <button onClick={() => void refresh(false, true)}>Refresh Task State</button>
+          <button onClick={() => void loadTimeSeries(true)} disabled={tsLoading}>
+            {tsLoading ? "Refreshing..." : "Refresh Time Series"}
+          </button>
+          <button onClick={() => goToTask(taskId)}>Reload Route</button>
+        </div>
         {tsVariants.length > 0 && (
-          <>
-            <div className="row-inline">
-              <label htmlFor="variant" className="muted">variant</label>
-              <select id="variant" value={tsVariant} onChange={(e) => setTsVariant(e.target.value)}>
-                {tsVariants.map((v) => <option key={v} value={v}>{v}</option>)}
-              </select>
-              <button onClick={() => void refresh()}>Refresh Task State</button>
-              <button onClick={() => goToTask(taskId)}>Reload Route</button>
-            </div>
-            <LineChart points={tsPoints} title={`Time Series (${tsVariant})`} />
-          </>
+          <LineChart
+            series={tsVariants.map((variant) => ({ name: variant, points: tsSeriesMap[variant] || [] }))}
+            title={`Time Series (${tsVariants.length} variants)`}
+          />
         )}
       </section>
     </div>

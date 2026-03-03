@@ -1,4 +1,3 @@
-# ===== compatibility layer for routes_tasks.py imports (M2) =====
 import json
 from pathlib import Path
 from typing import Any, Dict
@@ -15,36 +14,81 @@ OUTPUT_ROOT = Path("/app/outputs")
 def build_output_path(task_id: str, filename: str) -> Path:
     return OUTPUT_ROOT / task_id / filename
 
-def create_word_analysis_task(word: str, celery_task) -> dict:
-    """
-    Called by routes_tasks.py: create_word_analysis_task(word, demo_analysis)
-    1) enqueue celery task
-    2) persist QUEUED row into MySQL
-    3) return {"task_id": <id>}
-    """
+
+def _is_admin(current_user: dict | None) -> bool:
+    return bool(current_user and "admin" in set(current_user.get("roles") or []))
+
+
+def _owner_id(current_user: dict | None) -> int | None:
+    if not current_user:
+        return None
+    return int(current_user.get("id") or 0) or None
+
+
+def _can_access_owner(owner_user_id: int | None, current_user: dict | None) -> bool:
+    if _is_admin(current_user):
+        return True
+    user_id = _owner_id(current_user)
+    if user_id is None:
+        return owner_user_id is None
+    return owner_user_id == user_id
+
+
+def _scope_clause(current_user: dict | None, scope: str | None) -> tuple[str, dict[str, Any]]:
+    if _is_admin(current_user):
+        if scope == "all":
+            return "1=1", {}
+        if scope == "guest":
+            return "owner_user_id IS NULL", {}
+        if scope and scope.startswith("user:"):
+            try:
+                user_id = int(scope.split(":", 1)[1])
+            except Exception:
+                user_id = _owner_id(current_user)
+            return "owner_user_id = :owner_user_id", {"owner_user_id": user_id}
+        return "1=1", {}
+
+    user_id = _owner_id(current_user)
+    if user_id is None:
+        return "owner_user_id IS NULL", {}
+    return "owner_user_id = :owner_user_id", {"owner_user_id": user_id}
+
+
+def create_word_analysis_task(
+    word: str,
+    celery_task,
+    owner_user_id: int | None = None,
+    extra_params: dict[str, Any] | None = None,
+) -> dict:
     task_id = str(uuid4())
     params = {"word": word}
+    if extra_params:
+        params.update(extra_params)
 
     with get_engine().begin() as conn:
         conn.execute(
-            text("""
-                INSERT INTO tasks (task_id, task_type, status, params_json)
-                VALUES (:task_id, :task_type, :status, :params_json)
+            text(
+                """
+                INSERT INTO tasks (task_id, task_type, status, params_json, owner_user_id)
+                VALUES (:task_id, :task_type, :status, :params_json, :owner_user_id)
                 ON DUPLICATE KEY UPDATE
                   status=VALUES(status),
                   params_json=VALUES(params_json),
+                  owner_user_id=VALUES(owner_user_id),
                   updated_at=CURRENT_TIMESTAMP
-            """),
+                """
+            ),
             {
                 "task_id": task_id,
                 "task_type": "word-analysis",
                 "status": "QUEUED",
                 "params_json": json.dumps(params),
+                "owner_user_id": owner_user_id,
             },
         )
     record_task_queued(task_id, "word-analysis", params)
     try:
-        celery_task.apply_async(args=[word], task_id=task_id)
+        celery_task.apply_async(args=[params], task_id=task_id)
     except Exception as exc:
         with get_engine().begin() as conn:
             conn.execute(
@@ -62,28 +106,29 @@ def create_word_analysis_task(word: str, celery_task) -> dict:
     return {"task_id": task_id}
 
 
-def create_simulation_task(n: int, steps: int, celery_task) -> dict:
-    """
-    Called by routes_tasks.py: create_simulation_task(n, steps, simulation_run)
-    """
+def create_simulation_task(n: int, steps: int, celery_task, owner_user_id: int | None = None) -> dict:
     task_id = str(uuid4())
     params = {"n": n, "steps": steps}
 
     with get_engine().begin() as conn:
         conn.execute(
-            text("""
-                INSERT INTO tasks (task_id, task_type, status, params_json)
-                VALUES (:task_id, :task_type, :status, :params_json)
+            text(
+                """
+                INSERT INTO tasks (task_id, task_type, status, params_json, owner_user_id)
+                VALUES (:task_id, :task_type, :status, :params_json, :owner_user_id)
                 ON DUPLICATE KEY UPDATE
                   status=VALUES(status),
                   params_json=VALUES(params_json),
+                  owner_user_id=VALUES(owner_user_id),
                   updated_at=CURRENT_TIMESTAMP
-            """),
+                """
+            ),
             {
                 "task_id": task_id,
                 "task_type": "simulation-run",
                 "status": "QUEUED",
                 "params_json": json.dumps(params),
+                "owner_user_id": owner_user_id,
             },
         )
     record_task_queued(task_id, "simulation-run", params)
@@ -104,6 +149,68 @@ def create_simulation_task(n: int, steps: int, celery_task) -> dict:
         record_task_failure(task_id, "simulation-run", str(exc))
         raise
     return {"task_id": task_id}
+
+
+def retry_task_payload(task_id: str, celery_task_map: dict[str, Any], current_user: dict | None = None) -> Dict[str, Any]:
+    with get_engine().begin() as conn:
+        row = conn.execute(
+            text(
+                """
+                SELECT task_id, task_type, status, params_json, owner_user_id
+                FROM tasks
+                WHERE task_id=:task_id
+                LIMIT 1
+                """
+            ),
+            {"task_id": task_id},
+        ).mappings().first()
+    if not row:
+        return {"ok": False, "reason": "NOT_FOUND", "task_id": task_id}
+    if not _can_access_owner(row.get("owner_user_id"), current_user):
+        return {"ok": False, "reason": "FORBIDDEN", "task_id": task_id}
+
+    status = str(row["status"] or "").upper()
+    if status in ("QUEUED", "RUNNING", "PROGRESS"):
+        return {"ok": False, "reason": "TASK_ACTIVE", "task_id": task_id}
+
+    task_type = str(row["task_type"])
+    params = _normalize_jsonish(row["params_json"])
+    if not isinstance(params, dict):
+        return {"ok": False, "reason": "PARAMS_INVALID", "task_id": task_id}
+
+    if task_type == "word-analysis":
+        task = celery_task_map.get("word-analysis")
+        if task is None:
+            return {"ok": False, "reason": "TASK_TYPE_UNSUPPORTED", "task_id": task_id}
+        extra = {k: v for k, v in params.items() if k != "word"}
+        created = create_word_analysis_task(
+            str(params.get("word", "demo")),
+            task,
+            owner_user_id=row.get("owner_user_id"),
+            extra_params=extra,
+        )
+    elif task_type == "simulation-run":
+        task = celery_task_map.get("simulation-run")
+        if task is None:
+            return {"ok": False, "reason": "TASK_TYPE_UNSUPPORTED", "task_id": task_id}
+        created = create_simulation_task(
+            int(params.get("n", 30) or 30),
+            int(params.get("steps", 50) or 50),
+            task,
+            owner_user_id=row.get("owner_user_id"),
+        )
+    else:
+        return {"ok": False, "reason": "TASK_TYPE_UNSUPPORTED", "task_id": task_id}
+
+    new_task_id = str(created["task_id"])
+    with get_engine().begin() as conn:
+        conn.execute(
+            text("UPDATE tasks SET parent_task_id=:parent_task_id WHERE task_id=:task_id"),
+            {"task_id": new_task_id, "parent_task_id": task_id},
+        )
+    return {"ok": True, "task_id": new_task_id, "parent_task_id": task_id, "task_type": task_type}
+
+
 def _normalize_jsonish(value: Any) -> Any:
     if value is None:
         return None
@@ -116,7 +223,6 @@ def _normalize_jsonish(value: Any) -> Any:
             return str(value)
     if isinstance(value, str):
         text_value = value.strip()
-        # tolerate single or double JSON encoding from hotfix branches
         for _ in range(2):
             if not isinstance(text_value, str):
                 break
@@ -134,14 +240,39 @@ def _normalize_jsonish(value: Any) -> Any:
     return str(value)
 
 
-def get_task_payload(task_id: str, async_result_factory=None) -> Dict[str, Any]:
+def _task_display_name(task_type: str, params: Any) -> str:
+    if task_type == "word-analysis" and isinstance(params, dict):
+        word = str(params.get("word", "")).strip() or "word"
+        return f"word-analysis: {word}"
+    if task_type == "simulation-run" and isinstance(params, dict):
+        n = params.get("n", "?")
+        steps = params.get("steps", "?")
+        return f"simulation-run: n={n} steps={steps}"
+    return task_type
+
+
+def get_task_owner(task_id: str) -> int | None:
     with get_engine().begin() as conn:
         row = conn.execute(
-            text("""
-                SELECT task_id, status, params_json, result_json, error_text
+            text("SELECT owner_user_id FROM tasks WHERE task_id=:task_id LIMIT 1"),
+            {"task_id": task_id},
+        ).mappings().first()
+    if not row:
+        return None
+    return row["owner_user_id"]
+
+
+def get_task_payload(task_id: str, async_result_factory=None, current_user: dict | None = None) -> Dict[str, Any]:
+    with get_engine().begin() as conn:
+        row = conn.execute(
+            text(
+                """
+                SELECT task_id, status, params_json, result_json, error_text, owner_user_id
+                     , parent_task_id
                 FROM tasks
                 WHERE task_id=:task_id
-            """),
+                """
+            ),
             {"task_id": task_id},
         ).mappings().first()
 
@@ -154,12 +285,16 @@ def get_task_payload(task_id: str, async_result_factory=None) -> Dict[str, Any]:
             payload["result"] = _normalize_jsonish(res.result)
         return payload
 
+    if not _can_access_owner(row.get("owner_user_id"), current_user):
+        return {"task_id": task_id, "state": "NOT_FOUND"}
+
     payload: Dict[str, Any] = {
         "task_id": row["task_id"],
         "state": row["status"],
         "params": _normalize_jsonish(row["params_json"]),
         "result": _normalize_jsonish(row["result_json"]),
         "error": _normalize_jsonish(row["error_text"]),
+        "parent_task_id": row.get("parent_task_id"),
     }
     if async_result_factory is not None and row["status"] in ("QUEUED", "RUNNING"):
         res = async_result_factory(task_id)
@@ -170,17 +305,23 @@ def get_task_payload(task_id: str, async_result_factory=None) -> Dict[str, Any]:
             pass
     return payload
 
-def list_task_payload(limit: int = 20) -> Dict[str, Any]:
+
+def list_task_payload(limit: int = 20, current_user: dict | None = None, scope: str | None = None) -> Dict[str, Any]:
     limit = max(1, min(int(limit), 200))
+    scope_where, scope_params = _scope_clause(current_user, scope)
     with get_engine().begin() as conn:
         rows = conn.execute(
-            text("""
-                SELECT task_id, task_type, status, params_json, created_at, updated_at
+            text(
+                f"""
+                SELECT task_id, task_type, status, params_json, created_at, updated_at, owner_user_id
+                     , parent_task_id
                 FROM tasks
+                WHERE status <> 'DELETED' AND ({scope_where})
                 ORDER BY id DESC
                 LIMIT :limit
-            """),
-            {"limit": limit},
+                """
+            ),
+            {"limit": limit, **scope_params},
         ).mappings().all()
     return {
         "items": [
@@ -188,10 +329,66 @@ def list_task_payload(limit: int = 20) -> Dict[str, Any]:
                 "task_id": r["task_id"],
                 "task_type": r["task_type"],
                 "status": r["status"],
+                "display_name": _task_display_name(r["task_type"], _normalize_jsonish(r["params_json"])),
                 "params_json": _normalize_jsonish(r["params_json"]),
                 "created_at": r["created_at"],
                 "updated_at": r["updated_at"],
+                "owner_user_id": r.get("owner_user_id"),
+                "parent_task_id": r.get("parent_task_id"),
             }
             for r in rows
         ]
     }
+
+
+def _delete_task_with_relations(task_id: str) -> None:
+    with get_engine().begin() as conn:
+        conn.execute(
+            text("UPDATE tasks SET status='DELETED', updated_at=CURRENT_TIMESTAMP WHERE task_id=:task_id"),
+            {"task_id": task_id},
+        )
+        conn.execute(text("DELETE FROM task_events WHERE task_id=:task_id"), {"task_id": task_id})
+        conn.execute(text("DELETE FROM task_artifacts WHERE task_id=:task_id"), {"task_id": task_id})
+        conn.execute(
+            text(
+                """
+                DELETE p FROM time_series_points p
+                JOIN time_series s ON s.id = p.series_id
+                WHERE JSON_UNQUOTE(JSON_EXTRACT(s.meta_json, '$.task_id')) = :task_id
+                """
+            ),
+            {"task_id": task_id},
+        )
+        conn.execute(
+            text("DELETE FROM time_series WHERE JSON_UNQUOTE(JSON_EXTRACT(meta_json, '$.task_id')) = :task_id"),
+            {"task_id": task_id},
+        )
+
+
+def delete_task_payload(task_id: str, current_user: dict | None = None) -> Dict[str, Any]:
+    with get_engine().begin() as conn:
+        row = conn.execute(
+            text("SELECT task_id, status, owner_user_id FROM tasks WHERE task_id=:task_id LIMIT 1"),
+            {"task_id": task_id},
+        ).mappings().first()
+    if not row:
+        return {"task_id": task_id, "deleted": False, "reason": "NOT_FOUND"}
+    if not _can_access_owner(row.get("owner_user_id"), current_user):
+        return {"task_id": task_id, "deleted": False, "reason": "FORBIDDEN"}
+    if str(row["status"]).upper() in ("RUNNING", "QUEUED", "PROGRESS"):
+        return {"task_id": task_id, "deleted": False, "reason": "TASK_ACTIVE"}
+
+    _delete_task_with_relations(task_id)
+    return {"task_id": task_id, "deleted": True}
+
+
+def bulk_delete_task_payload(task_ids: list[str], current_user: dict | None = None) -> Dict[str, Any]:
+    deleted: list[str] = []
+    skipped: list[dict[str, str]] = []
+    for task_id in task_ids:
+        item = delete_task_payload(task_id, current_user)
+        if item.get("deleted"):
+            deleted.append(task_id)
+        else:
+            skipped.append({"task_id": task_id, "reason": str(item.get("reason") or "UNKNOWN")})
+    return {"deleted": deleted, "skipped": skipped, "requested": len(task_ids)}

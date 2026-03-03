@@ -95,6 +95,116 @@ function Wait-ForHealth {
     }
     throw "Timed out waiting for GET /health to return db:true"
 }
+function Try-CheckExtendedHealth {
+    try {
+        $resp = Invoke-RestMethod -Method Get -Uri "$($script:BaseUrl)/api/health/extended" -TimeoutSec 8
+        if ($null -eq $resp) {
+            Write-Warn "extended health endpoint returned empty response"
+            return "[WARN] /api/health/extended empty"
+        }
+        $status = if ($resp.status) { [string]$resp.status } else { "unknown" }
+        Write-Pass "/api/health/extended reachable (status=$status)"
+        return "[PASS] /api/health/extended reachable (status=$status)"
+    } catch {
+        Write-Warn "/api/health/extended unavailable: $($_.Exception.Message)"
+        return "[WARN] /api/health/extended unavailable"
+    }
+}
+function Try-CheckAdminDiagnostics {
+    $initAdminUser = [string]($env:INIT_ADMIN_USERNAME)
+    $initAdminPass = [string]($env:INIT_ADMIN_PASSWORD)
+    if ([string]::IsNullOrWhiteSpace($initAdminUser) -or [string]::IsNullOrWhiteSpace($initAdminPass)) {
+        Write-Warn "admin diagnostics skipped: INIT_ADMIN_USERNAME/INIT_ADMIN_PASSWORD not set in shell env"
+        return "[WARN] admin diagnostics skipped (init admin env missing)"
+    }
+    try {
+        $login = Invoke-RestMethod -Method Post -Uri "$($script:BaseUrl)/api/auth/login" -TimeoutSec 10 -ContentType "application/json" -Body (@{
+            username = $initAdminUser
+            password = $initAdminPass
+        } | ConvertTo-Json)
+        if (-not $login.access_token) {
+            Write-Warn "admin diagnostics skipped: login did not return token"
+            return "[WARN] admin diagnostics skipped (login no token)"
+        }
+        $headers = @{ Authorization = "Bearer $($login.access_token)" }
+        $diag = Invoke-RestMethod -Method Get -Uri "$($script:BaseUrl)/api/admin/diagnostics" -Headers $headers -TimeoutSec 10
+        if ($null -eq $diag) {
+            Write-Warn "admin diagnostics returned empty response"
+            return "[WARN] /api/admin/diagnostics empty"
+        }
+        Write-Pass "/api/admin/diagnostics reachable for init admin"
+        return "[PASS] /api/admin/diagnostics reachable"
+    } catch {
+        Write-Warn "admin diagnostics check failed: $($_.Exception.Message)"
+        return "[WARN] /api/admin/diagnostics unavailable"
+    }
+}
+function Try-CheckGbncPull {
+    try {
+        $resp = Invoke-RestMethod -Method Post -Uri "$($script:BaseUrl)/api/data/gbnc/pull?word=internet&start_year=2018&end_year=2019&corpus=eng_2019&smoothing=1" -TimeoutSec 20
+        if ($null -eq $resp) {
+            Write-Warn "gbnc pull returned empty response"
+            return "[WARN] gbnc pull skipped (empty response)"
+        }
+        $source = [string]($resp.source)
+        $points = 0
+        try {
+            $points = [int]($resp.point_count)
+        } catch {
+            $points = 0
+        }
+        if ($source -eq "GBNC" -and $points -gt 0) {
+            Write-Pass "gbnc pull persisted points (source=$source points=$points)"
+            return "[PASS] gbnc pull points persisted (source=$source points=$points)"
+        }
+        Write-Warn "gbnc pull degraded or no points (source=$source points=$points)"
+        return "[WARN] gbnc pull skipped/degraded (source=$source points=$points)"
+    } catch {
+        $statusCode = $null
+        if ($_.Exception.PSObject.Properties.Name -contains 'Response' -and $null -ne $_.Exception.Response) {
+            try {
+                $statusCode = [int]$_.Exception.Response.StatusCode
+            } catch {
+                $statusCode = $null
+            }
+        }
+        if ($statusCode -eq 404) {
+            Write-Warn "gbnc pull endpoint not implemented"
+            return "[WARN] gbnc pull skipped (endpoint not implemented)"
+        }
+        Write-Warn "gbnc pull check failed: $($_.Exception.Message)"
+        return "[WARN] gbnc pull skipped (request failed)"
+    }
+}
+function Try-CheckLlmSuggest {
+    $probeWord = "llmprobe" + (Get-Random -Minimum 10000 -Maximum 99999)
+    try {
+        $resp = Invoke-RestMethod -Method Post -Uri "$($script:BaseUrl)/api/lexicon/variants/suggest?word=$probeWord&k=6" -TimeoutSec 40
+        if ($null -eq $resp) {
+            Write-Warn "llm suggest returned empty response"
+            return "[WARN] llm suggest skipped (empty response)"
+        }
+        $source = [string]($resp.source)
+        $warnings = @()
+        if ($resp.PSObject.Properties.Name -contains "warnings" -and $null -ne $resp.warnings) {
+            $warnings = @($resp.warnings)
+        }
+        if ($source -eq "llm") {
+            Write-Pass "llm suggest connected (source=llm)"
+            return "[PASS] llm suggest source=llm"
+        }
+        $llmError = $null
+        if ($resp.PSObject.Properties.Name -contains "llm_error") {
+            $llmError = [string]$resp.llm_error
+        }
+        $briefErr = if ([string]::IsNullOrWhiteSpace($llmError)) { "-" } else { ($llmError.Substring(0, [Math]::Min(120, $llmError.Length))) }
+        Write-Warn ("llm suggest degraded (source={0}, warnings={1}, llm_error={2})" -f $source, ($warnings -join ","), $briefErr)
+        return ("[WARN] llm suggest degraded (source={0}, warnings={1})" -f $source, ($warnings -join ","))
+    } catch {
+        Write-Warn "llm suggest probe failed: $($_.Exception.Message)"
+        return "[WARN] llm suggest probe failed"
+    }
+}
 function Get-DbTableNames {
     $rows = Invoke-MySqlQuery -Sql "SHOW TABLES;" -RawOutput
     if ([string]::IsNullOrWhiteSpace($rows)) {
@@ -234,6 +344,8 @@ try {
         throw "/health returned but db was not true"
     }
     Write-Pass "/health db:true"
+    $extendedHealthSummary = Try-CheckExtendedHealth
+    $llmSummary = Try-CheckLlmSuggest
     Write-Step "Inspect DB schema status"
     $tableNames = @(Get-DbTableNames)
     $tableCount = $tableNames.Count
@@ -286,6 +398,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     $wordRow = Wait-ForDbTaskSuccess -ExpectedTaskId $wordTaskId -ExpectedTaskType 'word-analysis' -TimeoutSeconds 20
     Write-Pass "word-analysis latest DB row SUCCESS (task_id=$($wordRow.task_id))"
     Try-CheckTaskEvents -TaskId $wordTaskId -ExpectedLevels @('QUEUED', 'SUCCESS')
+    $gbncSummary = Try-CheckGbncPull
     Write-Step "Check optional simulation-run task"
     $simCreate = Try-CreateSimulationTask
     $simulationSummary = "[SKIP] simulation-run endpoint not implemented"
@@ -360,6 +473,7 @@ CREATE TABLE IF NOT EXISTS tasks (
         Write-Info "simulation-run endpoint not implemented; skipping optional validation"
     }
     $elapsed = (Get-Date) - $script:StartedAt
+    $adminDiagSummary = Try-CheckAdminDiagnostics
     Write-Host ""
     Write-Host "===== check.ps1 summary ====="
     Write-Host "[PASS] docker compose up -d --build"
@@ -368,6 +482,10 @@ CREATE TABLE IF NOT EXISTS tasks (
     Write-Host "[PASS] word-analysis latest task SUCCESS (task_id=$wordTaskId)"
     Write-Host $simulationSummary
     Write-Host $simulationPngSummary
+    Write-Host $extendedHealthSummary
+    Write-Host $llmSummary
+    Write-Host $adminDiagSummary
+    Write-Host $gbncSummary
     Write-Host ("[INFO] elapsed={0:n1}s" -f $elapsed.TotalSeconds)
     exit 0
 } catch {
