@@ -5,6 +5,7 @@ from .api.routes_admin import router as admin_router
 from .api.routes_auth import router as auth_router
 from .api.routes_lexicon import router as lexicon_router
 from .api.routes_projects import router as projects_router
+from .api.routes_reports import router as reports_router
 from .api.routes_tasks import router as tasks_router
 from .api.routes_timeseries import router as timeseries_router
 from .services.auth_service import ensure_init_admin_from_env
@@ -20,6 +21,7 @@ def create_app() -> FastAPI:
     app.include_router(lexicon_router)
     app.include_router(projects_router)
     app.include_router(analytics_router)
+    app.include_router(reports_router)
     return app
 
 
