@@ -2,6 +2,7 @@ import { Alert, Button, Card, ConfigProvider } from "antd";
 import { useEffect, useMemo, useState } from "react";
 import { AdminLayout } from "../layouts/AdminLayout";
 import { ResearcherLayout } from "../layouts/ResearcherLayout";
+import { ErrorBoundary } from "../components/ErrorBoundary";
 import { api, setAccessToken } from "../lib/api";
 import { AdminDashboardPage } from "../pages/AdminDashboard";
 import { AdminAuditLogsPage } from "../pages/AdminAuditLogs";
@@ -210,7 +211,9 @@ export function App() {
           onLogout={onLogout}
           onNavigate={(key) => goToAdmin(key as AdminRouteKey)}
         >
-          <div key={adminRenderKey}>{content}</div>
+          <ErrorBoundary>
+            <div key={adminRenderKey}>{content}</div>
+          </ErrorBoundary>
         </AdminLayout>
       </ConfigProvider>
     );
@@ -262,7 +265,9 @@ export function App() {
         onLogout={onLogout}
         onNavigate={(key) => goToApp(key as Exclude<AppRouteKey, "task-detail">)}
       >
-        <div key={sessionRenderKey}>{content}</div>
+        <ErrorBoundary>
+          <div key={sessionRenderKey}>{content}</div>
+        </ErrorBoundary>
       </ResearcherLayout>
     </ConfigProvider>
   );

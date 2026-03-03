@@ -47,7 +47,19 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
   const prevTaskStateRef = useRef<string>("");
 
   const taskObj = useMemo(() => asObject(task?.result), [task?.result]);
-  const eventItems = useMemo(() => (Array.isArray(events?.items) ? events.items : []), [events]);
+  const eventItems = useMemo(() => {
+    const raw = Array.isArray(events?.items) ? events.items : [];
+    return raw
+      .filter((item) => !!item && typeof item === "object")
+      .map((item) => {
+        const row = item as Record<string, unknown>;
+        return {
+          event_type: String(row.event_type || "-"),
+          message: String(row.message || ""),
+          created_at: row.created_at ? String(row.created_at) : "-"
+        };
+      });
+  }, [events]);
   const taskType = useMemo(() => {
     const queued = eventItems.find((e) => e.event_type === "QUEUED");
     const meta = asObject(queued?.meta);
