@@ -158,6 +158,7 @@ export function App() {
   }
 
   if (route.scope === "admin") {
+    const adminRenderKey = `${session.role}:${session.username}:${session.token ? "auth" : "guest"}:admin:${route.key}`;
     const content =
       session.role !== "admin" ? (
         <Card>
@@ -199,7 +200,7 @@ export function App() {
           onLogout={onLogout}
           onNavigate={(key) => goToAdmin(key as AdminRouteKey)}
         >
-          {content}
+          <div key={adminRenderKey}>{content}</div>
         </AdminLayout>
       </ConfigProvider>
     );

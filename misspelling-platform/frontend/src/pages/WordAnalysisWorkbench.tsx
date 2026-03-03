@@ -37,6 +37,7 @@ export function WordAnalysisWorkbenchPage() {
   const [corpus, setCorpus] = useState("eng_2019");
   const [manual, setManual] = useState("");
   const [busy, setBusy] = useState(false);
+  const [gbncInfo, setGbncInfo] = useState("");
   const [variants, setVariants] = useState<SuggestedVariant[]>([]);
 
   useEffect(() => {
@@ -70,9 +71,47 @@ export function WordAnalysisWorkbenchPage() {
   const run = async () => {
     setBusy(true);
     try {
-      const resp = await api.createWordAnalysis(word);
+      const resp = await api.createWordAnalysis(word, {
+        startYear,
+        endYear,
+        smoothing,
+        corpus,
+        variants: selected
+      });
       message.success(`Task queued: ${resp.task_id}`);
       goToTask(resp.task_id);
+    } catch (e) {
+      message.error(describeApiError(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const gbncPull = async () => {
+    if (!word.trim()) {
+      message.warning("Please input word first.");
+      return;
+    }
+    setBusy(true);
+    try {
+      const resp = await api.pullGbnc(word, {
+        startYear,
+        endYear,
+        smoothing,
+        corpus,
+        variants: selected
+      });
+      const warn = (resp.warnings || []).join(", ");
+      setGbncInfo(
+        `source=${resp.source} cache_hit=${resp.cache_hit} points=${resp.point_count || 0}` +
+          `${resp.error_reason ? ` error=${resp.error_reason}` : ""}` +
+          `${warn ? ` warnings=${warn}` : ""}`
+      );
+      if (resp.source === "STUB") {
+        message.warning("GBNC pull degraded to STUB source.");
+      } else {
+        message.success("GBNC pull completed.");
+      }
     } catch (e) {
       message.error(describeApiError(e));
     } finally {
@@ -113,11 +152,17 @@ export function WordAnalysisWorkbenchPage() {
         </Row>
         <Space style={{ marginTop: 12 }}>
           <Button loading={busy} onClick={() => void suggest()}>Suggest Variants</Button>
+          <Button loading={busy} onClick={() => void gbncPull()}>Pull GBNC Preview</Button>
           <Button type="primary" icon={<ThunderboltOutlined />} loading={busy} onClick={() => void run()}>Run Word Analysis</Button>
         </Space>
         <Typography.Paragraph type="secondary" style={{ marginTop: 10 }}>
-          Current run parameters are prepared for GBNC pull integration. Existing backend remains backward compatible and currently consumes `word`.
+          Run uses GBNC parameters + selected variants. If network/provider fails, backend records fallback provenance in task result.
         </Typography.Paragraph>
+        {gbncInfo && (
+          <Typography.Paragraph type="secondary" style={{ marginTop: 4 }}>
+            {gbncInfo}
+          </Typography.Paragraph>
+        )}
       </Card>
 
       <Card title="Variant Selection">

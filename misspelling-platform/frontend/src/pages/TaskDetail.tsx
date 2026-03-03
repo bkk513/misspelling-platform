@@ -32,6 +32,7 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
   const [events, setEvents] = useState<TaskEventsResponse | null>(null);
   const [eventsInfo, setEventsInfo] = useState("");
   const [polling, setPolling] = useState(true);
+  const [pollInterval, setPollInterval] = useState(2000);
   const [ticks, setTicks] = useState(0);
   const [probePngOk, setProbePngOk] = useState<boolean | null>(null);
   const [probeCsvOk, setProbeCsvOk] = useState<boolean | null>(null);
@@ -40,6 +41,7 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
   const [tsVariant, setTsVariant] = useState("correct");
   const [tsPoints, setTsPoints] = useState<Array<{ time: string; value: number }>>([]);
   const [lastRefreshAt, setLastRefreshAt] = useState<string>("-");
+  const [actionBusy, setActionBusy] = useState<"" | "retry" | "report">("");
 
   const taskObj = useMemo(() => asObject(task?.result), [task?.result]);
   const taskType = useMemo(() => {
@@ -87,17 +89,17 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
 
   useEffect(() => {
     if (!polling) return;
-    if (ticks >= 30) return;
+    if (ticks >= Math.ceil(60000 / pollInterval)) return;
     const id = window.setTimeout(() => {
       void refresh();
       setTicks((t) => t + 1);
-    }, 2000);
+    }, pollInterval);
     return () => window.clearTimeout(id);
-  }, [polling, ticks, taskId]);
+  }, [polling, ticks, taskId, pollInterval]);
 
   useEffect(() => {
-    if (ticks >= 30) setPolling(false);
-  }, [ticks]);
+    if (ticks >= Math.ceil(60000 / pollInterval)) setPolling(false);
+  }, [ticks, pollInterval]);
 
   useEffect(() => {
     const state = (task?.state || "").toUpperCase();
@@ -157,6 +159,7 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
   const pngUrl = api.fileUrl(taskId, "preview.png");
   const resultFiles = asObject(taskObj?.files);
   const resultPreviewRows = Array.isArray(taskObj?.preview) ? taskObj?.preview : [];
+  const provenance = asObject(taskObj?.provenance);
 
   return (
     <div className="stack">
@@ -169,13 +172,71 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
           <div className="row-inline">
             <button onClick={() => navigator.clipboard?.writeText(taskId).catch(() => {})}>Copy TaskID</button>
             <button onClick={() => setPolling((v) => !v)}>{polling ? "Stop Auto Refresh" : "Resume Auto Refresh"}</button>
+            <select
+              value={pollInterval}
+              onChange={(e) => {
+                const next = Number(e.target.value);
+                if (!Number.isFinite(next) || next <= 0) return;
+                setTicks(0);
+                setPollInterval(next);
+                setPolling(true);
+              }}
+            >
+              <option value={2000}>2s (demo)</option>
+              <option value={15000}>15s</option>
+              <option value={30000}>30s</option>
+              <option value={60000}>60s</option>
+            </select>
             <button onClick={() => void refresh(false, true)}>Refresh Now</button>
+            <button
+              disabled={actionBusy === "retry"}
+              onClick={async () => {
+                setActionBusy("retry");
+                try {
+                  const resp = await api.retryTask(taskId);
+                  if (!resp.ok || !resp.task_id) {
+                    message.warning(resp.reason || "Retry rejected");
+                  } else {
+                    message.success(`Retry queued: ${resp.task_id}`);
+                    goToTask(resp.task_id);
+                  }
+                } catch (e) {
+                  message.error(describeApiError(e));
+                } finally {
+                  setActionBusy("");
+                }
+              }}
+            >
+              Retry Task
+            </button>
+            <button
+              disabled={actionBusy === "report"}
+              onClick={async () => {
+                setActionBusy("report");
+                try {
+                  const resp = await api.createTaskReport(taskId);
+                  message.success(`Report generated: ${resp.filename}`);
+                  window.open(resp.download_url, "_blank", "noopener,noreferrer");
+                } catch (e) {
+                  message.error(describeApiError(e));
+                } finally {
+                  setActionBusy("");
+                }
+              }}
+            >
+              Export Report
+            </button>
           </div>
         </div>
         <div className="row-inline">
           <span className="muted">Task Type: {taskType}</span>
           <span style={{ color: statusTone(task?.state), fontWeight: 600 }}>Status: {task?.state ?? "loading..."}</span>
-          <span className="muted">Polling: {polling ? `on (${ticks * 2}s)` : `off (${ticks >= 30 ? "auto-stopped at 60s" : "manual"})`}</span>
+          <span className="muted">
+            Polling:{" "}
+            {polling
+              ? `on (interval=${Math.round(pollInterval / 1000)}s, elapsed~${Math.round((ticks * pollInterval) / 1000)}s)`
+              : `off (${ticks >= Math.ceil(60000 / pollInterval) ? "auto-stopped at 60s" : "manual"})`}
+          </span>
         </div>
         <div className="row-inline">
           <strong className="muted">Last refresh:</strong>
@@ -238,6 +299,11 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
             {probePngOk === null ? "PNG status pending..." : probePngOk ? "PNG available (HTTP 200)" : "PNG not available (404/5xx)"}
           </span>
         </div>
+        {provenance && (
+          <div className="muted" style={{ marginTop: 8 }}>
+            provenance: source={String(provenance.source || "-")} corpus={String(provenance.corpus || "-")} smoothing={String(provenance.smoothing || "-")} points={String(provenance.points_count || "-")}
+          </div>
+        )}
         <div className="panel" style={{ marginTop: 12, background: "#fafafa" }}>
           <div className="muted" style={{ marginBottom: 8 }}>preview.png (simulation-run)</div>
           <img
