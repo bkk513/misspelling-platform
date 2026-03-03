@@ -21,7 +21,10 @@ from ..services.artifact_service import (
     register_artifact,
     register_simulation_artifacts,
     register_word_analysis_artifact,
+    write_delta_t_preview_png,
     write_json_file,
+    write_mrnmr_preview_png,
+    write_pcmci_preview_png,
     write_rows_csv,
     write_simulation_csv,
     write_simulation_preview_png,
@@ -185,6 +188,28 @@ def _save_algo_artifacts(
     }
 
 
+def _try_save_algo_preview(
+    task_id: str,
+    task_type: str,
+    algo_payload: dict[str, Any],
+) -> tuple[str | None, str | None]:
+    try:
+        out_dir = build_output_dir(task_id)
+        out_png = out_dir / "preview.png"
+        if task_type == "pcmci-causal":
+            write_pcmci_preview_png(algo_payload.get("edges") or [], out_png)
+        elif task_type == "mrnmr-steady":
+            write_mrnmr_preview_png(algo_payload.get("metrics") or [], algo_payload.get("summary") or {}, out_png)
+        elif task_type == "deltaT-null":
+            write_delta_t_preview_png(algo_payload.get("events") or [], algo_payload.get("delta_t_stats") or {}, out_png)
+        else:
+            return None, None
+        register_artifact(task_id, "png", "preview.png", out_png, "image/png")
+        return f"/api/files/{task_id}/preview.png", None
+    except Exception as exc:
+        return None, f"preview_generation_failed:{exc}"
+
+
 def _build_stub_result(
     task_id: str,
     task_type: str,
@@ -246,6 +271,11 @@ def _execute_algo_task(
             result_json=algo_payload,
             fieldnames=fieldnames,
         )
+        preview_url, preview_warning = _try_save_algo_preview(task_id, task_type, algo_payload)
+        if preview_url:
+            artifacts["png"] = preview_url
+        if preview_warning:
+            warnings = _merge_warnings(warnings, [preview_warning])
         summary = dict(algo_payload.get("summary") or {})
         summary["rows"] = len(rows)
         result = {
