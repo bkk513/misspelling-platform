@@ -83,11 +83,10 @@ export function LineChart({
       })
       .join(" ");
 
-  const hoverIndex = useMemo(() => {
-    if (hoverX === null || maxLength <= 1) return null;
-    const idx = Math.round((hoverX - padLeft) / stepX);
-    return Math.max(0, Math.min(maxLength - 1, idx));
-  }, [hoverX, maxLength, padLeft, stepX]);
+  const hoverIndex =
+    hoverX === null || maxLength <= 1
+      ? null
+      : Math.max(0, Math.min(maxLength - 1, Math.round((hoverX - padLeft) / stepX)));
 
   const hoverTime = hoverIndex === null ? null : xDomain[hoverIndex] ?? null;
   const hoverItems =

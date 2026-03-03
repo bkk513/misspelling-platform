@@ -211,7 +211,7 @@ export function App() {
           onLogout={onLogout}
           onNavigate={(key) => goToAdmin(key as AdminRouteKey)}
         >
-          <ErrorBoundary>
+          <ErrorBoundary key={adminRenderKey}>
             <div key={adminRenderKey}>{content}</div>
           </ErrorBoundary>
         </AdminLayout>
@@ -265,7 +265,7 @@ export function App() {
         onLogout={onLogout}
         onNavigate={(key) => goToApp(key as Exclude<AppRouteKey, "task-detail">)}
       >
-        <ErrorBoundary>
+        <ErrorBoundary key={sessionRenderKey}>
           <div key={sessionRenderKey}>{content}</div>
         </ErrorBoundary>
       </ResearcherLayout>
