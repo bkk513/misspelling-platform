@@ -1,33 +1,41 @@
-﻿# AUTH.md (M11)
+# AUTH.md (M12)
 
-## Authentication Modes
+## Identity Modes
 
-- `guest` mode: no `Authorization` header. Data is created with `owner_user_id = NULL`.
-- `user` mode: `Authorization: Bearer <access_token>`. Data is created with `owner_user_id = current_user.id`.
-- `admin` mode: bearer token user with `admin` role.
+- `guest`: request has no `Authorization` header.
+- `user`: request has `Authorization: Bearer <token>`.
+- `admin`: bearer user with role `admin`.
 
-## APIs
+## Auth APIs
+
+### `GET /api/auth/captcha`
+
+- Returns a short-lived captcha payload (`captcha_id`, `captcha_text`, `ttl_seconds`).
+- Captcha state is stored in Redis when available, otherwise in-memory fallback.
 
 ### `POST /api/auth/register`
 
-Request body:
+Request:
 
 ```json
 {
   "username": "alice",
   "password": "abc12345",
   "display_name": "Alice",
-  "email": "alice@example.com"
+  "email": "alice@example.com",
+  "captcha_id": "cap_xxx",
+  "captcha_code": "AB12"
 }
 ```
 
 Rules:
 
-- username must be unique.
-- password must be at least 8 chars and include letters + digits.
-- created user defaults to active + non-admin.
+- `username` must be unique.
+- `password` must be >= 8 and contain letters + digits.
+- captcha must match and be unexpired.
+- created user defaults to active and non-admin.
 
-Response is backward-compatible with login:
+Response is compatible with login:
 
 ```json
 {
@@ -39,41 +47,56 @@ Response is backward-compatible with login:
 
 ### `POST /api/auth/login`
 
-Unchanged contract; returns bearer token and user roles.
+- Validates credentials.
+- Returns bearer token and roles.
+- Successful/failed login writes `audit_logs`.
 
 ### `GET /api/auth/me`
 
-Unchanged contract; requires bearer token.
+- Requires bearer token.
+- Returns current user id/username/roles/is_active.
 
-## Admin Initialization
+## Token
 
-The API process supports bootstrap admin on startup:
+- Token secret env: `AUTH_TOKEN_SECRET`.
+- TTL defaults to 8 hours.
+- Token is required for privileged APIs.
+
+## Admin Bootstrap
+
+On API startup, admin can be bootstrapped from:
 
 - `INIT_ADMIN_USERNAME`
 - `INIT_ADMIN_PASSWORD`
 
-If the user exists, admin role is ensured. If not, user is created and bound to admin role.
+If user exists, admin role is ensured. If not, user is created.
 
-## Token Notes
+## Authorization Policy
 
-- Token signing secret comes from `AUTH_TOKEN_SECRET` (fallback exists for local demo only).
-- Token is required for all `/api/admin/*` endpoints.
+### Admin endpoints
 
-## Multi-tenant Isolation Rules
+- `/api/admin/*` requires bearer + `admin` role.
+- `ADMIN_TOKEN` weak mode is deprecated and disabled by default.
 
-For non-admin access:
+### Owner-scoped resources
 
-- guest can read/delete only rows with `owner_user_id IS NULL`.
-- logged-in user can read/delete only rows with `owner_user_id = self`.
-- admin can read all and can use `scope=all`/`scope=guest` on supported list APIs.
+Current owner checks are enforced for:
 
-Enforced endpoints include:
+- `tasks`
+- `task_events` (via task visibility)
+- `task_artifacts` (via task visibility)
+- `time_series` / `time_series_points`
+- `lexicon_terms` / `lexicon_variants`
+- `report_exports`
 
-- `/api/tasks`, `/api/tasks/{task_id}`, `/api/tasks/bulk-delete`, `/api/tasks/{task_id} DELETE`
-- `/api/files/{task_id}/{filename}`
-- `/api/time-series/*` list/detail/points/bulk-delete
-- `/api/admin/*` admin role only
+Rules:
 
-## Admin Compat Token
+- guest sees only rows with `owner_user_id IS NULL`.
+- user sees only rows with `owner_user_id = self`.
+- admin can list all (`scope=all`) or guest subset (`scope=guest`) where supported.
 
-`ADMIN_TOKEN` weak mode is deprecated and disabled by default. Current admin access is role-based bearer only.
+## Frontend Session Consistency (M12 fix)
+
+- Login/logout immediately remounts module pages by session key.
+- Old polling loops are dropped on remount.
+- Prevents transient display of stale task lists across identities.

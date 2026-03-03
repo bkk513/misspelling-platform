@@ -1,68 +1,100 @@
-# API (M3 minimal notes)
+# API.md (M12)
 
-## Existing Endpoints (unchanged contract)
+## Compatibility Statement
+
+The following legacy contracts remain backward-compatible:
 
 - `GET /health`
-- `POST /api/tasks/word-analysis?word=...`
-- `POST /api/tasks/simulation-run?n=...&steps=...`
+- `POST /api/tasks/word-analysis`
+- `POST /api/tasks/simulation-run`
 - `GET /api/tasks`
 - `GET /api/tasks/{task_id}`
-- `GET /api/tasks/{task_id}/events` (M4 added, read-only)
 - `GET /api/files/{task_id}/{filename}`
 
-M3 does not change their paths or response field compatibility.
+New fields were added, old semantics were not removed.
 
-## New Read-only Endpoints (M3, optional for validation/demo)
+## Auth
 
-### `GET /api/time-series/{task_id}`
+- `GET /api/auth/captcha`
+- `POST /api/auth/register`
+- `POST /api/auth/login`
+- `GET /api/auth/me`
 
-Returns stub timeseries metadata generated for a task (if present).
+## Health and Diagnostics
 
-Example fields:
+- `GET /health` (public)
+- `GET /api/health/extended` (public)
+- `GET /api/admin/diagnostics` (admin)
 
-- `task_id`
-- `source`
-- `word`
-- `granularity`
-- `variants`
-- `point_count`
-- `items[]` (per-series summary rows)
+## Tasks and Artifacts
 
-### `GET /api/time-series/{task_id}/points?variant=correct`
+- `POST /api/tasks/word-analysis?word=&start_year=&end_year=&smoothing=&corpus=&variants=`
+- `POST /api/tasks/simulation-run?n=&steps=`
+- `GET /api/tasks?limit=&scope=`
+- `GET /api/tasks/{task_id}`
+- `GET /api/tasks/{task_id}/events`
+- `GET /api/tasks/{task_id}/artifacts`
+- `POST /api/tasks/{task_id}/retry`
+- `DELETE /api/tasks/{task_id}`
+- `POST /api/tasks/bulk-delete`
+- `GET /api/files/{task_id}/{filename}`
 
-Returns points for a task/variant pair.
+## Time Series
 
-Example fields:
+- `GET /api/time-series/{task_id}`
+- `GET /api/time-series/{task_id}/points?variant=`
+- `GET /api/time-series?limit=&scope=`
+- `POST /api/time-series/bulk-delete`
 
-- `task_id`
-- `variant`
-- `series_id`
-- `items[]` where each item has:
-  - `time` (`YYYY-MM-DD`)
-  - `value` (`float`)
+## Lexicon and Dictionary
 
-## M3 Stub Persistence Notes
+- `POST /api/lexicon/variants/suggest?word=&k=`
+- `POST /api/lexicon/term/enrich?word=`
+- `GET /api/lexicon/terms?limit=&q=`
+- `GET /api/lexicon/{term_id}`
 
-- No external network calls are made.
-- Stub data is deterministic by `task_id` (seeded).
-- Task linkage to `time_series` is stored in `time_series.meta_json.task_id` (schema has no `time_series.task_id` column).
+## GBNC Data Pull
 
-## M4 Task Events (read-only)
+- `POST /api/data/gbnc/pull?word=&start_year=&end_year=&corpus=&smoothing=&variants=`
+- `GET /api/data/gbnc/series/{series_id}`
+- `GET /api/data/gbnc/series/{series_id}/points?variant=`
 
-### `GET /api/tasks/{task_id}/events?limit=200`
+## Projects and Analytics
 
-Returns lifecycle events written to `task_events` for the task.
+- `POST /api/projects`
+- `GET /api/projects?limit=&scope=`
+- `POST /api/projects/{project_id}/terms`
+- `GET /api/projects/{project_id}/terms`
+- `POST /api/projects/{project_id}/tasks/bind`
+- `GET /api/projects/{project_id}/tasks`
+- `POST /api/analytics/cluster`
+- `GET /api/analytics/summary?project_id=`
 
-Example fields:
+## Reports
 
-- `task_id`
-- `items[]`
-  - `event_type` (`QUEUED` / `RUNNING` / `SUCCESS` / `FAILURE`)
-  - `message`
-  - `meta` (JSON or `null`)
-  - `created_at` (from `task_events.ts`)
+- `POST /api/reports/export/task/{task_id}`
+- `POST /api/reports/export/project/{project_id}`
+- `GET /api/reports?limit=&scope=`
+- `GET /api/reports/{report_id}`
 
-Notes:
+## Admin
 
-- M4 keeps existing task endpoints and response fields unchanged.
-- `task_events.level` stores lifecycle event type values to reuse the fixed M2 schema.
+- `GET /api/admin/users?limit=`
+- `POST /api/admin/users`
+- `PATCH /api/admin/users/{user_id}`
+- `POST /api/admin/users/{user_id}/reset-password`
+- `GET /api/admin/audit-logs?limit=`
+- `GET /api/admin/data-sources?limit=`
+- `GET /api/admin/settings`
+- `POST /api/admin/purge`
+
+## Example Commands
+
+```powershell
+curl http://127.0.0.1:8000/health
+curl http://127.0.0.1:8000/api/health/extended
+curl -X POST "http://127.0.0.1:8000/api/tasks/word-analysis?word=internet&start_year=2018&end_year=2019&smoothing=1"
+curl -X POST "http://127.0.0.1:8000/api/data/gbnc/pull?word=internet&start_year=2018&end_year=2019&corpus=eng_2019&smoothing=1"
+curl http://127.0.0.1:8000/api/tasks?limit=20
+curl -X POST http://127.0.0.1:8000/api/reports/export/task/<task_id>
+```

@@ -1,61 +1,73 @@
-﻿# DATA_SOURCES.md (M11)
+# DATA_SOURCES.md (M12)
 
-## Overview
+## Runtime Health
 
-M11 keeps the existing task/data pipeline backward-compatible and adds stability signaling for optional external capabilities.
+- Legacy: `GET /health` (`status`, `db`) unchanged.
+- Extended: `GET /api/health/extended` adds `redis`, `worker`, `llm_enabled`, `gbnc_enabled`, and per-component diagnostics.
+- Admin diagnostics: `GET /api/admin/diagnostics` (admin-only) adds config fingerprint, last pull summary, and recent audit rows.
 
-## Health Endpoints
+## LLM Provider (DashScope-compatible)
 
-- `GET /health`: legacy health contract (`status`, `db`) unchanged.
-- `GET /api/health/extended`: adds runtime capabilities and warnings.
-
-Response example:
-
-```json
-{
-  "status": "ok",
-  "db": true,
-  "redis": true,
-  "llm_enabled": false,
-  "gbnc_enabled": true,
-  "warnings": ["llm_key_missing"]
-}
-```
-
-## Environment Variables
-
-### LLM
+Env priority:
 
 - `DASHSCOPE_API_KEY` (preferred)
-- `BAILIAN_API_KEY` (compatible fallback)
-- `BAILIAN_BASE_URL` (default: DashScope compatible mode)
-- `BAILIAN_MODEL`
+- `BAILIAN_API_KEY` (fallback)
 
-### Runtime
+Other env:
 
-- `REDIS_URL`
-- `DATABASE_URL`
+- `BAILIAN_BASE_URL` (default `https://dashscope.aliyuncs.com/compatible-mode/v1`)
+- `BAILIAN_MODEL` (default `qwen-plus`)
+- `BAILIAN_TIMEOUT_SECONDS`
 
-### Auth bootstrap
+Behavior:
 
-- `INIT_ADMIN_USERNAME`
-- `INIT_ADMIN_PASSWORD`
+- LLM recommend API: `POST /api/lexicon/variants/suggest`.
+- Failures degrade to heuristic variants.
+- Audit writes provider/model/latency/ok/error (no secret logged).
 
-## Degradation Strategy
+## GBNC Data Source
 
-The platform must not fail baseline acceptance when keys/network are unavailable:
+Integration:
 
-- Missing LLM key => `llm_enabled=false`, warning emitted, UI shows disabled state.
-- External pull failure path should fallback to local/stub data path where available.
-- `scripts/check.ps1` does not depend on external internet calls.
+- `backend/app/integrations/gbnc/client.py`
+- `backend/app/integrations/gbnc/parser.py`
+
+API:
+
+- `POST /api/data/gbnc/pull`
+- `GET /api/data/gbnc/series/{series_id}`
+- `GET /api/data/gbnc/series/{series_id}/points`
+
+Word-analysis pipeline also uses GBNC pull internally and writes provenance in task result.
+
+Env:
+
+- `GBNC_BASE_URL` (default Google Ngram JSON endpoint)
+- `GBNC_TIMEOUT_SECONDS`
+- `GBNC_RETRIES`
+- `GBNC_USER_AGENT`
+
+## Fallback and Cache Policy
+
+1. Cache probe by `(word, variants, year range, corpus, smoothing, owner scope)`.
+2. Cache hit => reuse existing series and log `DATA_PULL_GBNC_CACHE_HIT`.
+3. Cache miss => pull GBNC.
+4. If network/parsing/provider fails => fallback `source=STUB` with warning and explicit `error_reason`.
+5. All pulls emit audit logs (`DATA_PULL_GBNC`, `DATA_PULL_GBNC_IMPORT`).
 
 ## Traceability
 
-All persisted objects continue to be queryable via:
+Persisted entities:
 
-- `tasks`
-- `task_events`
-- `task_artifacts`
-- `time_series` / `time_series_points`
+- `data_sources`
+- `time_series`
+- `time_series_points`
+- `tasks` / `task_events` / `task_artifacts`
+- `audit_logs`
 
-M11 additionally tags ownership (`owner_user_id`) to support per-user isolation.
+Each task/report can be traced to:
+
+- input params
+- source and warnings
+- generated points count
+- output artifacts (csv/png/html)
