@@ -1,4 +1,4 @@
-ï»¿import { DeleteOutlined, ReloadOutlined } from "@ant-design/icons";
+import { DeleteOutlined, ReloadOutlined } from "@ant-design/icons";
 import { Button, Card, Popconfirm, Select, Space, Table, Tag, Typography, message } from "antd";
 import { useEffect, useState } from "react";
 import { goToTask } from "../app/router";
@@ -8,9 +8,8 @@ import { api, describeApiError, type TimeSeriesListResponse, type TimeSeriesMeta
 export function TimeSeriesExplorerPage() {
   const [seriesRows, setSeriesRows] = useState<TimeSeriesListResponse["items"]>([]);
   const [taskId, setTaskId] = useState("");
-  const [variant, setVariant] = useState("correct");
   const [meta, setMeta] = useState<TimeSeriesMeta | null>(null);
-  const [points, setPoints] = useState<Array<{ time: string; value: number }>>([]);
+  const [seriesMap, setSeriesMap] = useState<Record<string, Array<{ time: string; value: number }>>>({});
   const [loading, setLoading] = useState(false);
   const [scope, setScope] = useState("default");
   const [selectedSeries, setSelectedSeries] = useState<number[]>([]);
@@ -30,36 +29,41 @@ export function TimeSeriesExplorerPage() {
     }
   };
 
+  const loadChart = async (targetTaskId: string) => {
+    try {
+      const m = await api.getTimeSeriesMeta(targetTaskId);
+      setMeta(m);
+      const variants = m.variants?.length ? m.variants : ["correct"];
+      const rows = await Promise.all(
+        variants.map(async (variant) => {
+          try {
+            const resp = await api.getTimeSeriesPoints(targetTaskId, variant);
+            return { variant, items: resp.items ?? [] };
+          } catch {
+            return { variant, items: [] as Array<{ time: string; value: number }> };
+          }
+        })
+      );
+      const nextMap: Record<string, Array<{ time: string; value: number }>> = {};
+      for (const row of rows) {
+        nextMap[row.variant] = row.items;
+      }
+      setSeriesMap(nextMap);
+    } catch (e) {
+      setMeta(null);
+      setSeriesMap({});
+      message.warning(describeApiError(e));
+    }
+  };
+
   useEffect(() => {
     void loadSeries();
   }, [scope]);
 
   useEffect(() => {
     if (!taskId) return;
-    api
-      .getTimeSeriesMeta(taskId)
-      .then((m) => {
-        setMeta(m);
-        const nextVariant = m.variants?.[0] || "correct";
-        setVariant(nextVariant);
-      })
-      .catch((e) => {
-        setMeta(null);
-        setPoints([]);
-        message.warning(describeApiError(e));
-      });
+    void loadChart(taskId);
   }, [taskId]);
-
-  useEffect(() => {
-    if (!taskId || !variant) return;
-    api
-      .getTimeSeriesPoints(taskId, variant)
-      .then((resp) => setPoints(resp.items ?? []))
-      .catch((e) => {
-        setPoints([]);
-        message.warning(describeApiError(e));
-      });
-  }, [taskId, variant]);
 
   return (
     <Space direction="vertical" size={16} style={{ width: "100%" }}>
@@ -78,12 +82,6 @@ export function TimeSeriesExplorerPage() {
           />
           <Select
             style={{ width: 220 }}
-            value={variant}
-            onChange={setVariant}
-            options={(meta?.variants || ["correct"]).map((v) => ({ value: v, label: v }))}
-          />
-          <Select
-            style={{ width: 220 }}
             value={scope}
             onChange={setScope}
             options={[
@@ -93,6 +91,7 @@ export function TimeSeriesExplorerPage() {
             ]}
           />
           <Button onClick={() => taskId && goToTask(taskId)}>Open Task Detail</Button>
+          <Button onClick={() => taskId && void loadChart(taskId)}>Refresh Chart</Button>
         </Space>
         {meta ? (
           <Typography.Paragraph type="secondary" style={{ marginTop: 10 }}>
@@ -101,13 +100,16 @@ export function TimeSeriesExplorerPage() {
           </Typography.Paragraph>
         ) : (
           <Typography.Paragraph type="secondary" style={{ marginTop: 10 }}>
-            æœªå†™å…¥æ—¶åºæ•°æ®ï¼Œæˆ–è¯¥ä»»åŠ¡å°šæœªå®Œæˆã€‚
+            Î´Ğ´ÈëÊ±ĞòÊı¾İ£¬»ò¸ÃÈÎÎñÉĞÎ´Íê³É¡£
           </Typography.Paragraph>
         )}
       </Card>
 
       <Card title="Series Chart">
-        <LineChart points={points} title={`Time Series (${variant})`} />
+        <LineChart
+          series={Object.entries(seriesMap).map(([variant, points]) => ({ name: variant, points }))}
+          title={meta ? `Time Series (${meta.word})` : "Time Series"}
+        />
       </Card>
 
       <Card
@@ -127,6 +129,7 @@ export function TimeSeriesExplorerPage() {
                   if (resp.skipped.length > 0) message.warning(`Skipped ${resp.skipped.length} series`);
                   setSelectedSeries([]);
                   await loadSeries();
+                  if (taskId) await loadChart(taskId);
                 } catch (e) {
                   message.error(describeApiError(e));
                 }

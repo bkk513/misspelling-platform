@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { message } from "antd";
 import { goToTask } from "../app/router";
 import { LineChart } from "../components/LineChart";
@@ -38,10 +38,12 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
   const [probeCsvOk, setProbeCsvOk] = useState<boolean | null>(null);
   const [tsInfo, setTsInfo] = useState<string>("Loading...");
   const [tsVariants, setTsVariants] = useState<string[]>([]);
-  const [tsVariant, setTsVariant] = useState("correct");
-  const [tsPoints, setTsPoints] = useState<Array<{ time: string; value: number }>>([]);
+  const [tsSeriesMap, setTsSeriesMap] = useState<Record<string, Array<{ time: string; value: number }>>>({});
+  const [tsLoading, setTsLoading] = useState(false);
+  const [tsLoadedAt, setTsLoadedAt] = useState<string>("-");
   const [lastRefreshAt, setLastRefreshAt] = useState<string>("-");
   const [actionBusy, setActionBusy] = useState<"" | "retry" | "report">("");
+  const prevTaskStateRef = useRef<string>("");
 
   const taskObj = useMemo(() => asObject(task?.result), [task?.result]);
   const taskType = useMemo(() => {
@@ -50,6 +52,11 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
     const t = meta?.task_type;
     return typeof t === "string" ? t : "-";
   }, [events]);
+
+  const tsPointTotal = useMemo(
+    () => Object.values(tsSeriesMap).reduce((sum, points) => sum + points.length, 0),
+    [tsSeriesMap]
+  );
 
   const refresh = async (resetTicks = false, manual = false) => {
     if (resetTicks) setTicks(0);
@@ -77,14 +84,57 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
     if (manual) message.success("Task state refreshed.");
   };
 
+  const loadTimeSeries = async (manual = false) => {
+    setTsLoading(true);
+    try {
+      const meta = await api.getTimeSeriesMeta(taskId);
+      const variants = meta.variants?.length ? meta.variants : ["correct"];
+      const pointRows = await Promise.all(
+        variants.map(async (variant) => {
+          try {
+            const resp = await api.getTimeSeriesPoints(taskId, variant);
+            return { variant, items: resp.items ?? [] };
+          } catch {
+            return { variant, items: [] as Array<{ time: string; value: number }> };
+          }
+        })
+      );
+      const nextMap: Record<string, Array<{ time: string; value: number }>> = {};
+      for (const row of pointRows) {
+        nextMap[row.variant] = row.items;
+      }
+      setTsVariants(variants);
+      setTsSeriesMap(nextMap);
+      setTsInfo(
+        `source=${meta.source} word=${meta.word} granularity=${meta.granularity} variants=${variants.length} points=${meta.point_count}`
+      );
+      setTsLoadedAt(new Date().toLocaleTimeString());
+      if (manual) message.success("Time-series refreshed.");
+    } catch (e) {
+      const err = e as { status?: number };
+      setTsVariants([]);
+      setTsSeriesMap({});
+      setTsInfo(
+        err?.status === 404
+          ? "This task has no time-series data (optional module not enabled or data not written)."
+          : describeApiError(e)
+      );
+      if (manual) message.error("Time-series refresh failed.");
+    } finally {
+      setTsLoading(false);
+    }
+  };
+
   useEffect(() => {
     void refresh(true);
     setProbePngOk(null);
     setProbeCsvOk(null);
     setTsInfo("Loading...");
     setTsVariants([]);
-    setTsVariant("correct");
-    setTsPoints([]);
+    setTsSeriesMap({});
+    setTsLoadedAt("-");
+    prevTaskStateRef.current = "";
+    void loadTimeSeries(false);
   }, [taskId]);
 
   useEffect(() => {
@@ -113,47 +163,13 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
   }, [task?.state, taskId]);
 
   useEffect(() => {
-    let cancelled = false;
-    api.getTimeSeriesMeta(taskId)
-      .then((meta) => {
-        if (cancelled) return;
-        const variants = meta.variants?.length ? meta.variants : ["correct"];
-        setTsVariants(variants);
-        setTsVariant((v) => (variants.includes(v) ? v : variants[0]));
-        setTsInfo(`source=${meta.source} word=${meta.word} granularity=${meta.granularity} points=${meta.point_count}`);
-      })
-      .catch((e) => {
-        if (cancelled) return;
-        const err = e as { status?: number };
-        setTsVariants([]);
-        setTsPoints([]);
-        setTsInfo(
-          err?.status === 404
-            ? "This task has no time-series data (optional module not enabled or data not written)."
-            : describeApiError(e)
-        );
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [taskId]);
-
-  useEffect(() => {
-    if (!tsVariant || tsVariants.length === 0) return;
-    let cancelled = false;
-    api.getTimeSeriesPoints(taskId, tsVariant)
-      .then((resp) => {
-        if (!cancelled) setTsPoints(resp.items ?? []);
-      })
-      .catch((e) => {
-        if (cancelled) return;
-        setTsPoints([]);
-        setTsInfo(describeApiError(e));
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [taskId, tsVariant, tsVariants.length]);
+    const currentState = String(task?.state || "").toUpperCase();
+    const prevState = prevTaskStateRef.current;
+    prevTaskStateRef.current = currentState;
+    if (currentState === "SUCCESS" && (prevState !== "SUCCESS" || tsPointTotal === 0)) {
+      void loadTimeSeries(false);
+    }
+  }, [task?.state, taskId, tsPointTotal]);
 
   const csvUrl = api.fileUrl(taskId, "result.csv");
   const pngUrl = api.fileUrl(taskId, "preview.png");
@@ -243,8 +259,10 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
           <span>{lastRefreshAt}</span>
           <strong className="muted">Events:</strong>
           <span>{events?.items?.length ?? 0}</span>
-          <strong className="muted">Points:</strong>
-          <span>{tsPoints.length}</span>
+          <strong className="muted">TS points:</strong>
+          <span>{tsPointTotal}</span>
+          <strong className="muted">TS loaded:</strong>
+          <span>{tsLoadedAt}</span>
         </div>
         {taskErr && <div className="error-text">{taskErr}</div>}
       </section>
@@ -325,18 +343,18 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
       <section className="panel">
         <h3 style={{ marginTop: 0 }}>Time Series</h3>
         <div className="muted" style={{ marginBottom: 10 }}>{tsInfo}</div>
+        <div className="row-inline">
+          <button onClick={() => void refresh(false, true)}>Refresh Task State</button>
+          <button onClick={() => void loadTimeSeries(true)} disabled={tsLoading}>
+            {tsLoading ? "Refreshing..." : "Refresh Time Series"}
+          </button>
+          <button onClick={() => goToTask(taskId)}>Reload Route</button>
+        </div>
         {tsVariants.length > 0 && (
-          <>
-            <div className="row-inline">
-              <label htmlFor="variant" className="muted">variant</label>
-              <select id="variant" value={tsVariant} onChange={(e) => setTsVariant(e.target.value)}>
-                {tsVariants.map((v) => <option key={v} value={v}>{v}</option>)}
-              </select>
-              <button onClick={() => void refresh()}>Refresh Task State</button>
-              <button onClick={() => goToTask(taskId)}>Reload Route</button>
-            </div>
-            <LineChart points={tsPoints} title={`Time Series (${tsVariant})`} />
-          </>
+          <LineChart
+            series={tsVariants.map((variant) => ({ name: variant, points: tsSeriesMap[variant] || [] }))}
+            title={`Time Series (${tsVariants.length} variants)`}
+          />
         )}
       </section>
     </div>
