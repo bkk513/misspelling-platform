@@ -6,6 +6,9 @@ export type AppRouteKey =
   | "variants"
   | "projects"
   | "analytics"
+  | "causal-network"
+  | "steady-state"
+  | "delta-t-bias"
   | "time-series"
   | "artifacts"
   | "reports"
@@ -46,6 +49,9 @@ export function parseRoute(pathname: string): Route {
       "variants",
       "projects",
       "analytics",
+      "causal-network",
+      "steady-state",
+      "delta-t-bias",
       "time-series",
       "artifacts",
       "reports",

@@ -205,6 +205,64 @@ function Try-CheckLlmSuggest {
         return "[WARN] llm suggest probe failed"
     }
 }
+function Try-CheckPcmciSmoke {
+    try {
+        $resp = Invoke-RestMethod -Method Post -Uri "$($script:BaseUrl)/api/tasks/pcmci-causal?word=demo&start_year=2018&end_year=2019&smoothing=1&variants=demmo" -TimeoutSec 15
+        if (-not $resp.task_id) {
+            Write-Warn "pcmci-causal create response missing task_id"
+            return "[WARN] pcmci-causal smoke skipped (no task_id)"
+        }
+        $taskId = [string]$resp.task_id
+        Start-Sleep -Seconds 7
+        $null = Wait-ForDbTaskSuccess -ExpectedTaskId $taskId -ExpectedTaskType 'pcmci-causal' -TimeoutSeconds 30
+        $detail = Invoke-RestMethod -Method Get -Uri "$($script:BaseUrl)/api/tasks/$taskId" -TimeoutSec 10
+        $resultPayload = Convert-JsonIfNeeded $detail.result
+        $artifactsPayload = $null
+        if ($resultPayload -and ($resultPayload.PSObject.Properties.Name -contains 'artifacts')) {
+            $artifactsPayload = Convert-JsonIfNeeded $resultPayload.artifacts
+        }
+        $csvPath = $null
+        if ($artifactsPayload -and ($artifactsPayload.PSObject.Properties.Name -contains 'csv')) {
+            $csvPath = [string]$artifactsPayload.csv
+        }
+        if ([string]::IsNullOrWhiteSpace($csvPath)) {
+            $csvPath = "/api/files/$taskId/result.csv"
+        }
+        $csvUrl = if ($csvPath -match '^https?://') { $csvPath } else { "$($script:BaseUrl)$csvPath" }
+        $tmpCsv = Join-Path $env:TEMP ("misspelling-algo-check-" + [guid]::NewGuid().ToString('N') + ".csv")
+        try {
+            $dl = Invoke-WebRequest -Method Get -Uri $csvUrl -OutFile $tmpCsv -TimeoutSec 20
+            $f = Get-Item $tmpCsv
+            if ($f.Length -le 0) {
+                throw "Downloaded pcmci csv is empty"
+            }
+            if ($dl -and ($dl.PSObject.Properties.Name -contains 'StatusCode') -and [int]$dl.StatusCode -ne 200) {
+                throw "Downloaded pcmci csv status is $([int]$dl.StatusCode)"
+            }
+        } finally {
+            if (Test-Path $tmpCsv) {
+                Remove-Item -Force $tmpCsv
+            }
+        }
+        Write-Pass "pcmci-causal smoke passed (task_id=$taskId)"
+        return "[PASS] pcmci-causal smoke SUCCESS + csv download 200 (task_id=$taskId)"
+    } catch {
+        $statusCode = $null
+        if ($_.Exception.PSObject.Properties.Name -contains 'Response' -and $null -ne $_.Exception.Response) {
+            try {
+                $statusCode = [int]$_.Exception.Response.StatusCode
+            } catch {
+                $statusCode = $null
+            }
+        }
+        if ($statusCode -eq 404) {
+            Write-Warn "pcmci-causal endpoint not implemented"
+            return "[WARN] pcmci-causal smoke skipped (endpoint not implemented)"
+        }
+        Write-Warn "pcmci-causal smoke failed: $($_.Exception.Message)"
+        return "[WARN] pcmci-causal smoke skipped (runtime failure)"
+    }
+}
 function Get-DbTableNames {
     $rows = Invoke-MySqlQuery -Sql "SHOW TABLES;" -RawOutput
     if ([string]::IsNullOrWhiteSpace($rows)) {
@@ -398,6 +456,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     $wordRow = Wait-ForDbTaskSuccess -ExpectedTaskId $wordTaskId -ExpectedTaskType 'word-analysis' -TimeoutSeconds 20
     Write-Pass "word-analysis latest DB row SUCCESS (task_id=$($wordRow.task_id))"
     Try-CheckTaskEvents -TaskId $wordTaskId -ExpectedLevels @('QUEUED', 'SUCCESS')
+    $algoSmokeSummary = Try-CheckPcmciSmoke
     $gbncSummary = Try-CheckGbncPull
     Write-Step "Check optional simulation-run task"
     $simCreate = Try-CreateSimulationTask
@@ -484,6 +543,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     Write-Host $simulationPngSummary
     Write-Host $extendedHealthSummary
     Write-Host $llmSummary
+    Write-Host $algoSmokeSummary
     Write-Host $adminDiagSummary
     Write-Host $gbncSummary
     Write-Host ("[INFO] elapsed={0:n1}s" -f $elapsed.TotalSeconds)
