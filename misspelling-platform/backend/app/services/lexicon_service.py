@@ -12,6 +12,7 @@ from ..db.lexicon_repo import (
 )
 from ..providers.llm_bailian import suggest_variants
 from .dictionary_service import enrich_term, search_terms
+from .variant_dictionary_service import suggest_from_dictionary
 
 
 def _is_admin(current_user: dict | None) -> bool:
@@ -27,6 +28,34 @@ def _owner_id(current_user: dict | None) -> int | None:
 def suggest_and_cache_variants(word: str, k: int = 12, current_user: dict | None = None):
     term = find_term_by_word(word)
     owner_user_id = _owner_id(current_user)
+
+    dictionary_hit = suggest_from_dictionary(word=word, k=k)
+    if dictionary_hit.get("found"):
+        term_id = term["id"] if term else get_or_create_term(word, owner_user_id=owner_user_id)
+        variants = [str(v) for v in (dictionary_hit.get("variants") or [])]
+        upsert_variants(int(term_id), variants, source="dictionary", owner_user_id=owner_user_id)
+        insert_audit_log(
+            action="LEXICON_VARIANT_SUGGEST",
+            actor_user_id=owner_user_id,
+            target_type="term",
+            target_id=str(term_id),
+            meta={
+                "word": word,
+                "variants_count": len(variants),
+                "source": "dictionary",
+                "dictionary_path": dictionary_hit.get("dictionary_path"),
+                "warnings": [],
+            },
+        )
+        return {
+            "word": word,
+            "variants": variants,
+            "source": "dictionary",
+            "warnings": [],
+            "llm_error": None,
+            "term_id": int(term_id),
+        }
+
     if term:
         cached = list_variants(int(term["id"]), owner_user_id=owner_user_id, include_all=_is_admin(current_user))
         cached_values = [str(v["variant"]) for v in cached]

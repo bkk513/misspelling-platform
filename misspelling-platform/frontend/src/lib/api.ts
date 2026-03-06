@@ -106,7 +106,7 @@ export type SeriesBulkDeleteResponse = {
 export type VariantSuggestResponse = {
   word: string;
   variants: string[];
-  source?: "llm" | "cache" | "heuristic";
+  source?: "llm" | "cache" | "heuristic" | "dictionary";
   warnings?: string[];
 };
 export type TaskArtifactsResponse = {

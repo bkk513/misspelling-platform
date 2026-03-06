@@ -1,6 +1,6 @@
 export type SuggestedVariant = {
   value: string;
-  source: "llm" | "cache" | "heuristic" | "manual";
+  source: "llm" | "cache" | "heuristic" | "dictionary" | "manual";
   selected: boolean;
 };
 
