@@ -2,7 +2,7 @@
 import { Badge, Button, message, Progress, Select, Space, Tag, Typography } from "antd";
 import { PauseOutlined, PlayCircleOutlined, ReloadOutlined } from "@ant-design/icons";
 import { goToTask } from "../app/router";
-import { LineChart } from "../components/LineChart";
+import { TimeSeriesChart } from "../components/charts/TimeSeriesChart";
 import { api, describeApiError, type TaskDetailResponse, type TaskEventsResponse } from "../lib/api";
 
 function asObject(value: unknown): Record<string, unknown> | null {
@@ -551,12 +551,13 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
           )}
 
           {taskType === "mrnmr-steady" && mrSeries.length > 0 && (
-            <LineChart
+            <TimeSeriesChart
               title="MR / NMR Curves"
               series={[
-                { name: "MR", points: mrSeries.map((row) => ({ time: row.time, value: row.mr })) },
-                { name: "NMR", points: mrSeries.map((row) => ({ time: row.time, value: row.nmr })) }
+                { name: "MR", data: mrSeries.map((row) => ({ time: row.time, value: row.mr })) },
+                { name: "NMR", data: mrSeries.map((row) => ({ time: row.time, value: row.nmr })) }
               ]}
+              height={400}
             />
           )}
 
@@ -579,9 +580,10 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
           )}
 
           {taskType === "deltaT-null" && deltaSeries.length > 0 && (
-            <LineChart
+            <TimeSeriesChart
               title="DeltaT Event Indices by Year"
-              series={[{ name: "event_index", points: deltaSeries }]}
+              series={[{ name: "event_index", data: deltaSeries }]}
+              height={400}
             />
           )}
 
@@ -622,9 +624,13 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
         </div>
         <div className="muted" style={{ marginBottom: 10 }}>{tsInfo}</div>
         {tsVariants.length > 0 && (
-          <LineChart
-            series={tsVariants.map((variant) => ({ name: variant, points: tsSeriesMap[variant] || [] }))}
+          <TimeSeriesChart
+            series={tsVariants.map((variant) => ({
+              name: variant,
+              data: (tsSeriesMap[variant] || []).map(p => ({ time: p.time, value: p.value }))
+            }))}
             title={`Time Series (${tsVariants.length} variants)`}
+            height={450}
           />
         )}
       </section>

@@ -2,7 +2,7 @@ import { DeleteOutlined, ReloadOutlined } from "@ant-design/icons";
 import { Button, Card, Popconfirm, Select, Space, Table, Tag, Typography, message } from "antd";
 import { useEffect, useState } from "react";
 import { goToTask } from "../app/router";
-import { LineChart } from "../components/LineChart";
+import { TimeSeriesChart } from "../components/charts/TimeSeriesChart";
 import { api, describeApiError, type TimeSeriesListResponse, type TimeSeriesMeta } from "../lib/api";
 
 export function TimeSeriesExplorerPage() {
@@ -100,16 +100,26 @@ export function TimeSeriesExplorerPage() {
           </Typography.Paragraph>
         ) : (
           <Typography.Paragraph type="secondary" style={{ marginTop: 10 }}>
-            Î´Ð´ÈëÊ±ÐòÊý¾Ý£¬»ò¸ÃÈÎÎñÉÐÎ´Íê³É¡£
+            Î´Ð´ï¿½ï¿½Ê±ï¿½ï¿½ï¿½ï¿½ï¿½Ý£ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Î´ï¿½ï¿½É¡ï¿½
           </Typography.Paragraph>
         )}
       </Card>
 
       <Card title="Series Chart">
-        <LineChart
-          series={Object.entries(seriesMap).map(([variant, points]) => ({ name: variant, points }))}
-          title={meta ? `Time Series (${meta.word})` : "Time Series"}
-        />
+        {Object.keys(seriesMap).length > 0 ? (
+          <TimeSeriesChart
+            series={Object.entries(seriesMap).map(([variant, points]) => ({
+              name: variant,
+              data: points.map(p => ({ time: p.time, value: p.value }))
+            }))}
+            title={meta ? `Time Series: ${meta.word}` : "Time Series"}
+            height={500}
+          />
+        ) : (
+          <Typography.Text type="secondary">
+            No time series data available. Please select a task.
+          </Typography.Text>
+        )}
       </Card>
 
       <Card
