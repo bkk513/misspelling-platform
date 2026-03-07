@@ -14,6 +14,15 @@ function color(status: string) {
   return "blue";
 }
 
+function parseTaskParams(paramsJson: string | null): Record<string, unknown> {
+  if (!paramsJson) return {};
+  try {
+    return JSON.parse(paramsJson);
+  } catch {
+    return {};
+  }
+}
+
 export function TaskCenterPage() {
   const [items, setItems] = useState<TaskListItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -122,15 +131,57 @@ export function TaskCenterPage() {
               render: (_: unknown, row: TaskListItem) => (
                 <Space direction="vertical" size={0}>
                   <Typography.Text>{row.display_name || row.task_type}</Typography.Text>
-                  <Typography.Text code>{row.task_id}</Typography.Text>
+                  <Typography.Text code style={{ fontSize: 12 }}>{row.task_id}</Typography.Text>
                 </Space>
               )
             },
-            { title: "Type", dataIndex: "task_type" },
-            { title: "Status", dataIndex: "status", render: (v: string) => <Tag color={color(v)}>{v}</Tag> },
-            { title: "Created", dataIndex: "created_at", sorter: (a: TaskListItem, b: TaskListItem) => String(a.created_at || "").localeCompare(String(b.created_at || "")) },
+            { title: "Type", dataIndex: "task_type", width: 180 },
+            {
+              title: "Parameters",
+              key: "params",
+              width: 300,
+              render: (_: unknown, row: TaskListItem) => {
+                const params = parseTaskParams(row.params_json);
+                const word = params.word as string | undefined;
+                const variants = params.variants as string[] | string | undefined;
+                const corpus = params.corpus as string | undefined;
+                const startYear = params.start_year as number | undefined;
+                const endYear = params.end_year as number | undefined;
+
+                const variantArray = Array.isArray(variants)
+                  ? variants
+                  : typeof variants === 'string'
+                    ? variants.split(',').map(v => v.trim()).filter(Boolean)
+                    : [];
+
+                return (
+                  <Space direction="vertical" size={2} style={{ width: '100%' }}>
+                    {word && (
+                      <Typography.Text code style={{ fontSize: 12 }}>
+                        word: {word}
+                      </Typography.Text>
+                    )}
+                    {variantArray.length > 0 && (
+                      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                        variants: {variantArray.slice(0, 3).join(', ')}
+                        {variantArray.length > 3 && ` +${variantArray.length - 3} more`}
+                      </Typography.Text>
+                    )}
+                    <Space size={4}>
+                      {corpus && <Tag size="small">{corpus}</Tag>}
+                      {startYear && endYear && (
+                        <Tag size="small" color="blue">{startYear}-{endYear}</Tag>
+                      )}
+                    </Space>
+                  </Space>
+                );
+              },
+            },
+            { title: "Status", dataIndex: "status", width: 120, render: (v: string) => <Tag color={color(v)}>{v}</Tag> },
+            { title: "Created", dataIndex: "created_at", width: 180, sorter: (a: TaskListItem, b: TaskListItem) => String(a.created_at || "").localeCompare(String(b.created_at || "")) },
             {
               title: "Action",
+              width: 280,
               render: (_: unknown, row: TaskListItem) => (
                 <Space>
                   <Button size="small" icon={<EyeOutlined />} onClick={() => goToTask(row.task_id)}>Detail</Button>

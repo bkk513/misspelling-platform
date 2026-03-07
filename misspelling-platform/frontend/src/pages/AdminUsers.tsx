@@ -8,6 +8,9 @@ export function AdminUsersPage() {
   const [loading, setLoading] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [createForm] = Form.useForm<{ username: string; password: string; role: "admin" | "user" }>();
+  const [resetModalOpen, setResetModalOpen] = useState(false);
+  const [resetUserId, setResetUserId] = useState<number | null>(null);
+  const [resetForm] = Form.useForm<{ password: string; confirmPassword: string }>();
 
   const refresh = async () => {
     setLoading(true);
@@ -72,15 +75,9 @@ export function AdminUsersPage() {
             render: (_: unknown, row: { id: number }) => (
               <Button
                 size="small"
-                onClick={async () => {
-                  const password = window.prompt("New password:") || "";
-                  if (!password) return;
-                  try {
-                    await api.adminResetPassword(row.id, password);
-                    message.success("Password reset successful");
-                  } catch (e) {
-                    message.error(describeApiError(e));
-                  }
+                onClick={() => {
+                  setResetUserId(row.id);
+                  setResetModalOpen(true);
                 }}
               >
                 Reset Password
@@ -95,6 +92,64 @@ export function AdminUsersPage() {
           <Form.Item label="Username" name="username" rules={[{ required: true }]}><Input /></Form.Item>
           <Form.Item label="Password" name="password" rules={[{ required: true }]}><Input.Password /></Form.Item>
           <Form.Item label="Role" name="role"><Select options={[{ value: "user", label: "user" }, { value: "admin", label: "admin" }]} /></Form.Item>
+        </Form>
+      </Modal>
+
+      <Modal
+        title="Reset User Password"
+        open={resetModalOpen}
+        onOk={async () => {
+          try {
+            const values = await resetForm.validateFields();
+            if (resetUserId === null) return;
+            await api.adminResetPassword(resetUserId, values.password);
+            message.success('Password reset successful');
+            setResetModalOpen(false);
+            resetForm.resetFields();
+            setResetUserId(null);
+          } catch (e) {
+            if (e instanceof Error) message.error(e.message);
+          }
+        }}
+        onCancel={() => {
+          setResetModalOpen(false);
+          resetForm.resetFields();
+          setResetUserId(null);
+        }}
+      >
+        <Form form={resetForm} layout="vertical">
+          <Form.Item
+            label="New Password"
+            name="password"
+            rules={[
+              { required: true, message: 'Please input password' },
+              { min: 8, message: 'Password must be at least 8 characters' },
+              {
+                pattern: /^(?=.*[A-Za-z])(?=.*\d)/,
+                message: 'Password must contain both letters and numbers',
+              },
+            ]}
+          >
+            <Input.Password placeholder="Enter new password" />
+          </Form.Item>
+          <Form.Item
+            label="Confirm Password"
+            name="confirmPassword"
+            dependencies={['password']}
+            rules={[
+              { required: true, message: 'Please confirm password' },
+              ({ getFieldValue }) => ({
+                validator(_, value) {
+                  if (!value || getFieldValue('password') === value) {
+                    return Promise.resolve();
+                  }
+                  return Promise.reject(new Error('Passwords do not match'));
+                },
+              }),
+            ]}
+          >
+            <Input.Password placeholder="Confirm new password" />
+          </Form.Item>
         </Form>
       </Modal>
     </Card>
