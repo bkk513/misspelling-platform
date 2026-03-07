@@ -13,29 +13,59 @@ import {
 } from "@ant-design/icons";
 import { Badge, Breadcrumb, Button, Layout, Menu, Space, Tag, Typography } from "antd";
 import type { ReactNode } from "react";
+import type { MenuProps } from "antd";
 
 const { Header, Sider, Content } = Layout;
 
-type MenuItem = {
-  key: string;
-  label: string;
-  icon: ReactNode;
-};
-
-const menuItems: MenuItem[] = [
-  { key: "dashboard", label: "Dashboard", icon: <DashboardOutlined /> },
-  { key: "tasks", label: "Task Center", icon: <AppstoreOutlined /> },
-  { key: "word-analysis", label: "Word Analysis", icon: <FileSearchOutlined /> },
-  { key: "variants", label: "Variant Studio", icon: <TagsOutlined /> },
-  { key: "projects", label: "Project Manager", icon: <FolderOpenOutlined /> },
-  { key: "analytics", label: "Analytics Center", icon: <NodeIndexOutlined /> },
-  { key: "causal-network", label: "Causal Network", icon: <FunctionOutlined /> },
-  { key: "steady-state", label: "Steady State", icon: <FunctionOutlined /> },
-  { key: "delta-t-bias", label: "DeltaT Bias", icon: <FunctionOutlined /> },
-  { key: "time-series", label: "Time Series", icon: <LineChartOutlined /> },
-  { key: "artifacts", label: "Artifact Library", icon: <BarChartOutlined /> },
-  { key: "reports", label: "Report Center", icon: <FileTextOutlined /> },
-  { key: "settings", label: "Researcher Settings", icon: <SettingOutlined /> }
+const menuItems: MenuProps['items'] = [
+  {
+    key: 'overview',
+    label: 'Overview',
+    type: 'group',
+    children: [
+      { key: 'dashboard', label: 'Dashboard', icon: <DashboardOutlined /> },
+    ],
+  },
+  {
+    key: 'workspace',
+    label: 'Workspace',
+    type: 'group',
+    children: [
+      { key: 'word-analysis', label: 'Word Analysis', icon: <FileSearchOutlined /> },
+      { key: 'variants', label: 'Variant Studio', icon: <TagsOutlined /> },
+      { key: 'projects', label: 'Project Manager', icon: <FolderOpenOutlined /> },
+    ],
+  },
+  {
+    key: 'algorithms',
+    label: 'Algorithms',
+    type: 'group',
+    children: [
+      { key: 'causal-network', label: 'Causal Network', icon: <FunctionOutlined /> },
+      { key: 'steady-state', label: 'Steady State', icon: <FunctionOutlined /> },
+      { key: 'delta-t-bias', label: 'DeltaT Bias', icon: <FunctionOutlined /> },
+    ],
+  },
+  {
+    key: 'data',
+    label: 'Data & Results',
+    type: 'group',
+    children: [
+      { key: 'tasks', label: 'Task Center', icon: <AppstoreOutlined /> },
+      { key: 'time-series', label: 'Time Series', icon: <LineChartOutlined /> },
+      { key: 'artifacts', label: 'Artifact Library', icon: <BarChartOutlined /> },
+      { key: 'analytics', label: 'Analytics Center', icon: <NodeIndexOutlined /> },
+      { key: 'reports', label: 'Report Center', icon: <FileTextOutlined /> },
+    ],
+  },
+  {
+    key: 'system',
+    label: 'System',
+    type: 'group',
+    children: [
+      { key: 'settings', label: 'Settings', icon: <SettingOutlined /> },
+    ],
+  },
 ];
 
 export function ResearcherLayout({
@@ -69,7 +99,7 @@ export function ResearcherLayout({
           theme="dark"
           mode="inline"
           selectedKeys={[routeKey]}
-          items={menuItems.map((item) => ({ key: item.key, icon: item.icon, label: item.label }))}
+          items={menuItems}
           onClick={({ key }) => onNavigate(key)}
         />
       </Sider>
