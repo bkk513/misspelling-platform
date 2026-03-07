@@ -1,5 +1,6 @@
 ﻿import { useEffect, useMemo, useRef, useState } from "react";
-import { message } from "antd";
+import { Badge, Button, message, Progress, Select, Space, Tag, Typography } from "antd";
+import { PauseOutlined, PlayCircleOutlined, ReloadOutlined } from "@ant-design/icons";
 import { goToTask } from "../app/router";
 import { LineChart } from "../components/LineChart";
 import { api, describeApiError, type TaskDetailResponse, type TaskEventsResponse } from "../lib/api";
@@ -171,6 +172,13 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
   }, [taskId]);
 
   useEffect(() => {
+    const state = (task?.state || "").toUpperCase();
+    // Auto-stop polling when task reaches terminal state
+    if (state === "SUCCESS" || state === "FAILURE") {
+      setPolling(false);
+      return;
+    }
+
     if (!polling) return;
     if (ticks >= Math.ceil(60000 / pollInterval)) return;
     const id = window.setTimeout(() => {
@@ -178,7 +186,7 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
       setTicks((t) => t + 1);
     }, pollInterval);
     return () => window.clearTimeout(id);
-  }, [polling, ticks, taskId, pollInterval]);
+  }, [polling, ticks, taskId, pollInterval, task?.state]);
 
   useEffect(() => {
     if (ticks >= Math.ceil(60000 / pollInterval)) setPolling(false);
@@ -292,23 +300,38 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
           </div>
           <div className="row-inline">
             <button onClick={() => navigator.clipboard?.writeText(taskId).catch(() => {})}>Copy TaskID</button>
-            <button onClick={() => setPolling((v) => !v)}>{polling ? "Stop Auto Refresh" : "Resume Auto Refresh"}</button>
-            <select
-              value={pollInterval}
-              onChange={(e) => {
-                const next = Number(e.target.value);
-                if (!Number.isFinite(next) || next <= 0) return;
-                setTicks(0);
-                setPollInterval(next);
-                setPolling(true);
-              }}
-            >
-              <option value={2000}>2s (demo)</option>
-              <option value={15000}>15s</option>
-              <option value={30000}>30s</option>
-              <option value={60000}>60s</option>
-            </select>
-            <button onClick={() => void refresh(false, true)}>Refresh Now</button>
+            <Space.Compact>
+              <Button
+                icon={polling ? <PauseOutlined /> : <PlayCircleOutlined />}
+                onClick={() => {
+                  setPolling((v) => !v);
+                  if (!polling) setTicks(0);
+                }}
+              >
+                {polling ? 'Pause' : 'Resume'} Auto-Refresh
+              </Button>
+              <Select
+                value={pollInterval}
+                onChange={(next) => {
+                  setTicks(0);
+                  setPollInterval(next);
+                  setPolling(true);
+                }}
+                style={{ width: 100 }}
+                options={[
+                  { value: 2000, label: '2s' },
+                  { value: 5000, label: '5s' },
+                  { value: 15000, label: '15s' },
+                  { value: 30000, label: '30s' },
+                ]}
+              />
+              <Button icon={<ReloadOutlined />} onClick={() => void refresh(false, true)}>
+                Refresh Now
+              </Button>
+            </Space.Compact>
+            <Typography.Text type="secondary" style={{ marginLeft: 8, fontSize: 12 }}>
+              Last: {lastRefreshAt}
+            </Typography.Text>
             <button
               disabled={actionBusy === "retry"}
               onClick={async () => {
@@ -351,25 +374,39 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
         </div>
         <div className="row-inline">
           <span className="muted">Task Type: {taskType}</span>
-          <span style={{ color: statusTone(task?.state), fontWeight: 600 }}>Status: {task?.state ?? "loading..."}</span>
-          <span className="muted">
-            Polling:{" "}
-            {polling
-              ? `on (interval=${Math.round(pollInterval / 1000)}s, elapsed~${Math.round((ticks * pollInterval) / 1000)}s)`
-              : `off (${ticks >= Math.ceil(60000 / pollInterval) ? "auto-stopped at 60s" : "manual"})`}
-          </span>
+          <Space size={4}>
+            <span style={{ fontWeight: 600 }}>Status:</span>
+            <Tag color={
+              task?.state?.toUpperCase() === 'SUCCESS' ? 'success' :
+              task?.state?.toUpperCase() === 'FAILURE' ? 'error' :
+              task?.state?.toUpperCase() === 'RUNNING' ? 'processing' :
+              'default'
+            }>
+              {task?.state ?? "loading..."}
+            </Tag>
+          </Space>
+          {polling && (
+            <Space size={4}>
+              <Badge status="processing" />
+              <span className="muted">
+                Auto-refresh: {Math.round(pollInterval / 1000)}s interval
+                {ticks > 0 && ` (${ticks} ticks)`}
+              </span>
+            </Space>
+          )}
+          {!polling && ticks >= Math.ceil(60000 / pollInterval) && (
+            <Tag color="warning">Auto-stopped at 60s</Tag>
+          )}
         </div>
-        <div className="row-inline">
-          <strong className="muted">Last refresh:</strong>
-          <span>{lastRefreshAt}</span>
-          <strong className="muted">Events:</strong>
-          <span>{eventItems.length}</span>
-          <strong className="muted">TS points:</strong>
-          <span>{tsPointTotal}</span>
-          <strong className="muted">TS loaded:</strong>
-          <span>{tsLoadedAt}</span>
-        </div>
-        {taskErr && <div className="error-text">{taskErr}</div>}
+        <Space size="large" style={{ marginTop: 8 }}>
+          <Typography.Text type="secondary">
+            <strong>Events:</strong> {eventItems.length}
+          </Typography.Text>
+          <Typography.Text type="secondary">
+            <strong>TS Points:</strong> {tsPointTotal}
+          </Typography.Text>
+        </Space>
+        {taskErr && <div className="error-text" style={{ marginTop: 8 }}>{taskErr}</div>}
       </section>
 
       <section className="panel">
@@ -567,15 +604,23 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
       )}
 
       <section className="panel">
-        <h3 style={{ marginTop: 0 }}>Time Series</h3>
-        <div className="muted" style={{ marginBottom: 10 }}>{tsInfo}</div>
-        <div className="row-inline">
-          <button onClick={() => void refresh(false, true)}>Refresh Task State</button>
-          <button onClick={() => void loadTimeSeries(true)} disabled={tsLoading}>
-            {tsLoading ? "Refreshing..." : "Refresh Time Series"}
-          </button>
-          <button onClick={() => goToTask(taskId)}>Reload Route</button>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+          <h3 style={{ margin: 0 }}>Time Series</h3>
+          <Space>
+            <Button
+              size="small"
+              icon={<ReloadOutlined />}
+              onClick={() => void loadTimeSeries(true)}
+              loading={tsLoading}
+            >
+              Refresh
+            </Button>
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              Last: {tsLoadedAt}
+            </Typography.Text>
+          </Space>
         </div>
+        <div className="muted" style={{ marginBottom: 10 }}>{tsInfo}</div>
         {tsVariants.length > 0 && (
           <LineChart
             series={tsVariants.map((variant) => ({ name: variant, points: tsSeriesMap[variant] || [] }))}
