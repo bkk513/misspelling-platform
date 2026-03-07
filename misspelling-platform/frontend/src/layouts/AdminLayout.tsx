@@ -4,10 +4,13 @@ import {
   DatabaseOutlined,
   SafetyCertificateOutlined,
   SettingOutlined,
-  TeamOutlined
+  TeamOutlined,
+  BulbOutlined,
+  BulbFilled
 } from "@ant-design/icons";
-import { Alert, Badge, Breadcrumb, Button, Layout, Menu, Space, Tag, Typography } from "antd";
+import { Alert, Badge, Breadcrumb, Button, Layout, Menu, Space, Tag, Typography, Tooltip } from "antd";
 import type { ReactNode } from "react";
+import { useTheme } from "../contexts/ThemeContext";
 
 const { Header, Sider, Content } = Layout;
 
@@ -36,6 +39,8 @@ export function AdminLayout({
   onNavigate: (key: string) => void;
   children: ReactNode;
 }) {
+  const { theme, toggleTheme } = useTheme();
+
   return (
     <Layout className="enterprise-layout admin-layout">
       <Sider width={250} className="enterprise-sider" theme="dark">
@@ -64,6 +69,15 @@ export function AdminLayout({
           <Space size="middle">
             <Badge status="processing" text={`role:${role}`} />
             <Typography.Text>{username}</Typography.Text>
+            <Tooltip title={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}>
+              <Button
+                size="small"
+                icon={theme === 'light' ? <BulbOutlined /> : <BulbFilled />}
+                onClick={toggleTheme}
+              >
+                {theme === 'light' ? 'Dark' : 'Light'}
+              </Button>
+            </Tooltip>
             <Button size="small" onClick={onLogout}>
               Logout
             </Button>

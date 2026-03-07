@@ -9,11 +9,14 @@ import {
   LineChartOutlined,
   NodeIndexOutlined,
   SettingOutlined,
-  TagsOutlined
+  TagsOutlined,
+  BulbOutlined,
+  BulbFilled
 } from "@ant-design/icons";
-import { Badge, Breadcrumb, Button, Layout, Menu, Space, Tag, Typography } from "antd";
+import { Badge, Breadcrumb, Button, Layout, Menu, Space, Tag, Typography, Tooltip } from "antd";
 import type { ReactNode } from "react";
 import type { MenuProps } from "antd";
+import { useTheme } from "../contexts/ThemeContext";
 
 const { Header, Sider, Content } = Layout;
 
@@ -91,6 +94,8 @@ export function ResearcherLayout({
   onNavigate: (key: string) => void;
   children: ReactNode;
 }) {
+  const { theme, toggleTheme } = useTheme();
+
   return (
     <Layout className="enterprise-layout">
       <Sider width={250} className="enterprise-sider" theme="dark">
@@ -113,6 +118,15 @@ export function ResearcherLayout({
           <Space size="middle">
             <Badge status={role === "admin" ? "processing" : "default"} text={`role:${role}`} />
             <Typography.Text>{username}</Typography.Text>
+            <Tooltip title={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}>
+              <Button
+                size="small"
+                icon={theme === 'light' ? <BulbOutlined /> : <BulbFilled />}
+                onClick={toggleTheme}
+              >
+                {theme === 'light' ? 'Dark' : 'Light'}
+              </Button>
+            </Tooltip>
             <Button size="small" onClick={onLogout}>
               Logout
             </Button>
