@@ -277,7 +277,13 @@ export const api = {
   },
   createPcmciCausal: (
     word: string,
-    opts?: AlgorithmTaskOptions & { tauMax?: number; alphaLevel?: number; pcAlpha?: number },
+    opts?: AlgorithmTaskOptions & {
+      tauMax?: number;
+      windowSize?: number;
+      windowStep?: number;
+      alphaLevel?: number;
+      pcAlpha?: number;
+    },
     turnstileToken?: string
   ) => {
     const params = new URLSearchParams();
@@ -288,6 +294,8 @@ export const api = {
     if (opts?.corpus) params.set("corpus", opts.corpus);
     if (opts?.variants && opts.variants.length > 0) params.set("variants", opts.variants.join(","));
     if (opts?.tauMax !== undefined) params.set("tau_max", String(opts.tauMax));
+    if (opts?.windowSize !== undefined) params.set("window_size", String(opts.windowSize));
+    if (opts?.windowStep !== undefined) params.set("window_step", String(opts.windowStep));
     if (opts?.alphaLevel !== undefined) params.set("alpha_level", String(opts.alphaLevel));
     if (opts?.pcAlpha !== undefined) params.set("pc_alpha", String(opts.pcAlpha));
     return request<CreateTaskResponse>(`/api/tasks/pcmci-causal?${params.toString()}`, {

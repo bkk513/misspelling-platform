@@ -1,5 +1,6 @@
 import json
 import csv
+import math
 from pathlib import Path
 
 from ..db.task_artifacts_repo import list_artifacts, upsert_artifact
@@ -81,6 +82,160 @@ def write_pcmci_preview_png(edges: list[dict], out_png: Path) -> None:
         ax.set_ylabel("Links", fontsize=11, fontweight="bold")
         ax.set_title("PCMCI Causal Network (Top Edge Weights)", fontsize=12, fontweight="bold")
         ax.grid(axis="x", linestyle=":", linewidth=0.8, alpha=0.35)
+    fig.tight_layout()
+    fig.savefig(out_png, format="png", dpi=180)
+    plt.close(fig)
+
+
+def write_pcmci_window_network_png(window: dict, out_png: Path) -> None:
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    plt.rcParams["font.family"] = "Times New Roman"
+    edges = list(window.get("top_edges") or window.get("edges") or [])
+    series = list(window.get("series") or [])
+    nodes = [str(row.get("variant") or "").strip() for row in series if str(row.get("variant") or "").strip()]
+    if not nodes:
+        node_set = {str(e.get("source") or "").strip() for e in edges} | {str(e.get("target") or "").strip() for e in edges}
+        nodes = [n for n in node_set if n]
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+    ax.set_title(
+        f"PCMCI Window Network ({window.get('start_time', '')} -> {window.get('end_time', '')})",
+        fontsize=12,
+        fontweight="bold",
+    )
+
+    if not nodes:
+        ax.text(0.5, 0.5, "No nodes / edges in this window", ha="center", va="center", fontsize=11)
+        ax.set_axis_off()
+        fig.tight_layout()
+        fig.savefig(out_png, format="png", dpi=180)
+        plt.close(fig)
+        return
+
+    radius = 1.0
+    theta = np.linspace(0, 2 * np.pi, len(nodes), endpoint=False)
+    positions = {
+        node: (
+            float(radius * np.cos(angle)),
+            float(radius * np.sin(angle)),
+        )
+        for node, angle in zip(nodes, theta, strict=False)
+    }
+
+    ax.scatter(
+        [positions[n][0] for n in nodes],
+        [positions[n][1] for n in nodes],
+        s=1000,
+        color="#fef3c7",
+        edgecolors="#a16207",
+        linewidths=1.2,
+        zorder=3,
+    )
+    for node in nodes:
+        x, y = positions[node]
+        ax.text(x, y, node, ha="center", va="center", fontsize=9, zorder=4)
+
+    max_weight = max((abs(float(edge.get("weight") or 0.0)) for edge in edges), default=1.0)
+    for edge in edges[:40]:
+        src = str(edge.get("source") or "")
+        dst = str(edge.get("target") or "")
+        if src not in positions or dst not in positions or src == dst:
+            continue
+        sx, sy = positions[src]
+        tx, ty = positions[dst]
+        weight = float(edge.get("weight") or 0.0)
+        scale = max(0.6, abs(weight) / max(max_weight, 1e-9))
+        color = "#0f766e" if weight >= 0 else "#b91c1c"
+        ax.annotate(
+            "",
+            xy=(tx, ty),
+            xytext=(sx, sy),
+            arrowprops={
+                "arrowstyle": "->",
+                "lw": 0.8 + 2.8 * scale,
+                "color": color,
+                "alpha": 0.72,
+                "shrinkA": 28,
+                "shrinkB": 28,
+            },
+            zorder=2,
+        )
+        mid_x = (sx + tx) / 2.0
+        mid_y = (sy + ty) / 2.0
+        ax.text(
+            mid_x,
+            mid_y,
+            f"lag {edge.get('lag', '-')}",
+            fontsize=7,
+            color="#334155",
+            ha="center",
+            va="center",
+            zorder=5,
+        )
+
+    ax.set_xlim(-1.35, 1.35)
+    ax.set_ylim(-1.35, 1.35)
+    ax.set_axis_off()
+    fig.tight_layout()
+    fig.savefig(out_png, format="png", dpi=180)
+    plt.close(fig)
+
+
+def write_pcmci_window_timeseries_png(window: dict, out_png: Path) -> None:
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    plt.rcParams["font.family"] = "Times New Roman"
+    series = list(window.get("series") or [])
+    fig, ax = plt.subplots(figsize=(11, 5.5))
+    title = f"Window Time Series ({window.get('start_time', '')} -> {window.get('end_time', '')})"
+    ax.set_title(title, fontsize=12, fontweight="bold")
+
+    if not series:
+        ax.text(0.5, 0.5, "No time-series points", ha="center", va="center", fontsize=11)
+        ax.set_axis_off()
+        fig.tight_layout()
+        fig.savefig(out_png, format="png", dpi=180)
+        plt.close(fig)
+        return
+
+    for item in series:
+        variant = str(item.get("variant") or "-")
+        points = list(item.get("points") or [])
+        x = []
+        y = []
+        for i, point in enumerate(points):
+            x.append(i)
+            y.append(float(point.get("value") or 0.0))
+        if not y:
+            continue
+        ax.plot(x, y, linewidth=1.8, marker="o", markersize=2.8, alpha=0.9, label=variant)
+
+    point_count = max((len(list(item.get("points") or [])) for item in series), default=0)
+    if point_count > 0:
+        step = max(1, math.ceil(point_count / 8))
+        tick_idx = list(range(0, point_count, step))
+        labels = []
+        first_series = list(series[0].get("points") or [])
+        for idx in tick_idx:
+            if idx < len(first_series):
+                labels.append(str(first_series[idx].get("time") or ""))
+            else:
+                labels.append(str(idx))
+        ax.set_xticks(tick_idx)
+        ax.set_xticklabels(labels, rotation=35, ha="right")
+
+    ax.set_xlabel("Time")
+    ax.set_ylabel("Normalized Value")
+    ax.grid(linestyle=":", linewidth=0.8, alpha=0.3)
+    ax.legend(frameon=False, fontsize=8, loc="best", ncol=2)
     fig.tight_layout()
     fig.savefig(out_png, format="png", dpi=180)
     plt.close(fig)
