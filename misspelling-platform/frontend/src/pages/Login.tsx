@@ -1,6 +1,8 @@
 import { LockOutlined, UserOutlined } from "@ant-design/icons";
 import { Alert, Button, Card, Form, Input, Space, Tabs, Typography } from "antd";
 import { useEffect, useState } from "react";
+import { TurnstileWidget } from "../components/TurnstileWidget";
+import { useTheme } from "../contexts/ThemeContext";
 import type { CaptchaResponse } from "../lib/api";
 
 export function LoginPage({
@@ -9,7 +11,7 @@ export function LoginPage({
   onFetchCaptcha,
   onGuest
 }: {
-  onLogin: (username: string, password: string) => Promise<void>;
+  onLogin: (username: string, password: string, turnstileToken: string) => Promise<void>;
   onRegister: (
     username: string,
     password: string,
@@ -25,6 +27,10 @@ export function LoginPage({
   const [err, setErr] = useState("");
   const [mode, setMode] = useState<"login" | "register">("login");
   const [captcha, setCaptcha] = useState<CaptchaResponse | null>(null);
+  const [loginTurnstileToken, setLoginTurnstileToken] = useState("");
+  const [loginTurnstileNonce, setLoginTurnstileNonce] = useState(0);
+  const turnstileSiteKey = String(import.meta.env.VITE_TURNSTILE_SITE_KEY || "").trim();
+  const { theme } = useTheme();
 
   useEffect(() => {
     if (mode !== "register") return;
@@ -34,14 +40,19 @@ export function LoginPage({
   }, [mode, onFetchCaptcha]);
 
   const submit = async (values: { username: string; password: string }) => {
+    if (!loginTurnstileToken) {
+      setErr("Please complete Turnstile verification.");
+      return;
+    }
     setBusy(true);
     setErr("");
     try {
-      await onLogin(values.username, values.password);
+      await onLogin(values.username, values.password, loginTurnstileToken);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Login failed");
     } finally {
       setBusy(false);
+      setLoginTurnstileNonce((v) => v + 1);
     }
   };
 
@@ -101,8 +112,16 @@ export function LoginPage({
                       autoComplete="current-password"
                     />
                   </Form.Item>
+                  <Form.Item label="Bot Protection" required>
+                    <TurnstileWidget
+                      siteKey={turnstileSiteKey}
+                      refreshKey={loginTurnstileNonce}
+                      onTokenChange={setLoginTurnstileToken}
+                      theme={theme}
+                    />
+                  </Form.Item>
                   <Space>
-                    <Button type="primary" htmlType="submit" loading={busy}>
+                    <Button type="primary" htmlType="submit" loading={busy} disabled={!loginTurnstileToken}>
                       Login
                     </Button>
                     <Button onClick={onGuest}>Continue as Guest</Button>

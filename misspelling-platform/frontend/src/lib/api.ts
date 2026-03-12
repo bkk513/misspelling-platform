@@ -7,6 +7,12 @@ export function setAccessToken(token: string) {
   accessToken = token || "";
 }
 
+function withTurnstileHeaders(turnstileToken: string, headers?: HeadersInit) {
+  const merged = new Headers(headers || {});
+  if (turnstileToken) merged.set("X-Turnstile-Token", turnstileToken);
+  return merged;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers || {});
   if (accessToken && !headers.has("Authorization")) {
@@ -225,10 +231,10 @@ export const api = {
   getHealth: () => request<HealthResponse>("/health"),
   getExtendedHealth: () => request<ExtendedHealthResponse>("/api/health/extended"),
   getCaptcha: () => request<CaptchaResponse>("/api/auth/captcha"),
-  login: (username: string, password: string) =>
+  login: (username: string, password: string, turnstileToken: string) =>
     request<LoginResponse>("/api/auth/login", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: withTurnstileHeaders(turnstileToken, { "Content-Type": "application/json" }),
       body: JSON.stringify({ username, password })
     }),
   register: (
@@ -252,7 +258,11 @@ export const api = {
       })
     }),
   me: () => request<MeResponse>("/api/auth/me"),
-  createWordAnalysis: (word: string, opts?: { startYear?: number; endYear?: number; smoothing?: number; corpus?: string; variants?: string[] }) => {
+  createWordAnalysis: (
+    word: string,
+    opts?: { startYear?: number; endYear?: number; smoothing?: number; corpus?: string; variants?: string[] },
+    turnstileToken?: string
+  ) => {
     const params = new URLSearchParams();
     params.set("word", word);
     if (opts?.startYear) params.set("start_year", String(opts.startYear));
@@ -260,11 +270,15 @@ export const api = {
     if (opts?.smoothing !== undefined) params.set("smoothing", String(opts.smoothing));
     if (opts?.corpus) params.set("corpus", opts.corpus);
     if (opts?.variants && opts.variants.length > 0) params.set("variants", opts.variants.join(","));
-    return request<CreateTaskResponse>(`/api/tasks/word-analysis?${params.toString()}`, { method: "POST" });
+    return request<CreateTaskResponse>(`/api/tasks/word-analysis?${params.toString()}`, {
+      method: "POST",
+      headers: withTurnstileHeaders(turnstileToken || "")
+    });
   },
   createPcmciCausal: (
     word: string,
-    opts?: AlgorithmTaskOptions & { tauMax?: number; alphaLevel?: number; pcAlpha?: number }
+    opts?: AlgorithmTaskOptions & { tauMax?: number; alphaLevel?: number; pcAlpha?: number },
+    turnstileToken?: string
   ) => {
     const params = new URLSearchParams();
     params.set("word", word);
@@ -276,11 +290,15 @@ export const api = {
     if (opts?.tauMax !== undefined) params.set("tau_max", String(opts.tauMax));
     if (opts?.alphaLevel !== undefined) params.set("alpha_level", String(opts.alphaLevel));
     if (opts?.pcAlpha !== undefined) params.set("pc_alpha", String(opts.pcAlpha));
-    return request<CreateTaskResponse>(`/api/tasks/pcmci-causal?${params.toString()}`, { method: "POST" });
+    return request<CreateTaskResponse>(`/api/tasks/pcmci-causal?${params.toString()}`, {
+      method: "POST",
+      headers: withTurnstileHeaders(turnstileToken || "")
+    });
   },
   createMrnmrSteady: (
     word: string,
-    opts?: AlgorithmTaskOptions & { tippingIndex?: number; kdeBandwidth?: string; polyDegree?: number }
+    opts?: AlgorithmTaskOptions & { tippingIndex?: number; kdeBandwidth?: string; polyDegree?: number },
+    turnstileToken?: string
   ) => {
     const params = new URLSearchParams();
     params.set("word", word);
@@ -292,7 +310,10 @@ export const api = {
     if (opts?.tippingIndex !== undefined) params.set("tipping_index", String(opts.tippingIndex));
     if (opts?.kdeBandwidth) params.set("kde_bandwidth", opts.kdeBandwidth);
     if (opts?.polyDegree !== undefined) params.set("poly_degree", String(opts.polyDegree));
-    return request<CreateTaskResponse>(`/api/tasks/mrnmr-steady?${params.toString()}`, { method: "POST" });
+    return request<CreateTaskResponse>(`/api/tasks/mrnmr-steady?${params.toString()}`, {
+      method: "POST",
+      headers: withTurnstileHeaders(turnstileToken || "")
+    });
   },
   createDeltaTNull: (
     word: string,
@@ -300,7 +321,8 @@ export const api = {
       bootstrapSamples?: number;
       eventThresholdQuantile?: number;
       randomSeed?: number;
-    }
+    },
+    turnstileToken?: string
   ) => {
     const params = new URLSearchParams();
     params.set("word", word);
@@ -314,10 +336,16 @@ export const api = {
       params.set("event_threshold_quantile", String(opts.eventThresholdQuantile));
     }
     if (opts?.randomSeed !== undefined) params.set("random_seed", String(opts.randomSeed));
-    return request<CreateTaskResponse>(`/api/tasks/deltaT-null?${params.toString()}`, { method: "POST" });
+    return request<CreateTaskResponse>(`/api/tasks/deltaT-null?${params.toString()}`, {
+      method: "POST",
+      headers: withTurnstileHeaders(turnstileToken || "")
+    });
   },
-  createSimulation: (n: number, steps: number) =>
-    request<CreateTaskResponse>(`/api/tasks/simulation-run?n=${n}&steps=${steps}`, { method: "POST" }),
+  createSimulation: (n: number, steps: number, turnstileToken?: string) =>
+    request<CreateTaskResponse>(`/api/tasks/simulation-run?n=${n}&steps=${steps}`, {
+      method: "POST",
+      headers: withTurnstileHeaders(turnstileToken || "")
+    }),
   listTasks: (limit = 20, scope?: "all" | "guest" | `user:${number}`) =>
     request<TaskListResponse>(
       `/api/tasks?limit=${limit}${scope ? `&scope=${encodeURIComponent(scope)}` : ""}`

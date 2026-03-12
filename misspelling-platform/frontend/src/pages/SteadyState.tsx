@@ -2,6 +2,7 @@
 import { Button, Card, Col, Input, InputNumber, Row, Space, Table, Typography, message } from "antd";
 import { useState } from "react";
 import { goToTask } from "../app/router";
+import { TurnstileWidget } from "../components/TurnstileWidget";
 import { api, describeApiError } from "../lib/api";
 
 function asObject(value: unknown): Record<string, unknown> | null {
@@ -29,8 +30,15 @@ export function SteadyStatePage() {
   const [busy, setBusy] = useState(false);
   const [latestTaskId, setLatestTaskId] = useState("");
   const [rows, setRows] = useState<Array<Record<string, unknown>>>([]);
+  const [turnstileToken, setTurnstileToken] = useState("");
+  const [turnstileNonce, setTurnstileNonce] = useState(0);
+  const turnstileSiteKey = String(import.meta.env.VITE_TURNSTILE_SITE_KEY || "").trim();
 
   const run = async () => {
+    if (!turnstileToken) {
+      message.warning("Please complete Turnstile verification first.");
+      return;
+    }
     setBusy(true);
     try {
       const resp = await api.createMrnmrSteady(word, {
@@ -40,7 +48,7 @@ export function SteadyStatePage() {
         variants: variants.split(",").map((v) => v.trim()).filter(Boolean),
         tippingIndex,
         polyDegree
-      });
+      }, turnstileToken);
       setLatestTaskId(resp.task_id);
       setRows([]);
       message.success(`MR/NMR task queued: ${resp.task_id}`);
@@ -49,6 +57,7 @@ export function SteadyStatePage() {
       message.error(describeApiError(e));
     } finally {
       setBusy(false);
+      setTurnstileNonce((v) => v + 1);
     }
   };
 
@@ -86,10 +95,25 @@ export function SteadyStatePage() {
           <Col xs={24} md={16}><Typography.Text>Variants (comma separated)</Typography.Text><Input value={variants} onChange={(e) => setVariants(e.target.value)} placeholder="chatgpt,chagpt,chat-gpt" /></Col>
         </Row>
         <Space style={{ marginTop: 12 }}>
-          <Button type="primary" icon={<ThunderboltOutlined />} loading={busy} onClick={() => void run()}>Run MR/NMR</Button>
+          <Button
+            type="primary"
+            icon={<ThunderboltOutlined />}
+            loading={busy}
+            onClick={() => void run()}
+            disabled={!turnstileToken}
+          >
+            Run MR/NMR
+          </Button>
           <Button loading={busy} onClick={() => void loadPreview()}>Load Latest Result Preview</Button>
           <Typography.Text type="secondary">latest: {latestTaskId || "-"}</Typography.Text>
         </Space>
+        <div style={{ marginTop: 12 }}>
+          <TurnstileWidget
+            siteKey={turnstileSiteKey}
+            refreshKey={turnstileNonce}
+            onTokenChange={setTurnstileToken}
+          />
+        </div>
       </Card>
 
       <Card title="Steady Metrics Preview">

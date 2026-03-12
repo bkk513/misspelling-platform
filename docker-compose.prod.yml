@@ -1,23 +1,23 @@
-﻿services:
+name: misspelling-platform
+
+services:
   mysql:
     image: mysql:8.0
     environment:
-      MYSQL_ROOT_PASSWORD: root
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
       MYSQL_DATABASE: misspell
-    ports:
-      - "3306:3306"
     volumes:
       - mysql_data:/var/lib/mysql
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-proot"]
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -p$$MYSQL_ROOT_PASSWORD"]
       interval: 5s
       timeout: 3s
       retries: 20
+    restart: unless-stopped
 
   redis:
     image: redis:7
-    ports:
-      - "6379:6379"
+    restart: unless-stopped
 
   db-init:
     image: mysql:8.0
@@ -25,29 +25,37 @@
       mysql:
         condition: service_healthy
     environment:
-      MYSQL_PWD: root
+      MYSQL_PWD: ${MYSQL_ROOT_PASSWORD}
     command: >
-      sh -c "for f in /schema/*.sql; do echo Running $$f; mysql -hmysql -uroot -D misspell < $$f; done"
+      sh -c "until mysqladmin ping -hmysql -uroot -p$$MYSQL_PWD --silent; do echo waiting for mysql; sleep 2; done;
+      for f in /schema/*.sql; do echo Running $$f; mysql -hmysql -uroot -D misspell < $$f; done"
     volumes:
-      - ./db/init:/schema:ro
+      - ./misspelling-platform/db/init:/schema:ro
     restart: "no"
 
   api:
-    build: ./backend
+    build: ./misspelling-platform/backend
     environment:
-      DATABASE_URL: mysql+pymysql://root:root@mysql:3306/misspell
-      REDIS_URL: redis://redis:6379/0
-      CELERY_BROKER_URL: redis://redis:6379/1
-      CELERY_RESULT_BACKEND: redis://redis:6379/2
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND}
+      AUTH_TOKEN_SECRET: ${AUTH_TOKEN_SECRET}
       INIT_ADMIN_USERNAME: ${INIT_ADMIN_USERNAME:-}
       INIT_ADMIN_PASSWORD: ${INIT_ADMIN_PASSWORD:-}
       DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:-}
       BAILIAN_API_KEY: ${BAILIAN_API_KEY:-}
       BAILIAN_BASE_URL: ${BAILIAN_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
       BAILIAN_MODEL: ${BAILIAN_MODEL:-qwen-plus}
+      BAILIAN_TIMEOUT_SECONDS: ${BAILIAN_TIMEOUT_SECONDS:-8}
       TURNSTILE_SITE_KEY: ${TURNSTILE_SITE_KEY:-}
       TURNSTILE_SECRET_KEY: ${TURNSTILE_SECRET_KEY:-}
       TURNSTILE_TIMEOUT_SECONDS: ${TURNSTILE_TIMEOUT_SECONDS:-6}
+      GBNC_BASE_URL: ${GBNC_BASE_URL:-https://books.google.com/ngrams/json}
+      GBNC_TIMEOUT_SECONDS: ${GBNC_TIMEOUT_SECONDS:-10}
+      GBNC_RETRIES: ${GBNC_RETRIES:-1}
+      GBNC_USER_AGENT: ${GBNC_USER_AGENT:-misspelling-platform/1.0}
+      ALGO_STRICT_MODE: ${ALGO_STRICT_MODE:-false}
       MISSPELL_VARIANT_DICT_PATH: ${MISSPELL_VARIANT_DICT_PATH:-/workspace-root/adversarial_advs_clean_cleaned_completion2.0.json}
     depends_on:
       mysql:
@@ -59,20 +67,29 @@
     ports:
       - "8000:8000"
     volumes:
-      - ./backend:/app
       - outputs:/app/outputs
-      - ../:/workspace-root:ro
+      - ./:/workspace-root:ro
+    restart: unless-stopped
+
   worker:
-    build: ./backend
+    build: ./misspelling-platform/backend
     command: celery -A app.celery_app worker -l INFO
     environment:
-      DATABASE_URL: mysql+pymysql://root:root@mysql:3306/misspell
-      CELERY_BROKER_URL: redis://redis:6379/1
-      CELERY_RESULT_BACKEND: redis://redis:6379/2
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND}
+      AUTH_TOKEN_SECRET: ${AUTH_TOKEN_SECRET}
       DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:-}
       BAILIAN_API_KEY: ${BAILIAN_API_KEY:-}
       BAILIAN_BASE_URL: ${BAILIAN_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
       BAILIAN_MODEL: ${BAILIAN_MODEL:-qwen-plus}
+      BAILIAN_TIMEOUT_SECONDS: ${BAILIAN_TIMEOUT_SECONDS:-8}
+      GBNC_BASE_URL: ${GBNC_BASE_URL:-https://books.google.com/ngrams/json}
+      GBNC_TIMEOUT_SECONDS: ${GBNC_TIMEOUT_SECONDS:-10}
+      GBNC_RETRIES: ${GBNC_RETRIES:-1}
+      GBNC_USER_AGENT: ${GBNC_USER_AGENT:-misspelling-platform/1.0}
+      ALGO_STRICT_MODE: ${ALGO_STRICT_MODE:-false}
       MISSPELL_VARIANT_DICT_PATH: ${MISSPELL_VARIANT_DICT_PATH:-/workspace-root/adversarial_advs_clean_cleaned_completion2.0.json}
     depends_on:
       mysql:
@@ -82,11 +99,9 @@
       db-init:
         condition: service_completed_successfully
     volumes:
-      - ./backend:/app
       - outputs:/app/outputs
-      - ../:/workspace-root:ro
-
-
+      - ./:/workspace-root:ro
+    restart: unless-stopped
 
 volumes:
   mysql_data:

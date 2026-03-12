@@ -10,16 +10,31 @@ import {
 } from "@ant-design/icons";
 import { Alert, Badge, Breadcrumb, Button, Layout, Menu, Space, Tag, Typography, Tooltip } from "antd";
 import type { ReactNode } from "react";
+import type { MenuProps } from "antd";
 import { useTheme } from "../contexts/ThemeContext";
 
 const { Header, Sider, Content } = Layout;
 
-const menuItems = [
-  { key: "dashboard", label: "Admin Dashboard", icon: <DashboardOutlined /> },
-  { key: "users", label: "User Management", icon: <TeamOutlined /> },
-  { key: "audit-logs", label: "Audit Logs", icon: <AuditOutlined /> },
-  { key: "data-sources", label: "Data Sources", icon: <DatabaseOutlined /> },
-  { key: "settings", label: "System Settings", icon: <SettingOutlined /> }
+const menuItems: MenuProps['items'] = [
+  {
+    key: 'admin-main',
+    label: 'Administration',
+    icon: <DashboardOutlined />,
+    children: [
+      { key: 'dashboard', label: 'Dashboard' },
+      { key: 'users', label: 'User Management' },
+      { key: 'audit-logs', label: 'Audit Logs' },
+    ],
+  },
+  {
+    key: 'admin-system',
+    label: 'System',
+    icon: <SettingOutlined />,
+    children: [
+      { key: 'data-sources', label: 'Data Sources' },
+      { key: 'settings', label: 'System Settings' },
+    ],
+  },
 ];
 
 export function AdminLayout({
@@ -49,6 +64,7 @@ export function AdminLayout({
           theme="dark"
           mode="inline"
           selectedKeys={[routeKey]}
+          defaultOpenKeys={['admin-main']}
           items={menuItems}
           onClick={({ key }) => onNavigate(key)}
         />

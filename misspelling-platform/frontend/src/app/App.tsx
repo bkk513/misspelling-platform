@@ -113,9 +113,10 @@ export function App() {
       });
   }, [route.scope]);
 
-  const onLogin = async (username: string, password: string) => {
+  const onLogin = async (username: string, password: string, turnstileToken: string) => {
     if (!username || !password) throw new Error("Username and password are required");
-    const resp = await api.login(username, password);
+    if (!turnstileToken) throw new Error("Turnstile verification is required");
+    const resp = await api.login(username, password, turnstileToken);
     const role: Session["role"] = resp.user.roles.includes("admin") ? "admin" : "user";
     setSession({ username: resp.user.username, role, token: resp.access_token });
     role === "admin" ? goToAdmin("dashboard") : goToApp("dashboard");
