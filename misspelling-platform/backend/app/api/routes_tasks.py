@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
@@ -21,6 +21,7 @@ from ..services.task_service import (
 )
 from ..services.artifact_service import list_task_artifacts_payload
 from ..services.task_event_service import list_task_events_payload
+from ..services.turnstile_service import verify_turnstile_token
 from ..tasks import deltat_null, demo_analysis, mrnmr_steady, pcmci_causal, simulation_run
 
 router = APIRouter()
@@ -28,6 +29,25 @@ router = APIRouter()
 
 class BulkDeleteTasksBody(BaseModel):
     task_ids: list[str]
+
+
+def _enforce_turnstile(
+    request: Request,
+    turnstile_token: str | None,
+    task_type: str,
+    owner_user_id: int | None = None,
+):
+    client_ip = request.client.host if request.client else None
+    ok, errors = verify_turnstile_token(turnstile_token or "", remote_ip=client_ip)
+    if ok:
+        return
+    insert_audit_log(
+        action="TASK_CREATE_BLOCKED",
+        actor_user_id=owner_user_id,
+        target_type="task",
+        meta={"task_type": task_type, "reason": "turnstile_invalid", "turnstile_errors": errors},
+    )
+    raise HTTPException(status_code=400, detail="Turnstile verification failed")
 
 
 @router.get("/health")
@@ -42,6 +62,7 @@ def health_extended():
 
 @router.post("/api/tasks/word-analysis")
 def create_task(
+    request: Request,
     word: str,
     start_year: int = 1900,
     end_year: int = 2019,
@@ -49,8 +70,10 @@ def create_task(
     corpus: str = "eng_2019",
     variants: str | None = None,
     current_user=Depends(get_optional_user),
+    turnstile_token: str | None = Header(default=None, alias="X-Turnstile-Token"),
 ):
     owner_user_id = int(current_user["id"]) if current_user else None
+    _enforce_turnstile(request, turnstile_token, task_type="word-analysis", owner_user_id=owner_user_id)
     selected_variants = [v.strip().lower() for v in str(variants or "").split(",") if v.strip()]
     result = create_word_analysis_task(
         word,
@@ -135,8 +158,15 @@ def delete_task(task_id: str, current_user=Depends(get_optional_user)):
 
 
 @router.post("/api/tasks/simulation-run")
-def create_sim_task(n: int = 30, steps: int = 50, current_user=Depends(get_optional_user)):
+def create_sim_task(
+    request: Request,
+    n: int = 30,
+    steps: int = 50,
+    current_user=Depends(get_optional_user),
+    turnstile_token: str | None = Header(default=None, alias="X-Turnstile-Token"),
+):
     owner_user_id = int(current_user["id"]) if current_user else None
+    _enforce_turnstile(request, turnstile_token, task_type="simulation-run", owner_user_id=owner_user_id)
     result = create_simulation_task(n, steps, simulation_run, owner_user_id=owner_user_id)
     insert_audit_log(
         action="TASK_CREATE",
@@ -150,6 +180,7 @@ def create_sim_task(n: int = 30, steps: int = 50, current_user=Depends(get_optio
 
 @router.post("/api/tasks/pcmci-causal")
 def create_pcmci_task(
+    request: Request,
     word: str,
     start_year: int = 1900,
     end_year: int = 2019,
@@ -160,8 +191,10 @@ def create_pcmci_task(
     alpha_level: float = 0.01,
     pc_alpha: float | None = None,
     current_user=Depends(get_optional_user),
+    turnstile_token: str | None = Header(default=None, alias="X-Turnstile-Token"),
 ):
     owner_user_id = int(current_user["id"]) if current_user else None
+    _enforce_turnstile(request, turnstile_token, task_type="pcmci-causal", owner_user_id=owner_user_id)
     selected_variants = [v.strip().lower() for v in str(variants or "").split(",") if v.strip()]
     params = {
         "word": word,
@@ -187,6 +220,7 @@ def create_pcmci_task(
 
 @router.post("/api/tasks/mrnmr-steady")
 def create_mrnmr_task(
+    request: Request,
     word: str,
     start_year: int = 1900,
     end_year: int = 2019,
@@ -197,8 +231,10 @@ def create_mrnmr_task(
     kde_bandwidth: str = "scott",
     poly_degree: int = 20,
     current_user=Depends(get_optional_user),
+    turnstile_token: str | None = Header(default=None, alias="X-Turnstile-Token"),
 ):
     owner_user_id = int(current_user["id"]) if current_user else None
+    _enforce_turnstile(request, turnstile_token, task_type="mrnmr-steady", owner_user_id=owner_user_id)
     selected_variants = [v.strip().lower() for v in str(variants or "").split(",") if v.strip()]
     params = {
         "word": word,
@@ -224,6 +260,7 @@ def create_mrnmr_task(
 
 @router.post("/api/tasks/deltaT-null")
 def create_delta_t_task(
+    request: Request,
     word: str,
     start_year: int = 1900,
     end_year: int = 2019,
@@ -234,8 +271,10 @@ def create_delta_t_task(
     event_threshold_quantile: float = 0.9,
     random_seed: int = 42,
     current_user=Depends(get_optional_user),
+    turnstile_token: str | None = Header(default=None, alias="X-Turnstile-Token"),
 ):
     owner_user_id = int(current_user["id"]) if current_user else None
+    _enforce_turnstile(request, turnstile_token, task_type="deltaT-null", owner_user_id=owner_user_id)
     selected_variants = [v.strip().lower() for v in str(variants or "").split(",") if v.strip()]
     params = {
         "word": word,

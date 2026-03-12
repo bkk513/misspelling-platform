@@ -22,35 +22,42 @@ body {
 }
 
 .enterprise-logo {
-  height: 56px;
+  height: 64px;
   display: flex;
   align-items: center;
-  padding: 0 20px;
-  font-weight: 600;
+  padding: 0 24px;
+  font-weight: 700;
+  font-size: 16px;
   color: #e2e8f0;
-  border-bottom: 1px solid #334155;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: linear-gradient(135deg, #1a1a1a 0%, #141414 100%);
+  letter-spacing: 0.5px;
 }
 
 .admin-logo {
-  color: #fecaca;
+  color: #fca5a5;
+  background: linear-gradient(135deg, #1f1414 0%, #1a1010 100%);
 }
 
 .enterprise-header {
   background: #fff;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid #e8ecf0;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 0 16px;
-  gap: 8px;
+  padding: 0 24px;
+  gap: 12px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.02);
+  backdrop-filter: blur(8px);
 }
 
 .enterprise-content {
-  padding: 14px;
+  padding: 20px;
+  background: #f8f9fa;
 }
 
 .enterprise-content-body {
-  margin-top: 10px;
+  margin-top: 16px;
 }
 
 .login-screen,
@@ -60,17 +67,28 @@ body {
   align-items: center;
   justify-content: center;
   padding: 24px;
+  background: linear-gradient(135deg, #f5f7fa 0%, #e8ecf0 100%);
 }
 
 .login-card {
-  width: min(460px, 100%);
+  width: min(480px, 100%);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08), 0 4px 16px rgba(0, 0, 0, 0.04);
+  border-radius: 16px;
+  overflow: hidden;
 }
 
 .panel {
   background: #fff;
-  border: 1px solid #d9e1eb;
-  border-radius: 8px;
-  padding: 16px;
+  border: 1px solid #e8ecf0;
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02), 0 1px 2px rgba(0, 0, 0, 0.03);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.panel:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05), 0 2px 6px rgba(0, 0, 0, 0.04);
+  transform: translateY(-1px);
 }
 
 .stack {
@@ -104,12 +122,29 @@ body {
 }
 
 .field input,
-.field select {
+.field select,
+.field textarea {
   width: 100%;
-  border: 1px solid #d1d5db;
-  border-radius: 6px;
-  padding: 8px 10px;
+  border: 1px solid #d9dfe6;
+  border-radius: 8px;
+  padding: 10px 14px;
   background: #fff;
+  transition: all 0.2s ease;
+  font-size: 14px;
+}
+
+.field input:hover,
+.field select:hover,
+.field textarea:hover {
+  border-color: #b8c2cc;
+}
+
+.field input:focus,
+.field select:focus,
+.field textarea:focus {
+  border-color: #1890ff;
+  box-shadow: 0 0 0 3px rgba(24, 144, 255, 0.08);
+  outline: none;
 }
 
 .mono {
@@ -131,21 +166,38 @@ body {
 
 .simple-table {
   width: 100%;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
   font-size: 14px;
-}
-
-.simple-table th,
-.simple-table td {
-  text-align: left;
-  border-top: 1px solid #e5e7eb;
-  padding: 8px 6px;
-  vertical-align: top;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
 }
 
 .simple-table th {
-  color: #6b7280;
+  color: #4b5563;
   font-weight: 600;
+  background: linear-gradient(180deg, #fafbfc 0%, #f5f7fa 100%);
+  padding: 12px 10px;
+  border-bottom: 2px solid #e5e7eb;
+  text-align: left;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.simple-table td {
+  padding: 12px 10px;
+  border-bottom: 1px solid #f0f2f5;
+  transition: background 0.2s ease;
+}
+
+.simple-table tr:hover td {
+  background: #f9fafb;
+}
+
+.simple-table tr:last-child td {
+  border-bottom: none;
 }
 
 .pre-block {
@@ -158,10 +210,11 @@ body {
 }
 
 .chart-wrap {
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  padding: 10px;
-  background: #fcfcfd;
+  border: 1px solid #e8ecf0;
+  border-radius: 12px;
+  padding: 16px;
+  background: linear-gradient(135deg, #fcfcfd 0%, #f9fafb 100%);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
 }
 
 .chart-svg {
@@ -169,8 +222,9 @@ body {
   height: auto;
   display: block;
   background: #fff;
-  border: 1px solid #eef2f7;
-  border-radius: 6px;
+  border: 1px solid #f0f2f5;
+  border-radius: 8px;
+  padding: 8px;
 }
 
 .chart-axis {
@@ -194,4 +248,156 @@ body {
   .enterprise-content {
     padding: 10px;
   }
+}
+
+/* ===== Dark Theme Overrides ===== */
+[data-theme="dark"] {
+  color: rgba(255, 255, 255, 0.85);
+  background: #0a0a0a;
+}
+
+[data-theme="dark"] body {
+  background: #0a0a0a;
+}
+
+[data-theme="dark"] .enterprise-header {
+  background: rgba(31, 31, 31, 0.95);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  backdrop-filter: blur(8px);
+}
+
+[data-theme="dark"] .enterprise-content {
+  background: #0a0a0a;
+}
+
+[data-theme="dark"] .panel {
+  background: linear-gradient(135deg, #1f1f1f 0%, #1a1a1a 100%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3), 0 1px 4px rgba(0, 0, 0, 0.2);
+}
+
+[data-theme="dark"] .panel:hover {
+  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4), 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+[data-theme="dark"] .muted {
+  color: rgba(255, 255, 255, 0.45);
+}
+
+[data-theme="dark"] .error-text {
+  color: #ff7875;
+}
+
+/* Form elements */
+[data-theme="dark"] .field input,
+[data-theme="dark"] .field select,
+[data-theme="dark"] .field textarea {
+  background: #1a1a1a;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.85);
+}
+
+[data-theme="dark"] .field input:hover,
+[data-theme="dark"] .field select:hover,
+[data-theme="dark"] .field textarea:hover {
+  border-color: rgba(255, 255, 255, 0.15);
+  background: #1f1f1f;
+}
+
+[data-theme="dark"] .field input:focus,
+[data-theme="dark"] .field select:focus,
+[data-theme="dark"] .field textarea:focus {
+  border-color: #1890ff;
+  background: #1f1f1f;
+  box-shadow: 0 0 0 3px rgba(24, 144, 255, 0.15);
+}
+
+[data-theme="dark"] .field label {
+  color: rgba(255, 255, 255, 0.65);
+}
+
+/* Charts */
+[data-theme="dark"] .chart-wrap {
+  background: linear-gradient(135deg, #1f1f1f 0%, #1a1a1a 100%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+[data-theme="dark"] .chart-svg {
+  background: #141414;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+[data-theme="dark"] .chart-axis {
+  color: rgba(255, 255, 255, 0.65);
+}
+
+/* Tables */
+[data-theme="dark"] .simple-table {
+  background: #1f1f1f;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+[data-theme="dark"] .simple-table th {
+  background: linear-gradient(180deg, #1a1a1a 0%, #141414 100%);
+  border-bottom: 2px solid rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.85);
+}
+
+[data-theme="dark"] .simple-table td {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.85);
+}
+
+[data-theme="dark"] .simple-table tr:hover td {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+/* Code blocks */
+[data-theme="dark"] .mono,
+[data-theme="dark"] code {
+  background: #141414;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #95de64;
+}
+
+[data-theme="dark"] .pre-block {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+/* Buttons (if custom buttons exist) */
+[data-theme="dark"] button {
+  background: #1f1f1f;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.85);
+}
+
+[data-theme="dark"] button:hover {
+  background: #2a2a2a;
+  border-color: rgba(255, 255, 255, 0.24);
+}
+
+[data-theme="dark"] button:disabled {
+  background: #141414;
+  color: rgba(255, 255, 255, 0.25);
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
+/* Login and boot screens */
+[data-theme="dark"] .login-screen,
+[data-theme="dark"] .boot-screen {
+  background: linear-gradient(135deg, #0a0a0a 0%, #141414 100%);
+}
+
+[data-theme="dark"] .login-card {
+  background: linear-gradient(135deg, #1f1f1f 0%, #1a1a1a 100%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+
+/* Turnstile dark theme integration */
+[data-theme="dark"] .cf-turnstile {
+  filter: brightness(0.9);
 }

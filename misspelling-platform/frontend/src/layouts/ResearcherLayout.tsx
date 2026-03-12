@@ -24,49 +24,49 @@ const menuItems: MenuProps['items'] = [
   {
     key: 'overview',
     label: 'Overview',
-    type: 'group',
+    icon: <DashboardOutlined />,
     children: [
-      { key: 'dashboard', label: 'Dashboard', icon: <DashboardOutlined /> },
+      { key: 'dashboard', label: 'Dashboard' },
     ],
   },
   {
     key: 'workspace',
     label: 'Workspace',
-    type: 'group',
+    icon: <FileSearchOutlined />,
     children: [
-      { key: 'word-analysis', label: 'Word Analysis', icon: <FileSearchOutlined /> },
-      { key: 'variants', label: 'Variant Studio', icon: <TagsOutlined /> },
-      { key: 'projects', label: 'Project Manager', icon: <FolderOpenOutlined /> },
+      { key: 'word-analysis', label: 'Word Analysis' },
+      { key: 'variants', label: 'Variant Studio' },
+      { key: 'projects', label: 'Project Manager' },
     ],
   },
   {
     key: 'algorithms',
     label: 'Algorithms',
-    type: 'group',
+    icon: <FunctionOutlined />,
     children: [
-      { key: 'causal-network', label: 'Causal Network', icon: <FunctionOutlined /> },
-      { key: 'steady-state', label: 'Steady State', icon: <FunctionOutlined /> },
-      { key: 'delta-t-bias', label: 'DeltaT Bias', icon: <FunctionOutlined /> },
+      { key: 'causal-network', label: 'Causal Network' },
+      { key: 'steady-state', label: 'Steady State' },
+      { key: 'delta-t-bias', label: 'DeltaT Bias' },
     ],
   },
   {
     key: 'data',
     label: 'Data & Results',
-    type: 'group',
+    icon: <BarChartOutlined />,
     children: [
-      { key: 'tasks', label: 'Task Center', icon: <AppstoreOutlined /> },
-      { key: 'time-series', label: 'Time Series', icon: <LineChartOutlined /> },
-      { key: 'artifacts', label: 'Artifact Library', icon: <BarChartOutlined /> },
-      { key: 'analytics', label: 'Analytics Center', icon: <NodeIndexOutlined /> },
-      { key: 'reports', label: 'Report Center', icon: <FileTextOutlined /> },
+      { key: 'tasks', label: 'Task Center' },
+      { key: 'time-series', label: 'Time Series' },
+      { key: 'artifacts', label: 'Artifact Library' },
+      { key: 'analytics', label: 'Analytics Center' },
+      { key: 'reports', label: 'Report Center' },
     ],
   },
   {
     key: 'system',
     label: 'System',
-    type: 'group',
+    icon: <SettingOutlined />,
     children: [
-      { key: 'settings', label: 'Settings', icon: <SettingOutlined /> },
+      { key: 'settings', label: 'Settings' },
     ],
   },
 ];
@@ -104,6 +104,7 @@ export function ResearcherLayout({
           theme="dark"
           mode="inline"
           selectedKeys={[routeKey]}
+          defaultOpenKeys={['overview', 'workspace', 'data']}
           items={menuItems}
           onClick={({ key }) => onNavigate(key)}
         />

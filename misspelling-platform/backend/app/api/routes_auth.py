@@ -1,9 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel
 
 from ..db.audit_logs_repo import insert_audit_log
 from ..services.captcha_service import issue_captcha, verify_captcha
 from ..services.auth_service import authenticate_user, issue_access_token, register_user
+from ..services.turnstile_service import verify_turnstile_token
 from .auth_deps import get_current_user
 
 router = APIRouter()
@@ -29,7 +30,17 @@ def captcha():
 
 
 @router.post("/api/auth/login")
-def login(body: LoginBody):
+def login(body: LoginBody, request: Request, turnstile_token: str | None = Header(default=None, alias="X-Turnstile-Token")):
+    client_ip = request.client.host if request.client else None
+    ok, errors = verify_turnstile_token(turnstile_token or "", remote_ip=client_ip)
+    if not ok:
+        insert_audit_log(
+            action="AUTH_LOGIN_FAILED",
+            target_type="user",
+            target_id=body.username,
+            meta={"reason": "turnstile_invalid", "turnstile_errors": errors},
+        )
+        raise HTTPException(status_code=400, detail="Turnstile verification failed")
     user = authenticate_user(body.username, body.password)
     if not user:
         insert_audit_log(action="AUTH_LOGIN_FAILED", target_type="user", target_id=body.username, meta={"reason": "invalid_credentials"})

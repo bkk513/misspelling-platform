@@ -2,6 +2,7 @@
 import { Alert, Button, Card, Col, Input, Row, Space, Statistic, Table, Tag, Typography, message } from "antd";
 import { useEffect, useMemo, useState } from "react";
 import { goToApp, goToTask } from "../app/router";
+import { TurnstileWidget } from "../components/TurnstileWidget";
 import {
   api,
   describeApiError,
@@ -27,6 +28,9 @@ export function HomePage() {
   const [n, setN] = useState("20");
   const [steps, setSteps] = useState("15");
   const [busy, setBusy] = useState<"" | "word" | "sim">("");
+  const [turnstileToken, setTurnstileToken] = useState("");
+  const [turnstileNonce, setTurnstileNonce] = useState(0);
+  const turnstileSiteKey = String(import.meta.env.VITE_TURNSTILE_SITE_KEY || "").trim();
 
   const refresh = async () => {
     setLoading(true);
@@ -57,28 +61,38 @@ export function HomePage() {
   }, [tasks]);
 
   const runWord = async () => {
+    if (!turnstileToken) {
+      message.warning("Please complete Turnstile verification first.");
+      return;
+    }
     setBusy("word");
     try {
-      const resp = await api.createWordAnalysis(word.trim() || "demo");
+      const resp = await api.createWordAnalysis(word.trim() || "demo", undefined, turnstileToken);
       message.success(`word-analysis queued: ${resp.task_id}`);
       goToTask(resp.task_id);
     } catch (e) {
       message.error(describeApiError(e));
     } finally {
       setBusy("");
+      setTurnstileNonce((v) => v + 1);
     }
   };
 
   const runSimulation = async () => {
+    if (!turnstileToken) {
+      message.warning("Please complete Turnstile verification first.");
+      return;
+    }
     setBusy("sim");
     try {
-      const resp = await api.createSimulation(Number(n) || 20, Number(steps) || 15);
+      const resp = await api.createSimulation(Number(n) || 20, Number(steps) || 15, turnstileToken);
       message.success(`simulation-run queued: ${resp.task_id}`);
       goToTask(resp.task_id);
     } catch (e) {
       message.error(describeApiError(e));
     } finally {
       setBusy("");
+      setTurnstileNonce((v) => v + 1);
     }
   };
 
@@ -128,6 +142,9 @@ export function HomePage() {
           </Card>
         </Col>
       </Row>
+      <Card title="Bot Protection">
+        <TurnstileWidget siteKey={turnstileSiteKey} refreshKey={turnstileNonce} onTokenChange={setTurnstileToken} />
+      </Card>
       <Row gutter={16}>
         <Col xs={24} md={12}>
           <Card
@@ -140,7 +157,7 @@ export function HomePage() {
           >
             <Space.Compact style={{ width: "100%" }}>
               <Input value={word} onChange={(e) => setWord(e.target.value)} placeholder="word" />
-              <Button type="primary" loading={busy === "word"} onClick={runWord}>
+              <Button type="primary" loading={busy === "word"} onClick={runWord} disabled={!turnstileToken}>
                 Run
               </Button>
             </Space.Compact>
@@ -163,7 +180,13 @@ export function HomePage() {
                 placeholder="steps"
                 style={{ width: 120 }}
               />
-              <Button type="primary" icon={<RocketOutlined />} loading={busy === "sim"} onClick={runSimulation}>
+              <Button
+                type="primary"
+                icon={<RocketOutlined />}
+                loading={busy === "sim"}
+                onClick={runSimulation}
+                disabled={!turnstileToken}
+              >
                 Run
               </Button>
             </Space.Compact>
