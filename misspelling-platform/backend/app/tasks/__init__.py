@@ -25,6 +25,8 @@ from ..services.artifact_service import (
     write_json_file,
     write_mrnmr_preview_png,
     write_pcmci_preview_png,
+    write_pcmci_window_network_png,
+    write_pcmci_window_timeseries_png,
     write_rows_csv,
     write_simulation_csv,
     write_simulation_preview_png,
@@ -116,6 +118,8 @@ def _algo_params(payload: dict[str, Any] | Any) -> dict[str, Any]:
         "corpus": str(data.get("corpus") or "eng_2019"),
         "smoothing": _to_int(data.get("smoothing"), 3),
         "tau_max": _to_int(data.get("tau_max"), 8),
+        "window_size": _to_int(data.get("window_size"), 0),
+        "window_step": _to_int(data.get("window_step"), 0),
         "alpha_level": _to_float(data.get("alpha_level"), 0.01),
         "pc_alpha": _to_optional_float(data.get("pc_alpha")),
         "tipping_index": _to_int(data.get("tipping_index"), 0),
@@ -197,7 +201,18 @@ def _try_save_algo_preview(
         out_dir = build_output_dir(task_id)
         out_png = out_dir / "preview.png"
         if task_type == "pcmci-causal":
-            write_pcmci_preview_png(algo_payload.get("edges") or [], out_png)
+            write_pcmci_preview_png(algo_payload, out_png)
+            for window in algo_payload.get("window_results") or []:
+                network_png = str(window.get("network_png") or "").strip()
+                timeseries_png = str(window.get("timeseries_png") or "").strip()
+                if network_png:
+                    network_path = out_dir / network_png
+                    write_pcmci_window_network_png(window, network_path)
+                    register_artifact(task_id, "png", network_png, network_path, "image/png")
+                if timeseries_png:
+                    ts_path = out_dir / timeseries_png
+                    write_pcmci_window_timeseries_png(window, ts_path)
+                    register_artifact(task_id, "png", timeseries_png, ts_path, "image/png")
         elif task_type == "mrnmr-steady":
             write_mrnmr_preview_png(algo_payload.get("metrics") or [], algo_payload.get("summary") or {}, out_png)
         elif task_type == "deltaT-null":
@@ -420,6 +435,8 @@ def pcmci_causal(self, payload: dict[str, Any]):
                 tau_max=int(cfg["tau_max"]),
                 alpha_level=float(cfg["alpha_level"]),
                 pc_alpha=cfg.get("pc_alpha"),
+                window_size=int(cfg.get("window_size") or 0),
+                window_step=int(cfg.get("window_step") or 0),
             ),
             rows_builder=to_edge_rows,
             fieldnames=["source", "target", "lag", "weight", "p_value", "q_value", "method"],

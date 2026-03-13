@@ -188,6 +188,8 @@ def create_pcmci_task(
     corpus: str = "eng_2019",
     variants: str | None = None,
     tau_max: int = 8,
+    window_size: int = 0,
+    window_step: int = 0,
     alpha_level: float = 0.01,
     pc_alpha: float | None = None,
     current_user=Depends(get_optional_user),
@@ -204,6 +206,8 @@ def create_pcmci_task(
         "corpus": corpus,
         "variants": selected_variants,
         "tau_max": int(tau_max),
+        "window_size": int(window_size),
+        "window_step": int(window_step),
         "alpha_level": float(alpha_level),
         "pc_alpha": pc_alpha,
     }

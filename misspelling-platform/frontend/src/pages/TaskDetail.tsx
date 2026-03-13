@@ -1,5 +1,5 @@
 ﻿import { useEffect, useMemo, useRef, useState } from "react";
-import { Badge, Button, message, Progress, Select, Space, Tag, Typography } from "antd";
+import { Badge, Button, message, Progress, Select, Slider, Space, Tag, Typography } from "antd";
 import { PauseOutlined, PlayCircleOutlined, ReloadOutlined } from "@ant-design/icons";
 import { goToTask } from "../app/router";
 import { TimeSeriesChart } from "../components/charts/TimeSeriesChart";
@@ -40,9 +40,6 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
   const [polling, setPolling] = useState(true);
   const [pollInterval, setPollInterval] = useState(2000);
   const [ticks, setTicks] = useState(0);
-  const [probePngOk, setProbePngOk] = useState<boolean | null>(null);
-  const [probeCsvOk, setProbeCsvOk] = useState<boolean | null>(null);
-  const [probeJsonOk, setProbeJsonOk] = useState<boolean | null>(null);
   const [tsInfo, setTsInfo] = useState<string>("Loading...");
   const [tsVariants, setTsVariants] = useState<string[]>([]);
   const [tsSeriesMap, setTsSeriesMap] = useState<Record<string, Array<{ time: string; value: number }>>>({});
@@ -54,7 +51,9 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
     edges: Array<Record<string, unknown>>;
     metrics: Array<Record<string, unknown>>;
     events: Array<Record<string, unknown>>;
-  }>({ edges: [], metrics: [], events: [] });
+    windows: Array<Record<string, unknown>>;
+  }>({ edges: [], metrics: [], events: [], windows: [] });
+  const [activeWindowIndex, setActiveWindowIndex] = useState(0);
   const prevTaskStateRef = useRef<string>("");
 
   const taskObj = useMemo(() => asObject(task?.result), [task?.result]);
@@ -161,12 +160,12 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
 
   useEffect(() => {
     void refresh(true);
-    setProbePngOk(null);
-    setProbeCsvOk(null);
     setTsInfo("Loading...");
     setTsVariants([]);
     setTsSeriesMap({});
     setTsLoadedAt("-");
+    setAlgoData({ edges: [], metrics: [], events: [], windows: [] });
+    setActiveWindowIndex(0);
     prevTaskStateRef.current = "";
     void loadTimeSeries(false);
   }, [taskId]);
@@ -195,26 +194,8 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
   useEffect(() => {
     const state = (task?.state || "").toUpperCase();
     if (state !== "SUCCESS") {
-      setProbeCsvOk(null);
-      setProbeJsonOk(null);
-      setProbePngOk(null);
-      setAlgoData({ edges: [], metrics: [], events: [] });
-      return;
-    }
-    fetch(api.fileUrl(taskId, "result.csv"))
-      .then((r) => setProbeCsvOk(r.ok))
-      .catch(() => setProbeCsvOk(false));
-    fetch(api.fileUrl(taskId, "result.json"))
-      .then((r) => setProbeJsonOk(r.ok))
-      .catch(() => setProbeJsonOk(false));
-    fetch(api.fileUrl(taskId, "preview.png"))
-      .then((r) => setProbePngOk(r.ok))
-      .catch(() => setProbePngOk(false));
-  }, [task?.state, taskId]);
-
-  useEffect(() => {
-    const state = (task?.state || "").toUpperCase();
-    if (state !== "SUCCESS") {
+      setAlgoData({ edges: [], metrics: [], events: [], windows: [] });
+      setActiveWindowIndex(0);
       return;
     }
     const knownType = ["pcmci-causal", "mrnmr-steady", "deltaT-null"].includes(taskType) ? taskType : "";
@@ -234,11 +215,13 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
         setAlgoData({
           edges: Array.isArray(obj?.edges) ? (obj?.edges as Array<Record<string, unknown>>) : [],
           metrics: Array.isArray(obj?.metrics) ? (obj?.metrics as Array<Record<string, unknown>>) : [],
-          events: Array.isArray(obj?.events) ? (obj?.events as Array<Record<string, unknown>>) : []
+          events: Array.isArray(obj?.events) ? (obj?.events as Array<Record<string, unknown>>) : [],
+          windows: Array.isArray(obj?.window_results) ? (obj?.window_results as Array<Record<string, unknown>>) : []
         });
       })
       .catch(() => {
-        setAlgoData({ edges: [], metrics: [], events: [] });
+        setAlgoData({ edges: [], metrics: [], events: [], windows: [] });
+        setActiveWindowIndex(0);
       });
   }, [task?.state, taskId, taskType]);
 
@@ -251,11 +234,16 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
     }
   }, [task?.state, taskId, tsPointTotal]);
 
-  const csvUrl = api.fileUrl(taskId, "result.csv");
-  const jsonUrl = api.fileUrl(taskId, "result.json");
-  const pngUrl = api.fileUrl(taskId, "preview.png");
-  const resultFiles = asObject(taskObj?.files);
-  const resultPreviewRows = Array.isArray(taskObj?.preview) ? taskObj?.preview : [];
+  useEffect(() => {
+    if (algoData.windows.length === 0) {
+      if (activeWindowIndex !== 0) setActiveWindowIndex(0);
+      return;
+    }
+    if (activeWindowIndex > algoData.windows.length - 1) {
+      setActiveWindowIndex(algoData.windows.length - 1);
+    }
+  }, [algoData.windows.length, activeWindowIndex]);
+
   const provenance = asObject(taskObj?.provenance);
   const algoSummary = asObject(taskObj?.summary);
   const algoArtifacts = asObject(taskObj?.artifacts);
@@ -263,9 +251,23 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
   const topEdges = Array.isArray(taskObj?.top_edges) ? taskObj?.top_edges : [];
   const metricsPreview = Array.isArray(taskObj?.metrics_preview) ? taskObj?.metrics_preview : [];
   const eventsPreview = Array.isArray(taskObj?.events_preview) ? taskObj?.events_preview : [];
-  const edgesData = algoData.edges.length > 0 ? algoData.edges : topEdges;
+  const windowResults = algoData.windows;
+  const safeWindowIndex = windowResults.length > 0 ? Math.min(activeWindowIndex, windowResults.length - 1) : 0;
+  const activeWindow = (windowResults[safeWindowIndex] || null) as Record<string, unknown> | null;
+  const activeWindowEdges = Array.isArray(activeWindow?.edges)
+    ? (activeWindow?.edges as Array<Record<string, unknown>>)
+    : Array.isArray(activeWindow?.top_edges)
+      ? (activeWindow?.top_edges as Array<Record<string, unknown>>)
+      : [];
+  const edgesData = taskType === "pcmci-causal"
+    ? (activeWindowEdges.length > 0 ? activeWindowEdges : (algoData.edges.length > 0 ? algoData.edges : topEdges))
+    : (algoData.edges.length > 0 ? algoData.edges : topEdges);
   const metricsData = algoData.metrics.length > 0 ? algoData.metrics : metricsPreview;
   const deltaEventsData = algoData.events.length > 0 ? algoData.events : eventsPreview;
+  const activeNetworkPng = String(activeWindow?.network_png || "").trim();
+  const activeTimeseriesPng = String(activeWindow?.timeseries_png || "").trim();
+  const activeNetworkUrl = activeNetworkPng ? api.fileUrl(taskId, activeNetworkPng) : "";
+  const activeTimeseriesUrl = activeTimeseriesPng ? api.fileUrl(taskId, activeTimeseriesPng) : "";
   const mrSeries = metricsData
     .map((row) => ({
       time: String((row as Record<string, unknown>).year ?? ""),
@@ -447,47 +449,7 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
 
       <section className="panel">
         <h3 style={{ marginTop: 0 }}>Artifacts</h3>
-        <div className="row-inline">
-          <a href={csvUrl} target="_blank" rel="noreferrer">Download result.csv</a>
-          <span className="muted">
-            {probeCsvOk === null ? "CSV status pending..." : probeCsvOk ? "CSV available (HTTP 200)" : "CSV not available (404/5xx)"}
-          </span>
-        </div>
-        <div className="row-inline">
-          <a href={jsonUrl} target="_blank" rel="noreferrer">Download result.json</a>
-          <span className="muted">
-            {probeJsonOk === null ? "JSON status pending..." : probeJsonOk ? "JSON available (HTTP 200)" : "JSON not available (404/5xx)"}
-          </span>
-        </div>
-        <div className="row-inline">
-          <a href={pngUrl} target="_blank" rel="noreferrer">Download preview.png</a>
-          <span className="muted">
-            {probePngOk === null ? "PNG status pending..." : probePngOk ? "PNG available (HTTP 200)" : "PNG not available (404/5xx)"}
-          </span>
-        </div>
-        {provenance && (
-          <div className="muted" style={{ marginTop: 8 }}>
-            provenance: source={String(provenance.source || "-")} corpus={String(provenance.corpus || "-")} smoothing={String(provenance.smoothing || "-")} points={String(provenance.points_count || "-")}
-          </div>
-        )}
-        {(taskType === "simulation-run" || isAlgoTask) && probePngOk && (
-          <div className="panel" style={{ marginTop: 12, background: "#fafafa" }}>
-            <div className="muted" style={{ marginBottom: 8 }}>preview.png ({taskType})</div>
-            <img
-              src={pngUrl}
-              alt="preview artifact"
-              style={{ maxWidth: "100%", border: "1px solid #e5e7eb", borderRadius: 6 }}
-              onLoad={() => setProbePngOk(true)}
-              onError={() => setProbePngOk(false)}
-            />
-          </div>
-        )}
-        {resultFiles && <div className="muted" style={{ marginTop: 8 }}>Result files payload: {JSON.stringify(resultFiles)}</div>}
-        {resultPreviewRows.length > 0 && (
-          <div className="muted" style={{ marginTop: 8 }}>
-            Preview rows captured in task result: {resultPreviewRows.length}. Open Task Lifecycle/Result for full JSON.
-          </div>
-        )}
+        <div className="muted">Temporarily empty.</div>
       </section>
 
       {isAlgoTask && (
@@ -506,6 +468,65 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
           )}
           {algoWarnings.length > 0 && (
             <div className="error-text" style={{ marginTop: 8 }}>warnings: {algoWarnings.join("; ")}</div>
+          )}
+
+          {taskType === "pcmci-causal" && windowResults.length > 0 && (
+            <div className="panel" style={{ marginTop: 10, background: "#fafafa" }}>
+              <div className="muted" style={{ marginBottom: 8 }}>
+                Sliding Window View ({windowResults.length} windows)
+              </div>
+              <Slider
+                min={0}
+                max={windowResults.length - 1}
+                step={1}
+                value={safeWindowIndex}
+                onChange={(next) => setActiveWindowIndex(Array.isArray(next) ? next[0] : next)}
+                tooltip={{
+                  formatter: (value) => {
+                    const idx = Number(value ?? 0);
+                    const row = windowResults[idx] as Record<string, unknown> | undefined;
+                    if (!row) return `window ${idx + 1}`;
+                    return `${String(row.start_time || "")} -> ${String(row.end_time || "")}`;
+                  }
+                }}
+              />
+              <div className="row-inline" style={{ justifyContent: "space-between", marginBottom: 8 }}>
+                <span className="muted">
+                  window {safeWindowIndex + 1}/{windowResults.length}
+                </span>
+                <span className="muted">
+                  {String(activeWindow?.start_time || "-")} → {String(activeWindow?.end_time || "-")} | edges={String(activeWindow?.edge_count || 0)}
+                </span>
+              </div>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))",
+                  gap: 12,
+                }}
+              >
+                {activeNetworkUrl && (
+                  <div>
+                    <div className="muted" style={{ marginBottom: 6 }}>Causal Network</div>
+                    <img
+                      src={activeNetworkUrl}
+                      alt="pcmci-window-network"
+                      style={{ width: "100%", border: "1px solid #e5e7eb", borderRadius: 6 }}
+                    />
+                  </div>
+                )}
+                {activeTimeseriesUrl && (
+                  <div>
+                    <div className="muted" style={{ marginBottom: 6 }}>Window Time Series</div>
+                    <img
+                      src={activeTimeseriesUrl}
+                      alt="pcmci-window-timeseries"
+                      style={{ width: "100%", border: "1px solid #e5e7eb", borderRadius: 6 }}
+                    />
+                  </div>
+                )}
+              </div>
+            </div>
           )}
 
           {taskType === "pcmci-causal" && edgeChartRows.length > 0 && (
@@ -637,4 +658,3 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
     </div>
   );
 }
-

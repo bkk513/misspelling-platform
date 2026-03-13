@@ -1,6 +1,7 @@
 import json
 import csv
 from pathlib import Path
+from typing import Any
 
 from ..db.task_artifacts_repo import list_artifacts, upsert_artifact
 from ..db.tasks_repo import get_task_owner
@@ -48,42 +49,135 @@ def write_simulation_preview_png(series: list[dict], out_png: Path) -> None:
     plt.close(fig)
 
 
-def write_pcmci_preview_png(edges: list[dict], out_png: Path) -> None:
+def _write_pcmci_placeholder_png(out_png: Path, title: str, message: str) -> None:
     import matplotlib
 
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
-    import numpy as np
-
-    plt.rcParams["font.family"] = "Times New Roman"
     fig, ax = plt.subplots(figsize=(10, 5.6))
-    top_edges = sorted(edges or [], key=lambda row: abs(float(row.get("weight") or 0.0)), reverse=True)[:12]
-    if not top_edges:
-        ax.text(0.5, 0.5, "No significant edges", ha="center", va="center", fontsize=12)
-        ax.set_axis_off()
-    else:
-        labels = []
-        weights = []
-        for row in top_edges:
-            src = str(row.get("source") or "-")
-            dst = str(row.get("target") or "-")
-            lag = row.get("lag")
-            labels.append(f"{src}->{dst} (lag={lag})")
-            weights.append(float(row.get("weight") or 0.0))
-        colors = plt.cm.YlGnBu(np.linspace(0.35, 0.95, len(weights)))
-        y = np.arange(len(labels))
-        ax.barh(y, weights, color=colors, edgecolor="none", alpha=0.95)
-        ax.axvline(0, color="#475569", linestyle="--", linewidth=1.0)
-        ax.set_yticks(y)
-        ax.set_yticklabels(labels, fontsize=9)
-        ax.invert_yaxis()
-        ax.set_xlabel("Edge Weight", fontsize=11, fontweight="bold")
-        ax.set_ylabel("Links", fontsize=11, fontweight="bold")
-        ax.set_title("PCMCI Causal Network (Top Edge Weights)", fontsize=12, fontweight="bold")
-        ax.grid(axis="x", linestyle=":", linewidth=0.8, alpha=0.35)
+    ax.text(0.5, 0.6, title, ha="center", va="center", fontsize=12, fontweight="bold")
+    ax.text(0.5, 0.45, message, ha="center", va="center", fontsize=10)
+    ax.set_axis_off()
     fig.tight_layout()
     fig.savefig(out_png, format="png", dpi=180)
     plt.close(fig)
+
+
+def _extract_pcmci_plot_payload(source: dict[str, Any]) -> tuple[Any, Any, list[str]] | None:
+    try:
+        import numpy as np
+    except Exception:
+        return None
+
+    val_matrix = source.get("tigramite_val_matrix")
+    graph = source.get("tigramite_graph")
+    var_names_raw = source.get("var_names") or []
+    if not isinstance(val_matrix, list) or not isinstance(graph, list):
+        return None
+
+    val_arr = np.asarray(val_matrix, dtype=float)
+    graph_arr = np.asarray(graph)
+    if val_arr.ndim != 3 or graph_arr.ndim != 3 or val_arr.shape != graph_arr.shape:
+        return None
+
+    var_names = [str(name) for name in var_names_raw] if isinstance(var_names_raw, list) else []
+    if len(var_names) != val_arr.shape[0]:
+        var_names = [f"V{i + 1}" for i in range(val_arr.shape[0])]
+    return val_arr, graph_arr, var_names
+
+
+def write_pcmci_preview_png(payload: dict[str, Any], out_png: Path) -> None:
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from tigramite import plotting as tp
+
+    plot_payload = _extract_pcmci_plot_payload(payload)
+    if plot_payload is None:
+        _write_pcmci_placeholder_png(out_png, "PCMCI Network", "No Tigramite plot payload in result.")
+        return
+
+    val_matrix, graph, var_names = plot_payload
+    tp.plot_graph(
+        figsize=(8, 6),
+        val_matrix=val_matrix,
+        graph=graph,
+        var_names=var_names,
+        link_colorbar_label="edges",
+        node_colorbar_label="nodes",
+        show_autodependency_lags=False,
+        save_name=str(out_png),
+        arrow_linewidth=7,
+        cmap_edges="YlGnBu",
+        cmap_nodes="Oranges",
+        vmin_edges=0,
+        vmax_edges=1,
+        vmin_nodes=-0.2,
+        vmax_nodes=1,
+    )
+    plt.close("all")
+
+
+def write_pcmci_window_network_png(window: dict[str, Any], out_png: Path) -> None:
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from tigramite import plotting as tp
+
+    plot_payload = _extract_pcmci_plot_payload(window)
+    if plot_payload is None:
+        _write_pcmci_placeholder_png(out_png, "Window Causal Network", "No Tigramite plot payload in this window.")
+        return
+
+    val_matrix, graph, var_names = plot_payload
+    tp.plot_graph(
+        figsize=(8, 6),
+        val_matrix=val_matrix,
+        graph=graph,
+        var_names=var_names,
+        link_colorbar_label="edges",
+        node_colorbar_label="nodes",
+        show_autodependency_lags=False,
+        save_name=str(out_png),
+        arrow_linewidth=7,
+        cmap_edges="YlGnBu",
+        cmap_nodes="Oranges",
+        vmin_edges=0,
+        vmax_edges=1,
+        vmin_nodes=-0.2,
+        vmax_nodes=1,
+    )
+    plt.close("all")
+
+
+def write_pcmci_window_timeseries_png(window: dict[str, Any], out_png: Path) -> None:
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from tigramite import plotting as tp
+
+    plot_payload = _extract_pcmci_plot_payload(window)
+    if plot_payload is None:
+        _write_pcmci_placeholder_png(out_png, "Window Time-Series Graph", "No Tigramite plot payload in this window.")
+        return
+
+    val_matrix, graph, var_names = plot_payload
+    tp.plot_time_series_graph(
+        figsize=(10, 5),
+        val_matrix=val_matrix,
+        graph=graph,
+        var_names=var_names,
+        link_colorbar_label="edges",
+        save_name=str(out_png),
+        arrow_linewidth=5,
+        cmap_edges="YlGnBu",
+        vmin_edges=0,
+        vmax_edges=1.0,
+    )
+    plt.close("all")
 
 
 def write_mrnmr_preview_png(metrics: list[dict], summary: dict, out_png: Path) -> None:

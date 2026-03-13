@@ -14,3 +14,4 @@ pandas==2.2.3
 scipy==1.14.1
 scikit-learn==1.5.2
 tigramite==5.2.9.4
+networkx==3.3

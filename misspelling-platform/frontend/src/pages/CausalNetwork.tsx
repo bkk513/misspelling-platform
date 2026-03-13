@@ -25,6 +25,8 @@ export function CausalNetworkPage() {
   const [endYear, setEndYear] = useState(2019);
   const [smoothing, setSmoothing] = useState(3);
   const [tauMax, setTauMax] = useState(8);
+  const [windowSize, setWindowSize] = useState(24);
+  const [windowStep, setWindowStep] = useState(6);
   const [alphaLevel, setAlphaLevel] = useState(0.01);
   const [variants, setVariants] = useState("");
   const [busy, setBusy] = useState(false);
@@ -56,6 +58,8 @@ export function CausalNetworkPage() {
         smoothing,
         variants: variants.split(",").map((v) => v.trim()).filter(Boolean),
         tauMax,
+        windowSize,
+        windowStep,
         alphaLevel
       }, turnstileToken);
       setLatestTaskId(resp.task_id);
@@ -100,8 +104,10 @@ export function CausalNetworkPage() {
           <Col xs={12} md={4}><Typography.Text>Tau Max</Typography.Text><InputNumber min={1} max={24} value={tauMax} onChange={(v) => setTauMax(v || 8)} style={{ width: "100%" }} /></Col>
         </Row>
         <Row gutter={16} style={{ marginTop: 12 }}>
+          <Col xs={12} md={4}><Typography.Text>Window Size</Typography.Text><InputNumber min={3} max={300} value={windowSize} onChange={(v) => setWindowSize(v || 24)} style={{ width: "100%" }} /></Col>
+          <Col xs={12} md={4}><Typography.Text>Window Step</Typography.Text><InputNumber min={1} max={300} value={windowStep} onChange={(v) => setWindowStep(v || 6)} style={{ width: "100%" }} /></Col>
           <Col xs={24} md={8}><Typography.Text>Alpha Level</Typography.Text><InputNumber min={0.0001} max={1} step={0.001} value={alphaLevel} onChange={(v) => setAlphaLevel(v || 0.01)} style={{ width: "100%" }} /></Col>
-          <Col xs={24} md={16}><Typography.Text>Variants (comma separated)</Typography.Text><Input value={variants} onChange={(e) => setVariants(e.target.value)} placeholder="chatgpt,chagpt,chat-gpt" /></Col>
+          <Col xs={24} md={8}><Typography.Text>Variants (comma separated)</Typography.Text><Input value={variants} onChange={(e) => setVariants(e.target.value)} placeholder="chatgpt,chagpt,chat-gpt" /></Col>
         </Row>
         <Space style={{ marginTop: 12 }}>
           <Button
