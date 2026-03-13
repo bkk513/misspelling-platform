@@ -44,6 +44,7 @@ const menuItems: MenuProps['items'] = [
     label: 'Algorithms',
     icon: <FunctionOutlined />,
     children: [
+      { key: 'simulation', label: 'Simulation' },
       { key: 'causal-network', label: 'Causal Network' },
       { key: 'steady-state', label: 'Steady State' },
       { key: 'delta-t-bias', label: 'DeltaT Bias' },

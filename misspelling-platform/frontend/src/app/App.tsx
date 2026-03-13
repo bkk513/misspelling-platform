@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { AdminLayout } from "../layouts/AdminLayout";
 import { ResearcherLayout } from "../layouts/ResearcherLayout";
 import { ErrorBoundary } from "../components/ErrorBoundary";
-import { api, setAccessToken } from "../lib/api";
+import { api, setAccessToken, setGuestKey } from "../lib/api";
 import { AdminDashboardPage } from "../pages/AdminDashboard";
 import { AdminAuditLogsPage } from "../pages/AdminAuditLogs";
 import { AdminDataSourcesPage } from "../pages/AdminDataSources";
@@ -25,6 +25,7 @@ import { AnalyticsCenterPage } from "../pages/AnalyticsCenter";
 import { VariantStudioPage } from "../pages/VariantStudio";
 import { WordAnalysisWorkbenchPage } from "../pages/WordAnalysisWorkbench";
 import { ArtifactLibraryPage } from "../pages/ArtifactLibrary";
+import { SimulationRunPage } from "../pages/SimulationRun";
 import {
   goHome,
   goToAdmin,
@@ -39,12 +40,25 @@ import {
 type Session = { username: string; role: "guest" | "user" | "admin"; token?: string };
 
 const SESSION_KEY = "mp-session";
+const GUEST_KEY = "mp-guest-key";
+
+function ensureGuestKey() {
+  const existing = (window.localStorage.getItem(GUEST_KEY) || "").trim();
+  if (existing) return existing;
+  const generated =
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : `guest-${Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`;
+  window.localStorage.setItem(GUEST_KEY, generated);
+  return generated;
+}
 
 const researcherNotes: Record<string, string> = {
   "word-analysis": "GBNC parameter controls and variant selector will be implemented in Commit 3.",
   variants: "Variant cache and manual editing workflow will be implemented in Commit 3.",
   projects: "Project manager binds terms/tasks for meso-level analytics and report export.",
   analytics: "Baseline clustering and summary analytics are persisted to analytics_runs.",
+  simulation: "Run standalone simulation tasks from the Algorithms section.",
   "causal-network": "Submit and inspect pcmci-causal tasks with top edge preview.",
   "steady-state": "Submit and inspect mrnmr-steady tasks with MR/NMR metrics preview.",
   "delta-t-bias": "Submit and inspect deltaT-null tasks with observed/null event summary.",
@@ -65,12 +79,19 @@ const adminNotes: Record<AdminRouteKey, string> = {
 function loadSession(): Session {
   try {
     const raw = window.localStorage.getItem(SESSION_KEY);
-    if (!raw) return { username: "guest", role: "guest", token: "" };
+    if (!raw) {
+      ensureGuestKey();
+      return { username: "guest", role: "guest", token: "" };
+    }
     const data = JSON.parse(raw) as Session;
-    if (["guest", "user", "admin"].includes(data.role) && data.username) return data;
+    if (["guest", "user", "admin"].includes(data.role) && data.username) {
+      if (data.role === "guest") ensureGuestKey();
+      return data;
+    }
   } catch {
     // ignore invalid local state
   }
+  ensureGuestKey();
   return { username: "guest", role: "guest", token: "" };
 }
 
@@ -91,6 +112,11 @@ export function App() {
   useEffect(() => {
     window.localStorage.setItem(SESSION_KEY, JSON.stringify(session));
     setAccessToken(session.token || "");
+    if (session.role === "guest") {
+      setGuestKey(ensureGuestKey());
+    } else {
+      setGuestKey("");
+    }
   }, [session]);
 
   useEffect(() => {
@@ -243,13 +269,14 @@ export function App() {
   if (route.key === "variants") content = <VariantStudioPage />;
   if (route.key === "projects") content = <ProjectManagerPage />;
   if (route.key === "analytics") content = <AnalyticsCenterPage />;
+  if (route.key === "simulation") content = <SimulationRunPage />;
   if (route.key === "causal-network") content = <CausalNetworkPage />;
   if (route.key === "steady-state") content = <SteadyStatePage />;
   if (route.key === "delta-t-bias") content = <DeltaTBiasPage />;
   if (route.key === "time-series") content = <TimeSeriesExplorerPage />;
   if (route.key === "artifacts") content = <ArtifactLibraryPage />;
   if (route.key === "reports") content = <ReportCenterPage />;
-  if (route.key === "settings") content = <ResearcherSettingsPage />;
+  if (route.key === "settings") content = <ResearcherSettingsPage sessionRole={session.role} username={session.username} />;
 
   const sessionRenderKey = `${session.role}:${session.username}:${session.token ? "auth" : "guest"}:${route.scope}:${route.key}:${route.scope === "app" && route.key === "task-detail" ? route.taskId || "" : ""}`;
 

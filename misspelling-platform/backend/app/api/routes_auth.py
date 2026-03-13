@@ -3,7 +3,14 @@ from pydantic import BaseModel
 
 from ..db.audit_logs_repo import insert_audit_log
 from ..services.captcha_service import issue_captcha, verify_captcha
-from ..services.auth_service import authenticate_user, issue_access_token, register_user
+from ..services.auth_service import (
+    authenticate_user,
+    hash_password,
+    issue_access_token,
+    register_user,
+    validate_password_strength,
+)
+from ..db.users_repo import update_user_password
 from ..services.turnstile_service import verify_turnstile_token
 from .auth_deps import get_current_user
 
@@ -22,6 +29,11 @@ class RegisterBody(BaseModel):
     email: str | None = None
     captcha_id: str
     captcha_code: str
+
+
+class ChangePasswordBody(BaseModel):
+    old_password: str
+    new_password: str
 
 
 @router.get("/api/auth/captcha")
@@ -91,3 +103,20 @@ def me(current=Depends(get_current_user)):
         "roles": current["roles"],
         "is_active": current["is_active"],
     }
+
+
+@router.post("/api/auth/change-password")
+def change_password(body: ChangePasswordBody, current=Depends(get_current_user)):
+    if not authenticate_user(str(current["username"]), body.old_password):
+        raise HTTPException(status_code=400, detail="old password is incorrect")
+    weak_reason = validate_password_strength(body.new_password)
+    if weak_reason:
+        raise HTTPException(status_code=400, detail=weak_reason)
+    update_user_password(int(current["id"]), hash_password(body.new_password))
+    insert_audit_log(
+        action="AUTH_CHANGE_PASSWORD",
+        actor_user_id=int(current["id"]),
+        target_type="user",
+        target_id=str(current["id"]),
+    )
+    return {"ok": True}

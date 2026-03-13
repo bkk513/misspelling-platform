@@ -1,27 +1,41 @@
 import { DeleteOutlined, ReloadOutlined } from "@ant-design/icons";
-import { Button, Card, Popconfirm, Select, Space, Table, Tag, Typography, message } from "antd";
-import { useEffect, useState } from "react";
+import { Button, Card, DatePicker, Popconfirm, Select, Space, Table, Tag, Typography, message } from "antd";
+import dayjs from "dayjs";
+import { useEffect, useMemo, useState } from "react";
 import { goToTask } from "../app/router";
 import { TimeSeriesChart } from "../components/charts/TimeSeriesChart";
-import { api, describeApiError, type TimeSeriesListResponse, type TimeSeriesMeta } from "../lib/api";
+import { api, describeApiError, type TaskListItem, type TimeSeriesListResponse, type TimeSeriesMeta } from "../lib/api";
+
+function parseTaskWord(row: TaskListItem) {
+  const params = row.params_json;
+  if (params && typeof params === "object" && !Array.isArray(params)) {
+    const word = String((params as Record<string, unknown>).word || "").trim();
+    return word || "-";
+  }
+  return "-";
+}
 
 export function TimeSeriesExplorerPage() {
+  const [tasks, setTasks] = useState<TaskListItem[]>([]);
   const [seriesRows, setSeriesRows] = useState<TimeSeriesListResponse["items"]>([]);
+  const [wordFilter, setWordFilter] = useState<string>("all");
   const [taskId, setTaskId] = useState("");
+  const [range, setRange] = useState<[string, string] | null>(null);
   const [meta, setMeta] = useState<TimeSeriesMeta | null>(null);
   const [seriesMap, setSeriesMap] = useState<Record<string, Array<{ time: string; value: number }>>>({});
   const [loading, setLoading] = useState(false);
-  const [scope, setScope] = useState("default");
   const [selectedSeries, setSelectedSeries] = useState<number[]>([]);
 
-  const loadSeries = async () => {
+  const loadAll = async () => {
     setLoading(true);
     try {
-      const scopeValue = scope === "default" ? undefined : (scope as "all" | "guest");
-      const rows = (await api.listTimeSeries(120, scopeValue)).items ?? [];
-      setSeriesRows(rows);
-      const withTask = rows.find((r) => r.task_id);
-      if (!taskId && withTask?.task_id) setTaskId(withTask.task_id);
+      const [taskResp, seriesResp] = await Promise.all([api.listTasks(240), api.listTimeSeries(300)]);
+      const nextTasks = taskResp.items ?? [];
+      setTasks(nextTasks);
+      setSeriesRows(seriesResp.items ?? []);
+      if (!taskId && nextTasks.length > 0) {
+        setTaskId(nextTasks[0].task_id);
+      }
     } catch (e) {
       message.error(describeApiError(e));
     } finally {
@@ -29,7 +43,32 @@ export function TimeSeriesExplorerPage() {
     }
   };
 
+  const filteredTasks = useMemo(() => {
+    return tasks.filter((row) => {
+      const word = parseTaskWord(row);
+      if (wordFilter !== "all" && word !== wordFilter) return false;
+      if (range && row.created_at) {
+        const d = dayjs(row.created_at);
+        if (d.isBefore(dayjs(range[0])) || d.isAfter(dayjs(range[1]).endOf("day"))) return false;
+      }
+      return true;
+    });
+  }, [tasks, wordFilter, range]);
+
+  useEffect(() => {
+    if (!taskId) return;
+    if (!filteredTasks.some((t) => t.task_id === taskId)) {
+      setTaskId(filteredTasks[0]?.task_id || "");
+    }
+  }, [filteredTasks, taskId]);
+
+  const filteredSeriesRows = useMemo(() => {
+    const allowedTaskIds = new Set(filteredTasks.map((t) => t.task_id));
+    return seriesRows.filter((row) => row.task_id && allowedTaskIds.has(row.task_id));
+  }, [seriesRows, filteredTasks]);
+
   const loadChart = async (targetTaskId: string) => {
+    if (!targetTaskId) return;
     try {
       const m = await api.getTimeSeriesMeta(targetTaskId);
       setMeta(m);
@@ -57,41 +96,43 @@ export function TimeSeriesExplorerPage() {
   };
 
   useEffect(() => {
-    void loadSeries();
-  }, [scope]);
+    void loadAll();
+  }, []);
 
   useEffect(() => {
     if (!taskId) return;
     void loadChart(taskId);
   }, [taskId]);
 
+  const wordOptions = useMemo(
+    () => Array.from(new Set(tasks.map((t) => parseTaskWord(t)).filter((w) => w && w !== "-"))),
+    [tasks]
+  );
+
   return (
     <Space direction="vertical" size={16} style={{ width: "100%" }}>
-      <Card title="Time Series Explorer" extra={<Button icon={<ReloadOutlined />} onClick={() => void loadSeries()} loading={loading}>Refresh</Button>}>
+      <Card title="Time Series Explorer" extra={<Button icon={<ReloadOutlined />} onClick={() => void loadAll()} loading={loading}>Refresh</Button>}>
         <Space wrap>
           <Select
-            showSearch
-            style={{ width: 380 }}
-            placeholder="Select task"
-            value={taskId || undefined}
-            onChange={setTaskId}
-            options={Array.from(new Set(seriesRows.map((r) => r.task_id).filter(Boolean))).map((id) => ({
-              value: id,
-              label: String(id).slice(0, 16) + "..."
-            }))}
+            style={{ width: 220 }}
+            value={wordFilter}
+            onChange={setWordFilter}
+            options={[{ value: "all", label: "Word: All" }, ...wordOptions.map((w) => ({ value: w, label: w }))]}
           />
           <Select
-            style={{ width: 220 }}
-            value={scope}
-            onChange={setScope}
-            options={[
-              { value: "default", label: "Scope: Default" },
-              { value: "guest", label: "Scope: Guest" },
-              { value: "all", label: "Scope: All (Admin)" }
-            ]}
+            showSearch
+            style={{ width: 420 }}
+            placeholder="Select task id"
+            value={taskId || undefined}
+            onChange={setTaskId}
+            options={filteredTasks.map((row) => ({
+              value: row.task_id,
+              label: `${parseTaskWord(row)} | ${row.task_id.slice(0, 12)}...`
+            }))}
           />
-          <Button onClick={() => taskId && goToTask(taskId)}>Open Task Detail</Button>
-          <Button onClick={() => taskId && void loadChart(taskId)}>Refresh Chart</Button>
+          <DatePicker.RangePicker onChange={(v) => setRange(v ? [v[0]!.format("YYYY-MM-DD"), v[1]!.format("YYYY-MM-DD")] : null)} />
+          <Button onClick={() => taskId && goToTask(taskId)} disabled={!taskId}>Open Task Detail</Button>
+          <Button onClick={() => taskId && void loadChart(taskId)} disabled={!taskId}>Refresh Chart</Button>
         </Space>
         {meta ? (
           <Typography.Paragraph type="secondary" style={{ marginTop: 10 }}>
@@ -100,7 +141,7 @@ export function TimeSeriesExplorerPage() {
           </Typography.Paragraph>
         ) : (
           <Typography.Paragraph type="secondary" style={{ marginTop: 10 }}>
-            δд��ʱ�����ݣ����������δ��ɡ�
+            No time-series data loaded yet.
           </Typography.Paragraph>
         )}
       </Card>
@@ -110,7 +151,7 @@ export function TimeSeriesExplorerPage() {
           <TimeSeriesChart
             series={Object.entries(seriesMap).map(([variant, points]) => ({
               name: variant,
-              data: points.map(p => ({ time: p.time, value: p.value }))
+              data: points.map((p) => ({ time: p.time, value: p.value }))
             }))}
             title={meta ? `Time Series: ${meta.word}` : "Time Series"}
             height={500}
@@ -138,7 +179,7 @@ export function TimeSeriesExplorerPage() {
                   if (resp.deleted.length > 0) message.success(`Deleted ${resp.deleted.length} series`);
                   if (resp.skipped.length > 0) message.warning(`Skipped ${resp.skipped.length} series`);
                   setSelectedSeries([]);
-                  await loadSeries();
+                  await loadAll();
                   if (taskId) await loadChart(taskId);
                 } catch (e) {
                   message.error(describeApiError(e));
@@ -155,7 +196,7 @@ export function TimeSeriesExplorerPage() {
         <Table
           size="small"
           rowKey="series_id"
-          dataSource={seriesRows}
+          dataSource={filteredSeriesRows}
           rowSelection={{
             selectedRowKeys: selectedSeries,
             onChange: (keys) => setSelectedSeries(keys.map((k) => Number(k)).filter((v) => Number.isFinite(v)))
@@ -169,6 +210,7 @@ export function TimeSeriesExplorerPage() {
               render: (v: string) => (v ? <Typography.Text code>{v.slice(0, 12)}...</Typography.Text> : "-")
             },
             { title: "Word", dataIndex: "canonical" },
+            { title: "Algorithm", dataIndex: "task_type", render: (v: string) => v || "-" },
             { title: "Variant", dataIndex: "variant", render: (v: string) => <Tag>{v}</Tag> },
             { title: "Source", dataIndex: "source_name" },
             { title: "Points", dataIndex: "point_count" },

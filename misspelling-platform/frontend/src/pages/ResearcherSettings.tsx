@@ -1,51 +1,113 @@
-import { Alert, Card, Space, Table, Tabs, Typography } from "antd";
+import { Alert, Button, Card, Descriptions, Form, Input, Space, Typography, message } from "antd";
 import { useEffect, useState } from "react";
-import { api, type TaskListItem } from "../lib/api";
+import { api, describeApiError, type MeResponse } from "../lib/api";
 
-export function ResearcherSettingsPage() {
-  const [tasks, setTasks] = useState<TaskListItem[]>([]);
+export function ResearcherSettingsPage({
+  sessionRole,
+  username
+}: {
+  sessionRole: "guest" | "user" | "admin";
+  username: string;
+}) {
+  const [me, setMe] = useState<MeResponse | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [form] = Form.useForm<{ oldPassword: string; newPassword: string; confirmPassword: string }>();
+
+  const refreshMe = async () => {
+    if (sessionRole === "guest") return;
+    setLoading(true);
+    try {
+      setMe(await api.me());
+    } catch {
+      setMe(null);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    void api.listTasks(40).then((v) => setTasks(v.items ?? [])).catch(() => setTasks([]));
-  }, []);
+    void refreshMe();
+  }, [sessionRole]);
+
+  if (sessionRole === "guest") {
+    return (
+      <Space direction="vertical" size={16} style={{ width: "100%" }}>
+        <Card title="Settings">
+          <Alert
+            type="info"
+            showIcon
+            message="Guest mode"
+            description="Guest ‰∏çÊèê‰æõ‰∏™‰∫∫‰ø°ÊÅØ‰∏éÂØÜÁ†ÅÁÆ°ÁêÜÂäüËÉΩ„ÄÇÁôªÂΩïÁî®Êà∑ÂêéÂèØÊü•Áúã‰∏™‰∫∫‰ø°ÊÅØÂπ∂ÈáçÁΩÆÂØÜÁ†Å„ÄÇ"
+          />
+        </Card>
+      </Space>
+    );
+  }
 
   return (
     <Space direction="vertical" size={16} style={{ width: "100%" }}>
-      <Card title="Access Policy">
-        <Alert
-          type="info"
-          showIcon
-          message="Guest mode enabled (demo policy)"
-          description="µ±«∞Œ™—› æª∑æ≥£∫Guest ø…∑√Œ —–æø’ﬂƒ£øÈ°£∫Û–¯Ω´ø™∆Ù owner ∞Û∂®£¨ µœ÷°∞Œ“µƒ»ŒŒÒ/Œ“µƒ ˝æ›°±—œ∏Ò∏Ù¿Î°£"
-        />
+      <Card title="Profile" extra={<Button onClick={() => void refreshMe()} loading={loading}>Refresh</Button>}>
+        <Descriptions bordered size="small" column={1}>
+          <Descriptions.Item label="Username">{me?.username || username}</Descriptions.Item>
+          <Descriptions.Item label="User ID">{me?.id ?? "-"}</Descriptions.Item>
+          <Descriptions.Item label="Roles">{(me?.roles || [sessionRole]).join(", ")}</Descriptions.Item>
+          <Descriptions.Item label="Active">{String(me?.is_active ?? true)}</Descriptions.Item>
+        </Descriptions>
       </Card>
-      <Card title="Task Visibility Preview">
-        <Tabs
-          items={[
-            {
-              key: "my",
-              label: "My Tasks (TODO)",
-              children: <Typography.Paragraph type="secondary">µ±«∞Ω◊∂Œ”Î All Tasks  ”Õº“ª÷¬£¨owner ∞Û∂®¥˝œ¬“ª¿Ô≥Ã±ÆΩ”»Î°£</Typography.Paragraph>
-            },
-            {
-              key: "all",
-              label: "All Tasks",
-              children: (
-                <Table
-                  size="small"
-                  rowKey="task_id"
-                  dataSource={tasks}
-                  pagination={{ pageSize: 6 }}
-                  columns={[
-                    { title: "Task ID", dataIndex: "task_id" },
-                    { title: "Type", dataIndex: "task_type" },
-                    { title: "Status", dataIndex: "status" }
-                  ]}
-                />
-              )
+
+      <Card title="Reset Password">
+        <Form
+          form={form}
+          layout="vertical"
+          onFinish={async (values) => {
+            setBusy(true);
+            try {
+              await api.changePassword(values.oldPassword, values.newPassword);
+              message.success("Password updated successfully");
+              form.resetFields();
+            } catch (e) {
+              message.error(describeApiError(e));
+            } finally {
+              setBusy(false);
             }
-          ]}
-        />
+          }}
+        >
+          <Form.Item label="Current Password" name="oldPassword" rules={[{ required: true, message: "Please input current password" }]}>
+            <Input.Password />
+          </Form.Item>
+          <Form.Item
+            label="New Password"
+            name="newPassword"
+            rules={[
+              { required: true, message: "Please input new password" },
+              { min: 8, message: "Password must be at least 8 characters" },
+              { pattern: /^(?=.*[A-Za-z])(?=.*\d)/, message: "Password must contain letters and numbers" }
+            ]}
+          >
+            <Input.Password />
+          </Form.Item>
+          <Form.Item
+            label="Confirm New Password"
+            name="confirmPassword"
+            dependencies={["newPassword"]}
+            rules={[
+              { required: true, message: "Please confirm password" },
+              ({ getFieldValue }) => ({
+                validator(_, value) {
+                  if (!value || getFieldValue("newPassword") === value) return Promise.resolve();
+                  return Promise.reject(new Error("Passwords do not match"));
+                }
+              })
+            ]}
+          >
+            <Input.Password />
+          </Form.Item>
+          <Button type="primary" htmlType="submit" loading={busy}>Update Password</Button>
+        </Form>
+        <Typography.Paragraph type="secondary" style={{ marginTop: 12 }}>
+          Password policy: at least 8 characters, and include letters + digits.
+        </Typography.Paragraph>
       </Card>
     </Space>
   );

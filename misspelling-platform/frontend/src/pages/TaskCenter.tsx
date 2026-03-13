@@ -14,13 +14,24 @@ function color(status: string) {
   return "blue";
 }
 
-function parseTaskParams(paramsJson: string | null): Record<string, unknown> {
+function parseTaskParams(paramsJson: unknown): Record<string, unknown> {
   if (!paramsJson) return {};
-  try {
-    return JSON.parse(paramsJson);
-  } catch {
-    return {};
+  if (typeof paramsJson === "object" && !Array.isArray(paramsJson)) return paramsJson as Record<string, unknown>;
+  if (typeof paramsJson === "string") {
+    try {
+      const parsed = JSON.parse(paramsJson);
+      return typeof parsed === "object" && parsed && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : {};
+    } catch {
+      return {};
+    }
   }
+  return {};
+}
+
+function taskWord(row: TaskListItem) {
+  const params = parseTaskParams(row.params_json);
+  const word = String(params.word || "").trim();
+  return word || "-";
 }
 
 export function TaskCenterPage() {
@@ -30,14 +41,12 @@ export function TaskCenterPage() {
   const [status, setStatus] = useState<string>("all");
   const [q, setQ] = useState("");
   const [range, setRange] = useState<[string, string] | null>(null);
-  const [scope, setScope] = useState<string>("default");
   const [selectedRowKeys, setSelectedRowKeys] = useState<string[]>([]);
 
   const refresh = async () => {
     setLoading(true);
     try {
-      const nextScope = scope === "default" ? undefined : (scope as "all" | "guest");
-      const list = await api.listTasks(120, nextScope);
+      const list = await api.listTasks(160);
       setItems(list.items ?? []);
     } catch (e) {
       message.error(describeApiError(e));
@@ -48,13 +57,17 @@ export function TaskCenterPage() {
 
   useEffect(() => {
     void refresh();
-  }, [scope]);
+  }, []);
 
   const filtered = useMemo(() => {
     return items.filter((row) => {
+      const word = taskWord(row).toLowerCase();
       if (type !== "all" && row.task_type !== type) return false;
       if (status !== "all" && row.status !== status) return false;
-      if (q && !row.task_id.includes(q) && !row.task_type.includes(q)) return false;
+      if (q) {
+        const query = q.toLowerCase();
+        if (!row.task_id.toLowerCase().includes(query) && !word.includes(query)) return false;
+      }
       if (range && row.created_at) {
         const d = dayjs(row.created_at);
         if (d.isBefore(dayjs(range[0])) || d.isAfter(dayjs(range[1]).endOf("day"))) return false;
@@ -70,21 +83,11 @@ export function TaskCenterPage() {
     <Space direction="vertical" size={16} style={{ width: "100%" }}>
       <Card title="Task Filters" extra={<Button icon={<ReloadOutlined />} loading={loading} onClick={() => void refresh()}>Refresh Now</Button>}>
         <Space wrap>
-          <Input placeholder="Search task_id/type" value={q} onChange={(e) => setQ(e.target.value)} style={{ width: 220 }} />
-          <Select value={type} onChange={setType} style={{ width: 180 }} options={[{ value: "all", label: "All Types" }, ...types.map((v) => ({ value: v, label: v }))]} />
+          <Input placeholder="Search word/task_id" value={q} onChange={(e) => setQ(e.target.value)} style={{ width: 240 }} />
+          <Select value={type} onChange={setType} style={{ width: 200 }} options={[{ value: "all", label: "All Algorithms" }, ...types.map((v) => ({ value: v, label: v }))]} />
           <Select value={status} onChange={setStatus} style={{ width: 180 }} options={[{ value: "all", label: "All Status" }, ...statuses.map((v) => ({ value: v, label: v }))]} />
-          <Select
-            value={scope}
-            onChange={setScope}
-            style={{ width: 180 }}
-            options={[
-              { value: "default", label: "Scope: Default" },
-              { value: "guest", label: "Scope: Guest" },
-              { value: "all", label: "Scope: All (Admin)" }
-            ]}
-          />
           <DatePicker.RangePicker onChange={(v) => setRange(v ? [v[0]!.format("YYYY-MM-DD"), v[1]!.format("YYYY-MM-DD")] : null)} />
-          <Button onClick={() => { setQ(""); setType("all"); setStatus("all"); setRange(null); setScope("default"); }}>
+          <Button onClick={() => { setQ(""); setType("all"); setStatus("all"); setRange(null); }}>
             Clear Filters
           </Button>
         </Space>
@@ -128,57 +131,17 @@ export function TaskCenterPage() {
           columns={[
             {
               title: "Task",
+              width: 320,
               render: (_: unknown, row: TaskListItem) => (
                 <Space direction="vertical" size={0}>
-                  <Typography.Text>{row.display_name || row.task_type}</Typography.Text>
+                  <Typography.Text strong>{taskWord(row)}</Typography.Text>
                   <Typography.Text code style={{ fontSize: 12 }}>{row.task_id}</Typography.Text>
                 </Space>
               )
             },
-            { title: "Type", dataIndex: "task_type", width: 180 },
-            {
-              title: "Parameters",
-              key: "params",
-              width: 300,
-              render: (_: unknown, row: TaskListItem) => {
-                const params = parseTaskParams(row.params_json);
-                const word = params.word as string | undefined;
-                const variants = params.variants as string[] | string | undefined;
-                const corpus = params.corpus as string | undefined;
-                const startYear = params.start_year as number | undefined;
-                const endYear = params.end_year as number | undefined;
-
-                const variantArray = Array.isArray(variants)
-                  ? variants
-                  : typeof variants === 'string'
-                    ? variants.split(',').map(v => v.trim()).filter(Boolean)
-                    : [];
-
-                return (
-                  <Space direction="vertical" size={2} style={{ width: '100%' }}>
-                    {word && (
-                      <Typography.Text code style={{ fontSize: 12 }}>
-                        word: {word}
-                      </Typography.Text>
-                    )}
-                    {variantArray.length > 0 && (
-                      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                        variants: {variantArray.slice(0, 3).join(', ')}
-                        {variantArray.length > 3 && ` +${variantArray.length - 3} more`}
-                      </Typography.Text>
-                    )}
-                    <Space size={4}>
-                      {corpus && <Tag size="small">{corpus}</Tag>}
-                      {startYear && endYear && (
-                        <Tag size="small" color="blue">{startYear}-{endYear}</Tag>
-                      )}
-                    </Space>
-                  </Space>
-                );
-              },
-            },
-            { title: "Status", dataIndex: "status", width: 120, render: (v: string) => <Tag color={color(v)}>{v}</Tag> },
-            { title: "Created", dataIndex: "created_at", width: 180, sorter: (a: TaskListItem, b: TaskListItem) => String(a.created_at || "").localeCompare(String(b.created_at || "")) },
+            { title: "Algorithm", dataIndex: "task_type", width: 190 },
+            { title: "Status", dataIndex: "status", width: 130, render: (v: string) => <Tag color={color(v)}>{v}</Tag> },
+            { title: "Created", dataIndex: "created_at", width: 190, sorter: (a: TaskListItem, b: TaskListItem) => String(a.created_at || "").localeCompare(String(b.created_at || "")) },
             {
               title: "Action",
               width: 280,

@@ -70,6 +70,7 @@ def create_task(
     corpus: str = "eng_2019",
     variants: str | None = None,
     current_user=Depends(get_optional_user),
+    guest_key: str | None = Header(default=None, alias="X-Guest-Key"),
     turnstile_token: str | None = Header(default=None, alias="X-Turnstile-Token"),
 ):
     owner_user_id = int(current_user["id"]) if current_user else None
@@ -79,6 +80,7 @@ def create_task(
         word,
         demo_analysis,
         owner_user_id=owner_user_id,
+        guest_key=guest_key,
         extra_params={
             "start_year": int(start_year),
             "end_year": int(end_year),
@@ -106,35 +108,49 @@ def create_task(
 
 
 @router.get("/api/tasks/{task_id}")
-def get_task(task_id: str, current_user=Depends(get_optional_user)):
-    return get_task_payload(task_id, demo_analysis.AsyncResult, current_user=current_user)
+def get_task(task_id: str, current_user=Depends(get_optional_user), guest_key: str | None = Header(default=None, alias="X-Guest-Key")):
+    return get_task_payload(task_id, demo_analysis.AsyncResult, current_user=current_user, guest_key=guest_key)
 
 
 @router.get("/api/tasks/{task_id}/events")
-def get_task_events(task_id: str, limit: int = 200, current_user=Depends(get_optional_user)):
-    task_payload = get_task_payload(task_id, None, current_user=current_user)
+def get_task_events(
+    task_id: str,
+    limit: int = 200,
+    current_user=Depends(get_optional_user),
+    guest_key: str | None = Header(default=None, alias="X-Guest-Key"),
+):
+    task_payload = get_task_payload(task_id, None, current_user=current_user, guest_key=guest_key)
     if str(task_payload.get("state", "")).upper() == "NOT_FOUND":
         return {"task_id": task_id, "items": []}
     return list_task_events_payload(task_id, limit)
 
 
 @router.get("/api/tasks/{task_id}/artifacts")
-def get_task_artifacts(task_id: str, current_user=Depends(get_optional_user)):
-    task_payload = get_task_payload(task_id, None, current_user=current_user)
+def get_task_artifacts(task_id: str, current_user=Depends(get_optional_user), guest_key: str | None = Header(default=None, alias="X-Guest-Key")):
+    task_payload = get_task_payload(task_id, None, current_user=current_user, guest_key=guest_key)
     if str(task_payload.get("state", "")).upper() == "NOT_FOUND":
         return {"task_id": task_id, "items": []}
     return list_task_artifacts_payload(task_id)
 
 
 @router.get("/api/tasks")
-def list_tasks(limit: int = 20, scope: str | None = None, current_user=Depends(get_optional_user)):
-    return list_task_payload(limit, current_user=current_user, scope=scope)
+def list_tasks(
+    limit: int = 20,
+    scope: str | None = None,
+    current_user=Depends(get_optional_user),
+    guest_key: str | None = Header(default=None, alias="X-Guest-Key"),
+):
+    return list_task_payload(limit, current_user=current_user, scope=scope, guest_key=guest_key)
 
 
 @router.post("/api/tasks/bulk-delete")
-def bulk_delete_tasks(body: BulkDeleteTasksBody, current_user=Depends(get_optional_user)):
+def bulk_delete_tasks(
+    body: BulkDeleteTasksBody,
+    current_user=Depends(get_optional_user),
+    guest_key: str | None = Header(default=None, alias="X-Guest-Key"),
+):
     safe_ids = [str(task_id).strip() for task_id in (body.task_ids or []) if str(task_id).strip()]
-    result = bulk_delete_task_payload(safe_ids, current_user=current_user)
+    result = bulk_delete_task_payload(safe_ids, current_user=current_user, guest_key=guest_key)
     insert_audit_log(
         action="TASK_BULK_DELETE",
         actor_user_id=int(current_user["id"]) if current_user else None,
@@ -145,8 +161,8 @@ def bulk_delete_tasks(body: BulkDeleteTasksBody, current_user=Depends(get_option
 
 
 @router.delete("/api/tasks/{task_id}")
-def delete_task(task_id: str, current_user=Depends(get_optional_user)):
-    result = delete_task_payload(task_id, current_user=current_user)
+def delete_task(task_id: str, current_user=Depends(get_optional_user), guest_key: str | None = Header(default=None, alias="X-Guest-Key")):
+    result = delete_task_payload(task_id, current_user=current_user, guest_key=guest_key)
     insert_audit_log(
         action="TASK_DELETE",
         actor_user_id=int(current_user["id"]) if current_user else None,
@@ -163,11 +179,12 @@ def create_sim_task(
     n: int = 30,
     steps: int = 50,
     current_user=Depends(get_optional_user),
+    guest_key: str | None = Header(default=None, alias="X-Guest-Key"),
     turnstile_token: str | None = Header(default=None, alias="X-Turnstile-Token"),
 ):
     owner_user_id = int(current_user["id"]) if current_user else None
     _enforce_turnstile(request, turnstile_token, task_type="simulation-run", owner_user_id=owner_user_id)
-    result = create_simulation_task(n, steps, simulation_run, owner_user_id=owner_user_id)
+    result = create_simulation_task(n, steps, simulation_run, owner_user_id=owner_user_id, guest_key=guest_key)
     insert_audit_log(
         action="TASK_CREATE",
         actor_user_id=owner_user_id,
@@ -193,6 +210,7 @@ def create_pcmci_task(
     alpha_level: float = 0.01,
     pc_alpha: float | None = None,
     current_user=Depends(get_optional_user),
+    guest_key: str | None = Header(default=None, alias="X-Guest-Key"),
     turnstile_token: str | None = Header(default=None, alias="X-Turnstile-Token"),
 ):
     owner_user_id = int(current_user["id"]) if current_user else None
@@ -211,7 +229,7 @@ def create_pcmci_task(
         "alpha_level": float(alpha_level),
         "pc_alpha": pc_alpha,
     }
-    result = create_pcmci_causal_task(params, pcmci_causal, owner_user_id=owner_user_id)
+    result = create_pcmci_causal_task(params, pcmci_causal, owner_user_id=owner_user_id, guest_key=guest_key)
     insert_audit_log(
         action="TASK_CREATE",
         actor_user_id=owner_user_id,
@@ -235,6 +253,7 @@ def create_mrnmr_task(
     kde_bandwidth: str = "scott",
     poly_degree: int = 20,
     current_user=Depends(get_optional_user),
+    guest_key: str | None = Header(default=None, alias="X-Guest-Key"),
     turnstile_token: str | None = Header(default=None, alias="X-Turnstile-Token"),
 ):
     owner_user_id = int(current_user["id"]) if current_user else None
@@ -251,7 +270,7 @@ def create_mrnmr_task(
         "kde_bandwidth": kde_bandwidth,
         "poly_degree": int(poly_degree),
     }
-    result = create_mrnmr_steady_task(params, mrnmr_steady, owner_user_id=owner_user_id)
+    result = create_mrnmr_steady_task(params, mrnmr_steady, owner_user_id=owner_user_id, guest_key=guest_key)
     insert_audit_log(
         action="TASK_CREATE",
         actor_user_id=owner_user_id,
@@ -275,6 +294,7 @@ def create_delta_t_task(
     event_threshold_quantile: float = 0.9,
     random_seed: int = 42,
     current_user=Depends(get_optional_user),
+    guest_key: str | None = Header(default=None, alias="X-Guest-Key"),
     turnstile_token: str | None = Header(default=None, alias="X-Turnstile-Token"),
 ):
     owner_user_id = int(current_user["id"]) if current_user else None
@@ -291,7 +311,7 @@ def create_delta_t_task(
         "event_threshold_quantile": float(event_threshold_quantile),
         "random_seed": int(random_seed),
     }
-    result = create_delta_t_null_task(params, deltat_null, owner_user_id=owner_user_id)
+    result = create_delta_t_null_task(params, deltat_null, owner_user_id=owner_user_id, guest_key=guest_key)
     insert_audit_log(
         action="TASK_CREATE",
         actor_user_id=owner_user_id,
@@ -303,7 +323,7 @@ def create_delta_t_task(
 
 
 @router.post("/api/tasks/{task_id}/retry")
-def retry_task(task_id: str, current_user=Depends(get_optional_user)):
+def retry_task(task_id: str, current_user=Depends(get_optional_user), guest_key: str | None = Header(default=None, alias="X-Guest-Key")):
     payload = retry_task_payload(
         task_id,
         {
@@ -314,6 +334,7 @@ def retry_task(task_id: str, current_user=Depends(get_optional_user)):
             "deltaT-null": deltat_null,
         },
         current_user=current_user,
+        guest_key=guest_key,
     )
     insert_audit_log(
         action="TASK_RETRY",
@@ -326,8 +347,8 @@ def retry_task(task_id: str, current_user=Depends(get_optional_user)):
 
 
 @router.get("/api/files/{task_id}/{filename}")
-def download_file(task_id: str, filename: str, current_user=Depends(get_optional_user)):
-    task_payload = get_task_payload(task_id, None, current_user=current_user)
+def download_file(task_id: str, filename: str, current_user=Depends(get_optional_user), guest_key: str | None = Header(default=None, alias="X-Guest-Key")):
+    task_payload = get_task_payload(task_id, None, current_user=current_user, guest_key=guest_key)
     if str(task_payload.get("state", "")).upper() == "NOT_FOUND":
         return {"error": "file not found"}
     p = build_output_path(task_id, filename)

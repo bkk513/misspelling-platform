@@ -57,6 +57,7 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
   const prevTaskStateRef = useRef<string>("");
 
   const taskObj = useMemo(() => asObject(task?.result), [task?.result]);
+  const paramObj = useMemo(() => asObject(task?.params), [task?.params]);
   const eventItems = useMemo(() => {
     const raw = Array.isArray(events?.items) ? events.items : [];
     return raw
@@ -413,16 +414,26 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
 
       <section className="panel">
         <h3 style={{ marginTop: 0 }}>Parameters / Result</h3>
-        <div className="table-wrap">
-          <table className="simple-table">
-            <tbody>
-              <tr><th>state</th><td>{task?.state ?? "-"}</td></tr>
-              <tr><th>params</th><td><pre className="pre-block">{JSON.stringify(task?.params ?? null, null, 2)}</pre></td></tr>
-              <tr><th>error</th><td><pre className="pre-block">{JSON.stringify(task?.error ?? null, null, 2)}</pre></td></tr>
-              <tr><th>result</th><td><pre className="pre-block">{JSON.stringify(task?.result ?? null, null, 2)}</pre></td></tr>
-            </tbody>
-          </table>
+        <div className="row-inline">
+          <Tag color="blue">Task Type: {taskType}</Tag>
+          <Tag color={task?.state?.toUpperCase() === "SUCCESS" ? "green" : task?.state?.toUpperCase() === "FAILURE" ? "red" : "default"}>
+            Status: {task?.state || "-"}
+          </Tag>
+          {typeof paramObj?.word === "string" && <Tag>Word: {String(paramObj.word)}</Tag>}
+          {paramObj?.start_year !== undefined && paramObj?.end_year !== undefined && (
+            <Tag>{String(paramObj.start_year)} - {String(paramObj.end_year)}</Tag>
+          )}
         </div>
+        {task?.error && (
+          <div className="error-text" style={{ marginTop: 8 }}>
+            Task finished with error. Please check lifecycle events and logs.
+          </div>
+        )}
+        {!task?.error && (
+          <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
+            Raw parameter/result JSON has been hidden to keep this page focused on interpretable outputs.
+          </Typography.Paragraph>
+        )}
       </section>
 
       <section className="panel">
@@ -460,12 +471,6 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
             <span className="muted">mode={String(provenance?.mode || "-")}</span>
             <span className="muted">dataset_source={String(provenance?.dataset_source || "-")}</span>
           </div>
-          {algoSummary && (
-            <pre className="pre-block" style={{ marginTop: 8 }}>{JSON.stringify(algoSummary, null, 2)}</pre>
-          )}
-          {algoArtifacts && (
-            <pre className="pre-block" style={{ marginTop: 8 }}>{JSON.stringify(algoArtifacts, null, 2)}</pre>
-          )}
           {algoWarnings.length > 0 && (
             <div className="error-text" style={{ marginTop: 8 }}>warnings: {algoWarnings.join("; ")}</div>
           )}
@@ -528,7 +533,7 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
               </div>
             </div>
           )}
-
+          
           {taskType === "pcmci-causal" && edgeChartRows.length > 0 && (
             <div className="panel" style={{ marginTop: 10, background: "#fafafa" }}>
               <div className="muted" style={{ marginBottom: 8 }}>Top Edge Weights (|weight|)</div>
@@ -623,7 +628,7 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
               </table>
             </div>
           )}
-        </section>
+      </section>
       )}
 
       <section className="panel">

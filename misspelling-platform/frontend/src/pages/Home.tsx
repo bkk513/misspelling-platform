@@ -1,8 +1,7 @@
-﻿import { BarChartOutlined, FileSearchOutlined, RocketOutlined } from "@ant-design/icons";
-import { Alert, Button, Card, Col, Input, Row, Space, Statistic, Table, Tag, Typography, message } from "antd";
+import { BarChartOutlined, FileSearchOutlined } from "@ant-design/icons";
+import { Alert, Button, Card, Col, Row, Space, Statistic, Table, Tag, Typography, message } from "antd";
 import { useEffect, useMemo, useState } from "react";
 import { goToApp, goToTask } from "../app/router";
-import { TurnstileWidget } from "../components/TurnstileWidget";
 import {
   api,
   describeApiError,
@@ -24,13 +23,6 @@ export function HomePage() {
   const [extended, setExtended] = useState<ExtendedHealthResponse | null>(null);
   const [tasks, setTasks] = useState<TaskListItem[]>([]);
   const [loading, setLoading] = useState(false);
-  const [word, setWord] = useState("demo");
-  const [n, setN] = useState("20");
-  const [steps, setSteps] = useState("15");
-  const [busy, setBusy] = useState<"" | "word" | "sim">("");
-  const [turnstileToken, setTurnstileToken] = useState("");
-  const [turnstileNonce, setTurnstileNonce] = useState(0);
-  const turnstileSiteKey = String(import.meta.env.VITE_TURNSTILE_SITE_KEY || "").trim();
 
   const refresh = async () => {
     setLoading(true);
@@ -60,47 +52,8 @@ export function HomePage() {
     return Math.round((ok / tasks.length) * 100);
   }, [tasks]);
 
-  const runWord = async () => {
-    if (!turnstileToken) {
-      message.warning("Please complete Turnstile verification first.");
-      return;
-    }
-    setBusy("word");
-    try {
-      const resp = await api.createWordAnalysis(word.trim() || "demo", undefined, turnstileToken);
-      message.success(`word-analysis queued: ${resp.task_id}`);
-      goToTask(resp.task_id);
-    } catch (e) {
-      message.error(describeApiError(e));
-    } finally {
-      setBusy("");
-      setTurnstileNonce((v) => v + 1);
-    }
-  };
-
-  const runSimulation = async () => {
-    if (!turnstileToken) {
-      message.warning("Please complete Turnstile verification first.");
-      return;
-    }
-    setBusy("sim");
-    try {
-      const resp = await api.createSimulation(Number(n) || 20, Number(steps) || 15, turnstileToken);
-      message.success(`simulation-run queued: ${resp.task_id}`);
-      goToTask(resp.task_id);
-    } catch (e) {
-      message.error(describeApiError(e));
-    } finally {
-      setBusy("");
-      setTurnstileNonce((v) => v + 1);
-    }
-  };
-
   return (
     <Space direction="vertical" size={16} style={{ width: "100%" }}>
-      <Typography.Text type="secondary">
-        当前为 Guest 演示模式：任务与数据暂为共享视图。后续版本将启用 owner 绑定与“我的任务”隔离。
-      </Typography.Text>
       {extended?.warnings && extended.warnings.length > 0 && (
         <Alert type="warning" showIcon message={`System warnings: ${extended.warnings.join(", ")}`} />
       )}
@@ -142,57 +95,17 @@ export function HomePage() {
           </Card>
         </Col>
       </Row>
-      <Card title="Bot Protection">
-        <TurnstileWidget siteKey={turnstileSiteKey} refreshKey={turnstileNonce} onTokenChange={setTurnstileToken} />
+      <Card title="Quick Entry">
+        <Space wrap>
+          <Button type="primary" icon={<FileSearchOutlined />} onClick={() => goToApp("word-analysis")}>
+            Open Word Analysis
+          </Button>
+          <Button icon={<BarChartOutlined />} onClick={() => goToApp("simulation")}>
+            Open Simulation
+          </Button>
+          <Button onClick={() => goToApp("tasks")}>Open Task Center</Button>
+        </Space>
       </Card>
-      <Row gutter={16}>
-        <Col xs={24} md={12}>
-          <Card
-            title="Run Word Analysis"
-            extra={
-              <Button icon={<FileSearchOutlined />} onClick={() => goToApp("word-analysis")}>
-                Open Workbench
-              </Button>
-            }
-          >
-            <Space.Compact style={{ width: "100%" }}>
-              <Input value={word} onChange={(e) => setWord(e.target.value)} placeholder="word" />
-              <Button type="primary" loading={busy === "word"} onClick={runWord} disabled={!turnstileToken}>
-                Run
-              </Button>
-            </Space.Compact>
-          </Card>
-        </Col>
-        <Col xs={24} md={12}>
-          <Card
-            title="Run Simulation"
-            extra={
-              <Button icon={<BarChartOutlined />} onClick={() => goToApp("time-series")}>
-                Open Explorer
-              </Button>
-            }
-          >
-            <Space.Compact style={{ width: "100%" }}>
-              <Input value={n} onChange={(e) => setN(e.target.value)} placeholder="n" style={{ width: 120 }} />
-              <Input
-                value={steps}
-                onChange={(e) => setSteps(e.target.value)}
-                placeholder="steps"
-                style={{ width: 120 }}
-              />
-              <Button
-                type="primary"
-                icon={<RocketOutlined />}
-                loading={busy === "sim"}
-                onClick={runSimulation}
-                disabled={!turnstileToken}
-              >
-                Run
-              </Button>
-            </Space.Compact>
-          </Card>
-        </Col>
-      </Row>
       <Card title="Recent Tasks" extra={<Button onClick={() => void refresh()} loading={loading}>Refresh</Button>}>
         <Table
           size="small"
@@ -212,7 +125,14 @@ export function HomePage() {
             },
             { title: "Status", dataIndex: "status", render: (v: string) => <Tag color={statusColor(v)}>{v}</Tag> },
             { title: "Created", dataIndex: "created_at", render: (v: string) => v || "-" },
-            { title: "Action", render: (_: unknown, row: TaskListItem) => <Button size="small" onClick={() => goToTask(row.task_id)}>Detail</Button> }
+            {
+              title: "Action",
+              render: (_: unknown, row: TaskListItem) => (
+                <Button size="small" onClick={() => goToTask(row.task_id)}>
+                  Detail
+                </Button>
+              )
+            }
           ]}
         />
       </Card>

@@ -1,14 +1,30 @@
 ﻿from fastapi import APIRouter, Depends
+from pydantic import BaseModel
 
-from .auth_deps import get_optional_user
+from .auth_deps import get_current_user, get_optional_user
 from ..services.lexicon_service import (
+    delete_variant_cache_payload,
     enrich_term_payload,
     get_term_payload,
+    list_variant_cache_payload,
     list_terms_payload,
+    save_variant_cache_payload,
     suggest_and_cache_variants,
 )
 
 router = APIRouter()
+
+
+class DeleteVariantCacheBody(BaseModel):
+    ids: list[int] = []
+    word: str | None = None
+    variants: list[str] = []
+
+
+class SaveVariantCacheBody(BaseModel):
+    word: str
+    variants: list[str]
+    source: str = "manual"
 
 
 @router.post("/api/lexicon/variants/suggest")
@@ -29,3 +45,28 @@ def list_terms(limit: int = 50, q: str = "", current_user=Depends(get_optional_u
 @router.get("/api/lexicon/{term_id}")
 def get_term(term_id: int, current_user=Depends(get_optional_user)):
     return get_term_payload(term_id=term_id, current_user=current_user)
+
+
+@router.get("/api/lexicon/variant-cache")
+def list_variant_cache(word: str = "", limit: int = 200, current_user=Depends(get_current_user)):
+    return list_variant_cache_payload(current_user=current_user, word=word, limit=limit)
+
+
+@router.delete("/api/lexicon/variant-cache")
+def delete_variant_cache(body: DeleteVariantCacheBody, current_user=Depends(get_current_user)):
+    return delete_variant_cache_payload(
+        current_user=current_user,
+        ids=body.ids or [],
+        word=body.word,
+        variants=body.variants or [],
+    )
+
+
+@router.post("/api/lexicon/variant-cache")
+def save_variant_cache(body: SaveVariantCacheBody, current_user=Depends(get_current_user)):
+    return save_variant_cache_payload(
+        current_user=current_user,
+        word=body.word,
+        variants=body.variants or [],
+        source=body.source,
+    )

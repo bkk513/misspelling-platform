@@ -1,10 +1,15 @@
 export type ApiError = Error & { status?: number; bodyText?: string };
 
 let accessToken = "";
+let guestKey = "";
 const API_BASE = String(import.meta.env.VITE_API_BASE || "").trim().replace(/\/$/, "");
 
 export function setAccessToken(token: string) {
   accessToken = token || "";
+}
+
+export function setGuestKey(key: string) {
+  guestKey = String(key || "").trim();
 }
 
 function withTurnstileHeaders(turnstileToken: string, headers?: HeadersInit) {
@@ -17,6 +22,14 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers || {});
   if (accessToken && !headers.has("Authorization")) {
     headers.set("Authorization", `Bearer ${accessToken}`);
+  }
+  if (!accessToken && !headers.has("X-Guest-Key")) {
+    const fallbackGuestKey =
+      guestKey ||
+      (typeof window !== "undefined" ? String(window.localStorage.getItem("mp-guest-key") || "").trim() : "");
+    if (fallbackGuestKey) {
+      headers.set("X-Guest-Key", fallbackGuestKey);
+    }
   }
   const url = path.startsWith("http://") || path.startsWith("https://") ? path : `${API_BASE}${path}`;
   const resp = await fetch(url, { ...init, headers });
@@ -100,6 +113,8 @@ export type TimeSeriesListResponse = {
     window_end?: string;
     owner_user_id?: number | null;
     task_id?: string;
+    task_type?: string;
+    task_created_at?: string;
     variant: string;
     point_count: number;
   }>;
@@ -203,6 +218,17 @@ export type ReportItem = {
   summary_json?: unknown;
 };
 export type ReportListResponse = { items: ReportItem[] };
+export type VariantCacheItem = {
+  id: number;
+  owner_user_id?: number;
+  username?: string;
+  word: string;
+  variant: string;
+  source?: string;
+  created_at?: string;
+  updated_at?: string;
+};
+export type VariantCacheListResponse = { items: VariantCacheItem[] };
 export type GbncPullResponse = {
   word: string;
   source: string;
@@ -258,6 +284,12 @@ export const api = {
       })
     }),
   me: () => request<MeResponse>("/api/auth/me"),
+  changePassword: (oldPassword: string, newPassword: string) =>
+    request<{ ok: boolean }>("/api/auth/change-password", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ old_password: oldPassword, new_password: newPassword })
+    }),
   createWordAnalysis: (
     word: string,
     opts?: { startYear?: number; endYear?: number; smoothing?: number; corpus?: string; variants?: string[] },
@@ -395,6 +427,26 @@ export const api = {
       `/api/lexicon/variants/suggest?word=${encodeURIComponent(word)}&k=${k}`,
       { method: "POST" }
     ),
+  listVariantCache: (word = "", limit = 200) =>
+    request<VariantCacheListResponse>(
+      `/api/lexicon/variant-cache?word=${encodeURIComponent(word)}&limit=${limit}`
+    ),
+  saveVariantCache: (word: string, variants: string[], source = "manual") =>
+    request<{ saved: number }>("/api/lexicon/variant-cache", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ word, variants, source })
+    }),
+  deleteVariantCache: (body: { ids?: number[]; word?: string; variants?: string[] }) =>
+    request<{ deleted: number }>("/api/lexicon/variant-cache", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ids: body.ids || [],
+        word: body.word || undefined,
+        variants: body.variants || []
+      })
+    }),
   enrichTerm: (word: string) =>
     request<{ term_id: number; word: string; attributes: unknown; source: string }>(
       `/api/lexicon/term/enrich?word=${encodeURIComponent(word)}`,
@@ -484,6 +536,15 @@ export const api = {
     }),
   adminAuditLogs: (limit = 120) => request<AdminAuditResponse>(`/api/admin/audit-logs?limit=${limit}`),
   adminDataSources: (limit = 80) => request<AdminDataSourcesResponse>(`/api/admin/data-sources?limit=${limit}`),
+  adminVariantCache: (limit = 300, userId?: number, word?: string) => {
+    const params = new URLSearchParams();
+    params.set("limit", String(limit));
+    if (userId && userId > 0) params.set("user_id", String(userId));
+    if (word?.trim()) params.set("word", word.trim());
+    return request<VariantCacheListResponse>(`/api/admin/variant-cache?${params.toString()}`);
+  },
+  adminDeleteVariantCache: (entryId: number) =>
+    request<{ deleted: boolean }>(`/api/admin/variant-cache/${entryId}`, { method: "DELETE" }),
   adminSettings: () => request<AdminSettingsResponse>("/api/admin/settings"),
   adminDiagnostics: () => request<AdminDiagnosticsResponse>("/api/admin/diagnostics"),
   adminPurge: (scope: "guest" | "user", what: string[], userId?: number) =>

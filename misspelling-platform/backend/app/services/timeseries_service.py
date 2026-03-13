@@ -1,7 +1,7 @@
 import hashlib
 import math
 import random
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from ..db.data_sources_repo import ensure_data_source
@@ -44,6 +44,28 @@ def _owner_id(current_user: dict | None) -> int | None:
     if not current_user:
         return None
     return int(current_user.get("id") or 0) or None
+
+
+def _normalize_guest_key(guest_key: str | None) -> str:
+    return str(guest_key or "").strip()[:64]
+
+
+def _is_today_utc(value: Any) -> bool:
+    today = datetime.now(timezone.utc).date()
+    if value is None:
+        return False
+    if hasattr(value, "date"):
+        try:
+            return value.date() == today
+        except Exception:
+            pass
+    text_value = str(value)
+    if len(text_value) >= 10:
+        try:
+            return datetime.strptime(text_value[:10], "%Y-%m-%d").date() == today
+        except Exception:
+            return False
+    return False
 
 
 def _persist_stub_bundle(task_id: str, task_type: str, canonical: str, point_count: int):
@@ -91,11 +113,12 @@ def persist_simulation_stub_timeseries(task_id: str, n: int, steps: int):
     _persist_stub_bundle(task_id, "simulation-run", canonical, count)
 
 
-def get_task_timeseries_summary(task_id: str, current_user: dict | None = None):
+def get_task_timeseries_summary(task_id: str, current_user: dict | None = None, guest_key: str | None = None):
     rows = list_series_by_task(
         task_id,
         owner_user_id=_owner_id(current_user),
         include_all=_is_admin(current_user),
+        guest_key=guest_key,
     )
     if not rows:
         return {"task_id": task_id, "items": [], "variants": [], "point_count": 0}
@@ -111,12 +134,18 @@ def get_task_timeseries_summary(task_id: str, current_user: dict | None = None):
     }
 
 
-def get_task_timeseries_points(task_id: str, variant: str = "correct", current_user: dict | None = None):
+def get_task_timeseries_points(
+    task_id: str,
+    variant: str = "correct",
+    current_user: dict | None = None,
+    guest_key: str | None = None,
+):
     series_id, rows = get_series_points_for_task(
         task_id,
         variant or "correct",
         owner_user_id=_owner_id(current_user),
         include_all=_is_admin(current_user),
+        guest_key=guest_key,
     )
     return {
         "task_id": task_id,
@@ -126,18 +155,23 @@ def get_task_timeseries_points(task_id: str, variant: str = "correct", current_u
     }
 
 
-def list_series_catalog_payload(limit: int = 100, current_user: dict | None = None, scope: str | None = None):
+def list_series_catalog_payload(
+    limit: int = 100,
+    current_user: dict | None = None,
+    scope: str | None = None,
+    guest_key: str | None = None,
+):
     safe_limit = max(1, min(int(limit), 500))
     include_all = _is_admin(current_user) and scope == "all"
     owner_user_id = _owner_id(current_user)
     if _is_admin(current_user) and scope == "guest":
         owner_user_id = None
         include_all = False
-    rows = list_series(limit=safe_limit, owner_user_id=owner_user_id, include_all=include_all)
+    rows = list_series(limit=safe_limit, owner_user_id=owner_user_id, include_all=include_all, guest_key=guest_key)
     return {"items": [dict(r) for r in rows]}
 
 
-def bulk_delete_series_payload(series_ids: list[int], current_user: dict | None = None):
+def bulk_delete_series_payload(series_ids: list[int], current_user: dict | None = None, guest_key: str | None = None):
     safe_ids = []
     for value in series_ids:
         try:
@@ -163,7 +197,15 @@ def bulk_delete_series_payload(series_ids: list[int], current_user: dict | None 
             allowed.append(sid)
             continue
         if owner_user_id is None:
-            if owner is None:
+            row_guest_key = _normalize_guest_key(row.get("guest_key"))
+            row_status = str(row.get("task_status") or "").upper()
+            if (
+                owner is None
+                and row_guest_key
+                and row_guest_key == _normalize_guest_key(guest_key)
+                and _is_today_utc(row.get("task_created_at"))
+                and row_status != "DELETED"
+            ):
                 allowed.append(sid)
             else:
                 skipped.append({"series_id": str(sid), "reason": "FORBIDDEN"})
