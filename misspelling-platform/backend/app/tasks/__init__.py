@@ -201,7 +201,7 @@ def _try_save_algo_preview(
         out_dir = build_output_dir(task_id)
         out_png = out_dir / "preview.png"
         if task_type == "pcmci-causal":
-            write_pcmci_preview_png(algo_payload.get("edges") or [], out_png)
+            write_pcmci_preview_png(algo_payload, out_png)
             for window in algo_payload.get("window_results") or []:
                 network_png = str(window.get("network_png") or "").strip()
                 timeseries_png = str(window.get("timeseries_png") or "").strip()

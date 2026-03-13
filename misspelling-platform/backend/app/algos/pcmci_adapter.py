@@ -29,29 +29,27 @@ def _sanitize_tau_max(tau_max: int, points_count: int) -> int:
 def _build_window_ranges(total_points: int, window_size: int | None, window_step: int | None) -> list[tuple[int, int]]:
     if total_points <= 0:
         return []
-    if total_points < 3:
+    if total_points < 2:
         return [(0, total_points)]
 
     if window_size is None or int(window_size) <= 0:
-        safe_size = total_points
+        safe_size = min(total_points, 2)
     else:
-        safe_size = max(3, min(int(window_size), total_points))
+        safe_size = max(2, min(int(window_size), total_points))
 
     if window_step is None or int(window_step) <= 0:
-        safe_step = max(1, safe_size // 4)
+        safe_step = max(1, safe_size)
     else:
         safe_step = max(1, int(window_step))
 
     windows: list[tuple[int, int]] = []
-    start = 0
-    while start + safe_size <= total_points:
-        windows.append((start, start + safe_size))
-        start += safe_step
+    end = safe_size
+    while end <= total_points:
+        windows.append((0, end))
+        end += safe_step
 
-    final_window = (total_points - safe_size, total_points)
-    if not windows:
-        windows.append(final_window)
-    elif windows[-1] != final_window:
+    final_window = (0, total_points)
+    if not windows or windows[-1] != final_window:
         windows.append(final_window)
     return windows
 
@@ -136,6 +134,66 @@ def _fallback_edges(dataset: AlgorithmDataset, tau_max: int, alpha_level: float)
     return _fallback_edges_matrix(stacked, names, tau_max=tau_max, alpha_level=alpha_level)
 
 
+def _serialize_float_matrix(values: np.ndarray) -> list[Any]:
+    safe = np.nan_to_num(np.asarray(values, dtype=float), nan=0.0, posinf=0.0, neginf=0.0)
+    return safe.tolist()
+
+
+def _serialize_graph_matrix(values: np.ndarray) -> list[Any]:
+    return np.asarray(values).astype(str).tolist()
+
+
+def _build_plot_payload(
+    names: list[str],
+    val_matrix: np.ndarray,
+    graph: np.ndarray,
+) -> dict[str, Any]:
+    return {
+        "var_names": [str(name) for name in names],
+        "tigramite_val_matrix": _serialize_float_matrix(val_matrix),
+        "tigramite_graph": _serialize_graph_matrix(graph),
+    }
+
+
+def _build_plot_payload_from_edges(
+    names: list[str],
+    edges: list[dict[str, Any]],
+    tau_max: int,
+) -> dict[str, Any]:
+    node_count = max(1, len(names))
+    lag_count = max(1, int(tau_max) + 1)
+    val_matrix = np.zeros((node_count, node_count, lag_count), dtype=float)
+    graph = np.full((node_count, node_count, lag_count), "", dtype=object)
+    idx_by_name = {name: idx for idx, name in enumerate(names)}
+
+    for row in edges:
+        src = idx_by_name.get(str(row.get("source") or ""))
+        dst = idx_by_name.get(str(row.get("target") or ""))
+        if src is None or dst is None or src == dst:
+            continue
+        try:
+            lag = int(row.get("lag") or 0)
+        except Exception:
+            lag = 0
+        if lag < 0 or lag >= lag_count:
+            continue
+        try:
+            weight = float(row.get("weight") or 0.0)
+        except Exception:
+            weight = 0.0
+        if not math.isfinite(weight):
+            weight = 0.0
+        val_matrix[src, dst, lag] = weight
+        if lag > 0:
+            graph[src, dst, lag] = "o-o"
+
+    return _build_plot_payload(
+        names=names,
+        val_matrix=val_matrix,
+        graph=graph,
+    )
+
+
 def _window_series_payload(
     names: list[str],
     times: list[str],
@@ -161,11 +219,12 @@ def _build_window_payload(
     tau_max: int,
     mode: str,
     method: str,
+    plot_payload: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     safe_end = max(start + 1, end)
     window_values = values_tn[start:safe_end, :]
     window_times = times[start:safe_end]
-    return {
+    payload = {
         "window_index": int(window_index),
         "start_index": int(start),
         "end_index": int(safe_end - 1),
@@ -181,6 +240,9 @@ def _build_window_payload(
         "edges": edges[:500],
         "series": _window_series_payload(names, window_times, window_values),
     }
+    if plot_payload:
+        payload.update(plot_payload)
+    return payload
 
 
 def run_pcmci(
@@ -253,6 +315,18 @@ def run_pcmci(
             tau_max=safe_tau,
             fdr_method="fdr_bh",
         )
+        graph = pcmci.get_graph_from_pmatrix(
+            p_matrix=q_matrix,
+            alpha_level=float(alpha_level),
+            tau_min=0,
+            tau_max=safe_tau,
+            link_assumptions=None,
+        )
+        plot_payload = _build_plot_payload(
+            names=names,
+            val_matrix=results["val_matrix"],
+            graph=graph,
+        )
         edges = _extract_edges(
             names=names,
             val_matrix=results["val_matrix"],
@@ -269,6 +343,11 @@ def run_pcmci(
             window_tau = _sanitize_tau_max(safe_tau, len(window_values))
             if window_tau < 1:
                 warnings.append(f"window_{window_index}_too_short")
+                empty_plot_payload = _build_plot_payload_from_edges(
+                    names=names,
+                    edges=[],
+                    tau_max=0,
+                )
                 window_results.append(
                     _build_window_payload(
                         window_index=window_index,
@@ -281,6 +360,7 @@ def run_pcmci(
                         tau_max=0,
                         mode="stub",
                         method="insufficient-window",
+                        plot_payload=empty_plot_payload,
                     )
                 )
                 continue
@@ -292,6 +372,18 @@ def run_pcmci(
                     p_matrix=window_run["p_matrix"],
                     tau_max=window_tau,
                     fdr_method="fdr_bh",
+                )
+                window_graph = window_pcmci.get_graph_from_pmatrix(
+                    p_matrix=window_q,
+                    alpha_level=float(alpha_level),
+                    tau_min=0,
+                    tau_max=window_tau,
+                    link_assumptions=None,
+                )
+                window_plot_payload = _build_plot_payload(
+                    names=names,
+                    val_matrix=window_run["val_matrix"],
+                    graph=window_graph,
                 )
                 window_edges = _extract_edges(
                     names=names,
@@ -314,6 +406,7 @@ def run_pcmci(
                         tau_max=window_tau,
                         mode="real",
                         method="pcmci",
+                        plot_payload=window_plot_payload,
                     )
                 )
             except Exception as exc:
@@ -323,6 +416,11 @@ def run_pcmci(
                     names=names,
                     tau_max=max(1, window_tau),
                     alpha_level=max(float(alpha_level), 0.05),
+                )
+                fallback_plot_payload = _build_plot_payload_from_edges(
+                    names=names,
+                    edges=fallback_edges,
+                    tau_max=max(1, window_tau),
                 )
                 window_results.append(
                     _build_window_payload(
@@ -336,6 +434,7 @@ def run_pcmci(
                         tau_max=max(1, window_tau),
                         mode="stub",
                         method="lag-corr-fallback",
+                        plot_payload=fallback_plot_payload,
                     )
                 )
 
@@ -353,17 +452,29 @@ def run_pcmci(
             "warnings": warnings,
             "mode": "real",
             "impl": "internal_rewrite",
+            **plot_payload,
         }
     except Exception as exc:
         warnings.append(f"pcmci_failed:{exc}")
         edges = _fallback_edges(dataset, tau_max=safe_tau, alpha_level=max(alpha_level, 0.05))
+        fallback_plot_payload = _build_plot_payload_from_edges(
+            names=names,
+            edges=edges,
+            tau_max=safe_tau,
+        )
         window_results: list[dict[str, Any]] = []
         for window_index, (start, end) in enumerate(ranges):
+            fallback_tau = _sanitize_tau_max(safe_tau, end - start)
             fallback_edges = _fallback_edges_matrix(
                 values_tn[start:end, :],
                 names=names,
-                tau_max=_sanitize_tau_max(safe_tau, end - start),
+                tau_max=fallback_tau,
                 alpha_level=max(float(alpha_level), 0.05),
+            )
+            fallback_window_plot_payload = _build_plot_payload_from_edges(
+                names=names,
+                edges=fallback_edges,
+                tau_max=fallback_tau,
             )
             window_results.append(
                 _build_window_payload(
@@ -374,9 +485,10 @@ def run_pcmci(
                     names=names,
                     values_tn=values_tn,
                     edges=fallback_edges,
-                    tau_max=_sanitize_tau_max(safe_tau, end - start),
+                    tau_max=fallback_tau,
                     mode="stub",
                     method="lag-corr-fallback",
+                    plot_payload=fallback_window_plot_payload,
                 )
             )
         return {
@@ -393,6 +505,7 @@ def run_pcmci(
             "warnings": warnings,
             "mode": "stub",
             "impl": "internal_rewrite",
+            **fallback_plot_payload,
         }
 
 
