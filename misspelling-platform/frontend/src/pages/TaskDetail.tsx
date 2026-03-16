@@ -27,11 +27,6 @@ function statusTone(state?: string) {
   return "#6b7280";
 }
 
-function toNumber(value: unknown, fallback = 0) {
-  const n = Number(value);
-  return Number.isFinite(n) ? n : fallback;
-}
-
 export function TaskDetailPage({ taskId }: { taskId: string }) {
   const [task, setTask] = useState<TaskDetailResponse | null>(null);
   const [taskErr, setTaskErr] = useState("");
@@ -246,51 +241,15 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
   }, [algoData.windows.length, activeWindowIndex]);
 
   const provenance = asObject(taskObj?.provenance);
-  const algoSummary = asObject(taskObj?.summary);
-  const algoArtifacts = asObject(taskObj?.artifacts);
   const algoWarnings = Array.isArray(taskObj?.warnings) ? taskObj?.warnings.map((v) => String(v)) : [];
-  const topEdges = Array.isArray(taskObj?.top_edges) ? taskObj?.top_edges : [];
-  const metricsPreview = Array.isArray(taskObj?.metrics_preview) ? taskObj?.metrics_preview : [];
-  const eventsPreview = Array.isArray(taskObj?.events_preview) ? taskObj?.events_preview : [];
   const windowResults = algoData.windows;
   const safeWindowIndex = windowResults.length > 0 ? Math.min(activeWindowIndex, windowResults.length - 1) : 0;
   const activeWindow = (windowResults[safeWindowIndex] || null) as Record<string, unknown> | null;
-  const activeWindowEdges = Array.isArray(activeWindow?.edges)
-    ? (activeWindow?.edges as Array<Record<string, unknown>>)
-    : Array.isArray(activeWindow?.top_edges)
-      ? (activeWindow?.top_edges as Array<Record<string, unknown>>)
-      : [];
-  const edgesData = taskType === "pcmci-causal"
-    ? (activeWindowEdges.length > 0 ? activeWindowEdges : (algoData.edges.length > 0 ? algoData.edges : topEdges))
-    : (algoData.edges.length > 0 ? algoData.edges : topEdges);
-  const metricsData = algoData.metrics.length > 0 ? algoData.metrics : metricsPreview;
-  const deltaEventsData = algoData.events.length > 0 ? algoData.events : eventsPreview;
   const activeNetworkPng = String(activeWindow?.network_png || "").trim();
   const activeTimeseriesPng = String(activeWindow?.timeseries_png || "").trim();
   const activeNetworkUrl = activeNetworkPng ? api.fileUrl(taskId, activeNetworkPng) : "";
   const activeTimeseriesUrl = activeTimeseriesPng ? api.fileUrl(taskId, activeTimeseriesPng) : "";
-  const mrSeries = metricsData
-    .map((row) => ({
-      time: String((row as Record<string, unknown>).year ?? ""),
-      mr: toNumber((row as Record<string, unknown>).MR, NaN),
-      nmr: toNumber((row as Record<string, unknown>).NMR, NaN)
-    }))
-    .filter((row) => row.time && Number.isFinite(row.mr) && Number.isFinite(row.nmr));
-  const deltaSeries = deltaEventsData
-    .map((row) => ({
-      time: String((row as Record<string, unknown>).year ?? ""),
-      value: toNumber((row as Record<string, unknown>).index, NaN)
-    }))
-    .filter((row) => row.time && Number.isFinite(row.value));
-  const edgeChartRows = [...edgesData]
-    .map((row) => ({
-      source: String((row as Record<string, unknown>).source ?? "-"),
-      target: String((row as Record<string, unknown>).target ?? "-"),
-      weight: toNumber((row as Record<string, unknown>).weight, 0)
-    }))
-    .sort((a, b) => Math.abs(b.weight) - Math.abs(a.weight))
-    .slice(0, 12);
-  const edgeMax = Math.max(1e-9, ...edgeChartRows.map((row) => Math.abs(row.weight)));
+  const previewImageUrl = api.fileUrl(taskId, "preview.png");
   const isAlgoTask = ["pcmci-causal", "mrnmr-steady", "deltaT-null"].includes(taskType);
 
   return (
@@ -471,9 +430,7 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
             <span className="muted">mode={String(provenance?.mode || "-")}</span>
             <span className="muted">dataset_source={String(provenance?.dataset_source || "-")}</span>
           </div>
-          {algoWarnings.length > 0 && (
-            <div className="error-text" style={{ marginTop: 8 }}>warnings: {algoWarnings.join("; ")}</div>
-          )}
+          {algoWarnings.length > 0 && <div className="muted" style={{ marginTop: 8 }}>Warnings detected for this run.</div>}
 
           {taskType === "pcmci-causal" && windowResults.length > 0 && (
             <div className="panel" style={{ marginTop: 10, background: "#fafafa" }}>
@@ -533,99 +490,36 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
               </div>
             </div>
           )}
-          
-          {taskType === "pcmci-causal" && edgeChartRows.length > 0 && (
-            <div className="panel" style={{ marginTop: 10, background: "#fafafa" }}>
-              <div className="muted" style={{ marginBottom: 8 }}>Top Edge Weights (|weight|)</div>
-              {edgeChartRows.map((row, idx) => (
-                <div key={`edge-chart-${idx}`} style={{ marginBottom: 6 }}>
-                  <div className="row-inline" style={{ justifyContent: "space-between" }}>
-                    <span>{row.source} -&gt; {row.target}</span>
-                    <span>{row.weight.toFixed(4)}</span>
-                  </div>
-                  <div style={{ background: "#e5e7eb", height: 8, borderRadius: 4, overflow: "hidden" }}>
-                    <div
-                      style={{
-                        width: `${Math.max(2, (Math.abs(row.weight) / edgeMax) * 100)}%`,
-                        height: 8,
-                        background: row.weight >= 0 ? "#2563eb" : "#dc2626"
-                      }}
-                    />
-                  </div>
-                </div>
-              ))}
+          {taskType === "pcmci-causal" && windowResults.length === 0 && (
+            <div style={{ marginTop: 10 }}>
+              <div className="muted" style={{ marginBottom: 6 }}>PCMCI Preview</div>
+              <img
+                src={previewImageUrl}
+                alt="pcmci-preview"
+                style={{ width: "100%", border: "1px solid #e5e7eb", borderRadius: 6 }}
+              />
             </div>
           )}
 
-          {taskType === "pcmci-causal" && edgesData.length > 0 && (
-            <div className="table-wrap" style={{ marginTop: 10 }}>
-              <table className="simple-table">
-                <thead><tr><th>source</th><th>target</th><th>lag</th><th>weight</th><th>method</th></tr></thead>
-                <tbody>
-                  {edgesData.slice(0, 20).map((row, idx) => (
-                    <tr key={`edge-${idx}`}>
-                      <td>{String((row as Record<string, unknown>).source ?? "-")}</td>
-                      <td>{String((row as Record<string, unknown>).target ?? "-")}</td>
-                      <td>{String((row as Record<string, unknown>).lag ?? "-")}</td>
-                      <td>{String((row as Record<string, unknown>).weight ?? "-")}</td>
-                      <td>{String((row as Record<string, unknown>).method ?? "-")}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+          {taskType === "mrnmr-steady" && (
+            <div style={{ marginTop: 10 }}>
+              <div className="muted" style={{ marginBottom: 6 }}>Steady-State Visualization</div>
+              <img
+                src={previewImageUrl}
+                alt="mrnmr-preview"
+                style={{ width: "100%", border: "1px solid #e5e7eb", borderRadius: 6 }}
+              />
             </div>
           )}
 
-          {taskType === "mrnmr-steady" && mrSeries.length > 0 && (
-            <TimeSeriesChart
-              title="MR / NMR Curves"
-              series={[
-                { name: "MR", data: mrSeries.map((row) => ({ time: row.time, value: row.mr })) },
-                { name: "NMR", data: mrSeries.map((row) => ({ time: row.time, value: row.nmr })) }
-              ]}
-              height={400}
-            />
-          )}
-
-          {taskType === "mrnmr-steady" && metricsData.length > 0 && (
-            <div className="table-wrap" style={{ marginTop: 10 }}>
-              <table className="simple-table">
-                <thead><tr><th>year</th><th>MR</th><th>NMR</th><th>density</th></tr></thead>
-                <tbody>
-                  {metricsData.slice(0, 20).map((row, idx) => (
-                    <tr key={`mrnmr-${idx}`}>
-                      <td>{String((row as Record<string, unknown>).year ?? "-")}</td>
-                      <td>{String((row as Record<string, unknown>).MR ?? "-")}</td>
-                      <td>{String((row as Record<string, unknown>).NMR ?? "-")}</td>
-                      <td>{String((row as Record<string, unknown>).density ?? "-")}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          {taskType === "deltaT-null" && deltaSeries.length > 0 && (
-            <TimeSeriesChart
-              title="DeltaT Event Indices by Year"
-              series={[{ name: "event_index", data: deltaSeries }]}
-              height={400}
-            />
-          )}
-
-          {taskType === "deltaT-null" && deltaEventsData.length > 0 && (
-            <div className="table-wrap" style={{ marginTop: 10 }}>
-              <table className="simple-table">
-                <thead><tr><th>year</th><th>index</th></tr></thead>
-                <tbody>
-                  {deltaEventsData.slice(0, 20).map((row, idx) => (
-                    <tr key={`deltat-${idx}`}>
-                      <td>{String((row as Record<string, unknown>).year ?? "-")}</td>
-                      <td>{String((row as Record<string, unknown>).index ?? "-")}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+          {taskType === "deltaT-null" && (
+            <div style={{ marginTop: 10 }}>
+              <div className="muted" style={{ marginBottom: 6 }}>DeltaT Visualization</div>
+              <img
+                src={previewImageUrl}
+                alt="deltat-preview"
+                style={{ width: "100%", border: "1px solid #e5e7eb", borderRadius: 6 }}
+              />
             </div>
           )}
       </section>

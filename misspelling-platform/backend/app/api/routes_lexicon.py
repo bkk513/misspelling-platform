@@ -42,11 +42,6 @@ def list_terms(limit: int = 50, q: str = "", current_user=Depends(get_optional_u
     return list_terms_payload(limit=limit, q=q, current_user=current_user)
 
 
-@router.get("/api/lexicon/{term_id}")
-def get_term(term_id: int, current_user=Depends(get_optional_user)):
-    return get_term_payload(term_id=term_id, current_user=current_user)
-
-
 @router.get("/api/lexicon/variant-cache")
 def list_variant_cache(word: str = "", limit: int = 200, current_user=Depends(get_current_user)):
     return list_variant_cache_payload(current_user=current_user, word=word, limit=limit)
@@ -70,3 +65,8 @@ def save_variant_cache(body: SaveVariantCacheBody, current_user=Depends(get_curr
         variants=body.variants or [],
         source=body.source,
     )
+
+
+@router.get("/api/lexicon/{term_id}")
+def get_term(term_id: int, current_user=Depends(get_optional_user)):
+    return get_term_payload(term_id=term_id, current_user=current_user)

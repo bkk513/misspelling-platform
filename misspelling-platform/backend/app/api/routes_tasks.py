@@ -1,10 +1,11 @@
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from .auth_deps import get_optional_user
 from ..db.core import check_db
 from ..db.audit_logs_repo import insert_audit_log
+from ..services.auth_service import decode_access_token, get_me_from_payload
 from ..services.diagnostics_service import get_extended_health_payload
 from ..services.task_service import (
     build_output_path,
@@ -347,8 +348,21 @@ def retry_task(task_id: str, current_user=Depends(get_optional_user), guest_key:
 
 
 @router.get("/api/files/{task_id}/{filename}")
-def download_file(task_id: str, filename: str, current_user=Depends(get_optional_user), guest_key: str | None = Header(default=None, alias="X-Guest-Key")):
-    task_payload = get_task_payload(task_id, None, current_user=current_user, guest_key=guest_key)
+def download_file(
+    task_id: str,
+    filename: str,
+    current_user=Depends(get_optional_user),
+    guest_key: str | None = Header(default=None, alias="X-Guest-Key"),
+    access_token: str | None = Query(default=None),
+    guest_key_query: str | None = Query(default=None, alias="guest_key"),
+):
+    effective_user = current_user
+    if effective_user is None and access_token:
+        payload = decode_access_token(access_token.strip())
+        if payload:
+            effective_user = get_me_from_payload(payload)
+    effective_guest_key = (guest_key or guest_key_query or "").strip() or None
+    task_payload = get_task_payload(task_id, None, current_user=effective_user, guest_key=effective_guest_key)
     if str(task_payload.get("state", "")).upper() == "NOT_FOUND":
         return {"error": "file not found"}
     p = build_output_path(task_id, filename)

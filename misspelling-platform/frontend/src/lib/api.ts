@@ -12,6 +12,13 @@ export function setGuestKey(key: string) {
   guestKey = String(key || "").trim();
 }
 
+function resolveGuestKey() {
+  return (
+    guestKey ||
+    (typeof window !== "undefined" ? String(window.localStorage.getItem("mp-guest-key") || "").trim() : "")
+  );
+}
+
 function withTurnstileHeaders(turnstileToken: string, headers?: HeadersInit) {
   const merged = new Headers(headers || {});
   if (turnstileToken) merged.set("X-Turnstile-Token", turnstileToken);
@@ -24,9 +31,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     headers.set("Authorization", `Bearer ${accessToken}`);
   }
   if (!accessToken && !headers.has("X-Guest-Key")) {
-    const fallbackGuestKey =
-      guestKey ||
-      (typeof window !== "undefined" ? String(window.localStorage.getItem("mp-guest-key") || "").trim() : "");
+    const fallbackGuestKey = resolveGuestKey();
     if (fallbackGuestKey) {
       headers.set("X-Guest-Key", fallbackGuestKey);
     }
@@ -553,7 +558,18 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ scope, user_id: userId, what })
     }),
-  fileUrl: (taskId: string, filename: string) => `/api/files/${encodeURIComponent(taskId)}/${encodeURIComponent(filename)}`
+  fileUrl: (taskId: string, filename: string) => {
+    const base = `/api/files/${encodeURIComponent(taskId)}/${encodeURIComponent(filename)}`;
+    const params = new URLSearchParams();
+    if (accessToken) {
+      params.set("access_token", accessToken);
+    } else {
+      const fallbackGuestKey = resolveGuestKey();
+      if (fallbackGuestKey) params.set("guest_key", fallbackGuestKey);
+    }
+    const query = params.toString();
+    return query ? `${base}?${query}` : base;
+  }
 };
 
 export function describeApiError(error: unknown) {
