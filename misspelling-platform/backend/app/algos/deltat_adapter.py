@@ -48,6 +48,11 @@ def _build_signals(dataset: AlgorithmDataset) -> tuple[np.ndarray, np.ndarray]:
     return correct, total_signal
 
 
+def _normalize_signal(values: np.ndarray) -> np.ndarray:
+    normalized = _normalize(values.astype(float).tolist())
+    return np.asarray(normalized, dtype=float)
+
+
 def _detect_peak_window(
     series: np.ndarray,
     origin_index: int,
@@ -240,7 +245,9 @@ def run_delta_t(
     base_year = int(dataset.years[0])
     effective_origin_index = _origin_index(dataset.years, origin_year)
     effective_origin_year = int(dataset.years[effective_origin_index])
-    correct_signal, total_signal = _build_signals(dataset)
+    raw_correct_signal, raw_total_signal = _build_signals(dataset)
+    correct_signal = _normalize_signal(raw_correct_signal)
+    total_signal = _normalize_signal(raw_total_signal)
 
     if len(total_signal) < 8:
         warnings.append("insufficient_points_after_origin")
@@ -292,11 +299,12 @@ def run_delta_t(
 
     delta_t_years = float(predicted_mutation_year - actual_mutation_year)
     delay_years = float(max(0.0, delta_t_years))
+    raw_miss_signal = np.maximum(raw_total_signal - raw_correct_signal, 0.0)
     correct_share = np.divide(
-        correct_signal,
-        np.maximum(total_signal, 1e-12),
-        out=np.zeros_like(correct_signal, dtype=float),
-        where=np.maximum(total_signal, 1e-12) > 0,
+        raw_correct_signal,
+        np.maximum(raw_total_signal, 1e-12),
+        out=np.zeros_like(raw_correct_signal, dtype=float),
+        where=np.maximum(raw_total_signal, 1e-12) > 0,
     )
 
     events: list[dict[str, Any]] = []
@@ -305,8 +313,10 @@ def run_delta_t(
             {
                 "year": int(year),
                 "correct": float(correct_signal[idx]),
-                "misspelling_total": float(max(total_signal[idx] - correct_signal[idx], 0.0)),
+                "correct_raw": float(raw_correct_signal[idx]),
+                "misspelling_total": float(raw_miss_signal[idx]),
                 "actual_total": float(total_signal[idx]),
+                "actual_total_raw": float(raw_total_signal[idx]),
                 "predicted_correct": float(predicted_signal[idx]),
                 "predicted_counterfactual": float(predicted_signal[idx]),
                 "correct_share": float(correct_share[idx]),
@@ -335,7 +345,8 @@ def run_delta_t(
             "delta_t_years": delta_t_years,
             "delay_years": delay_years,
             "signal_definition": "all_signal = correct_frequency + sum(misspelling_frequency)",
-            "counterfactual_definition": "CfC notebook port trained from correct series to reconstruct the notebook counterfactual trajectory",
+            "signal_scale": "correct and all_signal are min-max normalized independently to match the Fig6 workbook scale",
+            "counterfactual_definition": "CfC notebook port trained from normalized correct series to reconstruct the normalized notebook counterfactual trajectory",
             "bootstrap_draws": int(bootstrap_samples),
             "method": "fig6_notebook_port",
         },
@@ -343,7 +354,9 @@ def run_delta_t(
             "years": [int(year) for year in dataset.years],
             "actual_total": [float(v) for v in total_signal.tolist()],
             "observed_correct": [float(v) for v in correct_signal.tolist()],
-            "misspelling_total": [float(max(total_signal[idx] - correct_signal[idx], 0.0)) for idx in range(len(total_signal))],
+            "misspelling_total": [float(v) for v in raw_miss_signal.tolist()],
+            "actual_total_raw": [float(v) for v in raw_total_signal.tolist()],
+            "observed_correct_raw": [float(v) for v in raw_correct_signal.tolist()],
             "predicted_correct": [float(v) for v in predicted_signal.tolist()],
             "predicted_counterfactual": [float(v) for v in predicted_signal.tolist()],
             "actual_bootstrap": [float(v) for v in actual_bootstrap],
