@@ -359,7 +359,10 @@ export function DeltaTBiasPage() {
               <div className="algo-paper-grid">
                 <div className="algo-paper-figure">
                   <div className="algo-paper-frame">
-                    <img src="/paper/fig6-bias.png" alt="paper-public-bias" />
+                    <img
+                      src="https://raw.githubusercontent.com/bkk513/misspelling_behaviors/main/Prediction%20of%20public%20perception%20bias%28Fig6%29/figures/all%20terms_300dpi.png"
+                      alt="paper-public-bias"
+                    />
                   </div>
                   <div className="algo-paper-meta">
                     <Typography.Title level={5} className="algo-paper-title">

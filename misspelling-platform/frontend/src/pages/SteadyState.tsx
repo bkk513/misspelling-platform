@@ -364,7 +364,10 @@ export function SteadyStatePage() {
               <div className="algo-paper-grid">
                 <div className="algo-paper-figure">
                   <div className="algo-paper-frame">
-                    <img src="/paper/fig2-mrnmr.jpg" alt="paper-mrnmr" />
+                    <img
+                      src="https://raw.githubusercontent.com/bkk513/misspelling_behaviors/main/NMR%20MR%20temporal%20analysis%28Fig2%29/figures/SNR_ChatGPT.jpg"
+                      alt="paper-mrnmr"
+                    />
                   </div>
                   <div className="algo-paper-meta">
                     <Typography.Title level={5} className="algo-paper-title">

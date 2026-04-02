@@ -387,7 +387,10 @@ export function CausalNetworkPage() {
               <div className="algo-paper-grid">
                 <div className="algo-paper-figure">
                   <div className="algo-paper-frame">
-                    <img src="/paper/fig1-causal-network.png" alt="paper-causal-network" />
+                    <img
+                      src="https://raw.githubusercontent.com/bkk513/misspelling_behaviors/main/Causal%20network%20reconstruction%28Fig1%29/figures/20240814.png"
+                      alt="paper-causal-network"
+                    />
                   </div>
                   <div className="algo-paper-meta">
                     <Typography.Title level={5} className="algo-paper-title">
