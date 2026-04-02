@@ -11,7 +11,7 @@ export function LoginPage({
   onFetchCaptcha,
   onGuest
 }: {
-  onLogin: (username: string, password: string, turnstileToken: string) => Promise<void>;
+  onLogin: (username: string, password: string, turnstileToken?: string) => Promise<void>;
   onRegister: (
     username: string,
     password: string,
@@ -30,6 +30,7 @@ export function LoginPage({
   const [loginTurnstileToken, setLoginTurnstileToken] = useState("");
   const [loginTurnstileNonce, setLoginTurnstileNonce] = useState(0);
   const turnstileSiteKey = String(import.meta.env.VITE_TURNSTILE_SITE_KEY || "").trim();
+  const turnstileEnabled = !!turnstileSiteKey;
   const { theme } = useTheme();
 
   useEffect(() => {
@@ -40,7 +41,7 @@ export function LoginPage({
   }, [mode, onFetchCaptcha]);
 
   const submit = async (values: { username: string; password: string }) => {
-    if (!loginTurnstileToken) {
+    if (turnstileEnabled && !loginTurnstileToken) {
       setErr("Please complete Turnstile verification.");
       return;
     }
@@ -112,7 +113,7 @@ export function LoginPage({
                       autoComplete="current-password"
                     />
                   </Form.Item>
-                  <Form.Item label="Bot Protection" required>
+                  <Form.Item label="Bot Protection" required={turnstileEnabled}>
                     <TurnstileWidget
                       siteKey={turnstileSiteKey}
                       refreshKey={loginTurnstileNonce}
@@ -121,7 +122,7 @@ export function LoginPage({
                     />
                   </Form.Item>
                   <Space>
-                    <Button type="primary" htmlType="submit" loading={busy} disabled={!loginTurnstileToken}>
+                    <Button type="primary" htmlType="submit" loading={busy} disabled={turnstileEnabled && !loginTurnstileToken}>
                       Login
                     </Button>
                     <Button onClick={onGuest}>Continue as Guest</Button>

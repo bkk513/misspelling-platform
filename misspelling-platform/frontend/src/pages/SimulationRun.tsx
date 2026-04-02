@@ -4,6 +4,7 @@ import { useState } from "react";
 import { goToTask } from "../app/router";
 import { TurnstileWidget } from "../components/TurnstileWidget";
 import { api, describeApiError } from "../lib/api";
+import "./algorithmStudio.css";
 
 export function SimulationRunPage() {
   const [n, setN] = useState(20);
@@ -13,9 +14,10 @@ export function SimulationRunPage() {
   const [turnstileToken, setTurnstileToken] = useState("");
   const [turnstileNonce, setTurnstileNonce] = useState(0);
   const turnstileSiteKey = String(import.meta.env.VITE_TURNSTILE_SITE_KEY || "").trim();
+  const turnstileEnabled = !!turnstileSiteKey;
 
   const run = async () => {
-    if (!turnstileToken) {
+    if (turnstileEnabled && !turnstileToken) {
       message.warning("Please complete Turnstile verification first.");
       return;
     }
@@ -34,37 +36,83 @@ export function SimulationRunPage() {
   };
 
   return (
-    <Space direction="vertical" size={16} style={{ width: "100%" }}>
-      <Card title="Simulation Workbench">
-        <Space wrap align="end">
-          <div>
-            <Typography.Text>Population Size (n)</Typography.Text>
-            <InputNumber min={1} max={100000} value={n} onChange={(v) => setN(v || 20)} style={{ width: 160, display: "block" }} />
+    <div className="algo-studio-shell">
+      <Space direction="vertical" size={18} style={{ width: "100%" }}>
+        <Card bordered={false} className="algo-hero-card">
+          <div className="algo-hero-head">
+            <div>
+              <div className="algo-kicker">
+                <BarChartOutlined />
+                Simulation / Workbench
+              </div>
+              <Typography.Title level={2} className="algo-hero-title">
+                Simulation Workbench
+              </Typography.Title>
+              <Typography.Paragraph className="algo-hero-desc">
+                仿真页只做显示层升级，不改提交逻辑。这里仍然负责设置群体规模和步数、完成 Turnstile 验证，然后进入对应任务详情看结果。
+              </Typography.Paragraph>
+            </div>
+            <div className="algo-hero-side">
+              <div className="algo-hero-note">
+                <span className="algo-hero-note-label">Population</span>
+                <div className="algo-hero-note-value">{n}</div>
+                <div className="algo-hero-note-copy">仿真的 agent 数量。</div>
+              </div>
+              <div className="algo-hero-note">
+                <span className="algo-hero-note-label">Steps</span>
+                <div className="algo-hero-note-value">{steps}</div>
+                <div className="algo-hero-note-copy">仿真的迭代步数。</div>
+              </div>
+            </div>
           </div>
-          <div>
-            <Typography.Text>Steps</Typography.Text>
-            <InputNumber min={1} max={10000} value={steps} onChange={(v) => setSteps(v || 15)} style={{ width: 160, display: "block" }} />
-          </div>
-          <Button type="primary" icon={<ThunderboltOutlined />} loading={busy} onClick={() => void run()} disabled={!turnstileToken}>
-            Run Simulation
-          </Button>
-        </Space>
-        <div style={{ marginTop: 12 }}>
-          <TurnstileWidget siteKey={turnstileSiteKey} refreshKey={turnstileNonce} onTokenChange={setTurnstileToken} />
-        </div>
-        <Typography.Paragraph type="secondary" style={{ marginTop: 10 }}>
-          Latest task: {latestTaskId || "-"}
-        </Typography.Paragraph>
-      </Card>
+        </Card>
 
-      <Card title="Result Entry">
-        <Typography.Paragraph type="secondary">
-          Simulation output is managed in Task Detail / Time Series / Reports after task completion.
-        </Typography.Paragraph>
-        <Button icon={<BarChartOutlined />} onClick={() => latestTaskId && goToTask(latestTaskId)} disabled={!latestTaskId}>
-          Open Latest Task
-        </Button>
-      </Card>
-    </Space>
+        <Card
+          className="algo-section-card"
+          title={
+            <div className="algo-section-title">
+              <ThunderboltOutlined />
+              <div className="algo-section-title-copy">
+                <strong>Simulation Console</strong>
+                <span>输入参数、完成验证并提交仿真任务。</span>
+              </div>
+            </div>
+          }
+        >
+          <div className="algo-parameter-grid">
+            <div className="algo-field algo-span-3">
+              <span className="algo-field-label">Population Size (n)</span>
+              <InputNumber min={1} max={100000} value={n} onChange={(v) => setN(v || 20)} style={{ width: "100%" }} />
+            </div>
+            <div className="algo-field algo-span-3">
+              <span className="algo-field-label">Steps</span>
+              <InputNumber min={1} max={10000} value={steps} onChange={(v) => setSteps(v || 15)} style={{ width: "100%" }} />
+            </div>
+          </div>
+
+          <div className="algo-console-actions">
+            <Button
+              type="primary"
+              icon={<ThunderboltOutlined />}
+              loading={busy}
+              onClick={() => void run()}
+              disabled={turnstileEnabled && !turnstileToken}
+            >
+              Run Simulation
+            </Button>
+            <Button icon={<BarChartOutlined />} onClick={() => latestTaskId && goToTask(latestTaskId)} disabled={!latestTaskId}>
+              Open Latest Task
+            </Button>
+          </div>
+
+          <div style={{ marginTop: 16 }}>
+            <TurnstileWidget siteKey={turnstileSiteKey} refreshKey={turnstileNonce} onTokenChange={setTurnstileToken} />
+          </div>
+          <Typography.Paragraph className="algo-origin-copy" style={{ marginTop: 12 }}>
+            Latest task: {latestTaskId || "-"}
+          </Typography.Paragraph>
+        </Card>
+      </Space>
+    </div>
   );
 }

@@ -139,9 +139,8 @@ export function App() {
       });
   }, [route.scope]);
 
-  const onLogin = async (username: string, password: string, turnstileToken: string) => {
+  const onLogin = async (username: string, password: string, turnstileToken?: string) => {
     if (!username || !password) throw new Error("Username and password are required");
-    if (!turnstileToken) throw new Error("Turnstile verification is required");
     const resp = await api.login(username, password, turnstileToken);
     const role: Session["role"] = resp.user.roles.includes("admin") ? "admin" : "user";
     setSession({ username: resp.user.username, role, token: resp.access_token });
@@ -267,15 +266,15 @@ export function App() {
   if (route.key === "task-detail" && route.taskId) content = <TaskDetailPage taskId={route.taskId} />;
   if (route.key === "word-analysis") content = <WordAnalysisWorkbenchPage />;
   if (route.key === "variants") content = <VariantStudioPage />;
-  if (route.key === "projects") content = <ProjectManagerPage />;
-  if (route.key === "analytics") content = <AnalyticsCenterPage />;
+  if (route.key === "projects") content = <ProjectManagerPage sessionRole={session.role} />;
+  if (route.key === "analytics") content = <AnalyticsCenterPage sessionRole={session.role} />;
   if (route.key === "simulation") content = <SimulationRunPage />;
   if (route.key === "causal-network") content = <CausalNetworkPage />;
   if (route.key === "steady-state") content = <SteadyStatePage />;
   if (route.key === "delta-t-bias") content = <DeltaTBiasPage />;
   if (route.key === "time-series") content = <TimeSeriesExplorerPage />;
   if (route.key === "artifacts") content = <ArtifactLibraryPage />;
-  if (route.key === "reports") content = <ReportCenterPage />;
+  if (route.key === "reports") content = <ReportCenterPage sessionRole={session.role} />;
   if (route.key === "settings") content = <ResearcherSettingsPage sessionRole={session.role} username={session.username} />;
 
   const sessionRenderKey = `${session.role}:${session.username}:${session.token ? "auth" : "guest"}:${route.scope}:${route.key}:${route.scope === "app" && route.key === "task-detail" ? route.taskId || "" : ""}`;

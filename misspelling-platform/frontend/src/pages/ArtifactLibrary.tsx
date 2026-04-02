@@ -103,8 +103,49 @@ export function ArtifactLibraryPage() {
   const typeOptions = useMemo(() => Array.from(new Set(tasks.map((t) => t.task_type))), [tasks]);
 
   return (
-    <Space direction="vertical" size={16} style={{ width: "100%" }}>
-      <Card title="Artifact Library" extra={<Button icon={<ReloadOutlined />} onClick={() => taskId ? void loadArtifacts(taskId) : void loadTasks()} loading={loading}>Refresh</Button>}>
+    <div className="enterprise-page-shell">
+      <Card bordered={false} className="enterprise-hero-card">
+        <div className="enterprise-hero-grid">
+          <div>
+            <div className="enterprise-kicker">
+              <EyeOutlined />
+              Evidence / Artifact Library
+            </div>
+            <Typography.Title level={2} className="enterprise-hero-title">
+              Artifact Library
+            </Typography.Title>
+            <Typography.Paragraph className="enterprise-hero-desc">
+              这里保留原来的筛选、切换任务、打开详情和下载文件能力，只把界面改成和算法页一致的证据浏览风格，方便从任务直接落到图像和结果文件。
+            </Typography.Paragraph>
+          </div>
+          <div className="enterprise-hero-meta">
+            <div className="enterprise-meta-card">
+              <span className="enterprise-meta-label">Visible Tasks</span>
+              <div className="enterprise-meta-value">{filteredTasks.length}</div>
+              <div className="enterprise-meta-copy">当前筛选条件下可选的任务数。</div>
+            </div>
+            <div className="enterprise-meta-card">
+              <span className="enterprise-meta-label">Artifacts</span>
+              <div className="enterprise-meta-value">{payload?.items?.length || 0}</div>
+              <div className="enterprise-meta-copy">当前任务已登记的工件数量。</div>
+            </div>
+          </div>
+        </div>
+      </Card>
+
+      <Card
+        className="enterprise-section-card"
+        title={
+          <div className="enterprise-section-title">
+            <ReloadOutlined />
+            <div className="enterprise-section-copy">
+              <strong>Filters</strong>
+              <span>按词项、算法、时间和任务切换当前工件视图。</span>
+            </div>
+          </div>
+        }
+        extra={<Button icon={<ReloadOutlined />} onClick={() => taskId ? void loadArtifacts(taskId) : void loadTasks()} loading={loading}>Refresh</Button>}
+      >
         <Space wrap>
           <Select
             style={{ width: 180 }}
@@ -127,27 +168,60 @@ export function ArtifactLibraryPage() {
             options={filteredTasks.map((t) => ({ value: t.task_id, label: `${taskWord(t)} | ${t.task_id.slice(0, 12)}...` }))}
           />
           <DatePicker.RangePicker onChange={(v) => setRange(v ? [v[0]!.format("YYYY-MM-DD"), v[1]!.format("YYYY-MM-DD")] : null)} />
-          <Button icon={<EyeOutlined />} onClick={() => taskId && goToTask(taskId)} disabled={!taskId}>Open Task Detail</Button>
+          <Button icon={<EyeOutlined />} onClick={() => taskId && goToTask(taskId)} disabled={!taskId}>
+            Open Task Detail
+          </Button>
         </Space>
       </Card>
-      <Card title="Artifact Table">
+
+      <Card
+        className="enterprise-section-card"
+        title={
+          <div className="enterprise-section-title">
+            <EyeOutlined />
+            <div className="enterprise-section-copy">
+              <strong>Artifact Table</strong>
+              <span>查看工件类型、文件名、大小与下载入口。</span>
+            </div>
+          </div>
+        }
+      >
         <Table
           size="small"
-          rowKey={(r) => `${r.task_id}:${r.filename}`}
+          rowKey={(row) => `${row.task_id}:${row.filename}`}
           dataSource={payload?.items ?? []}
           pagination={{ pageSize: 8 }}
           columns={[
-            { title: "Kind", dataIndex: "kind", render: (v: string) => <Tag>{v}</Tag> },
+            { title: "Kind", dataIndex: "kind", render: (value: string) => <Tag>{value}</Tag> },
             { title: "Filename", dataIndex: "filename" },
             { title: "Bytes", render: (_: unknown, row: { meta_json?: unknown }) => parseMeta(row.meta_json).bytes ?? "-" },
             { title: "Created", dataIndex: "created_at" },
-            { title: "Action", render: (_: unknown, row: { task_id: string; filename: string }) => <Button size="small" href={api.fileUrl(row.task_id, row.filename)} target="_blank">Download</Button> }
+            {
+              title: "Action",
+              render: (_: unknown, row: { task_id: string; filename: string }) => (
+                <Button size="small" href={api.fileUrl(row.task_id, row.filename)} target="_blank">
+                  Download
+                </Button>
+              ),
+            },
           ]}
         />
       </Card>
-      <Card title="Preview">
+
+      <Card
+        className="enterprise-section-card"
+        title={
+          <div className="enterprise-section-title">
+            <EyeOutlined />
+            <div className="enterprise-section-copy">
+              <strong>Preview</strong>
+              <span>优先展示当前任务的 `preview.png`。</span>
+            </div>
+          </div>
+        }
+      >
         {previewPng ? <Image src={previewPng} alt="preview.png" /> : <Typography.Text type="secondary">No preview.png for selected task.</Typography.Text>}
       </Card>
-    </Space>
+    </div>
   );
 }

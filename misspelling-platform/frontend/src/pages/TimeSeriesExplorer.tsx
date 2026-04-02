@@ -110,8 +110,49 @@ export function TimeSeriesExplorerPage() {
   );
 
   return (
-    <Space direction="vertical" size={16} style={{ width: "100%" }}>
-      <Card title="Time Series Explorer" extra={<Button icon={<ReloadOutlined />} onClick={() => void loadAll()} loading={loading}>Refresh</Button>}>
+    <div className="enterprise-page-shell">
+      <Card bordered={false} className="enterprise-hero-card">
+        <div className="enterprise-hero-grid">
+          <div>
+            <div className="enterprise-kicker">
+              <ReloadOutlined />
+              Evidence / Time Series
+            </div>
+            <Typography.Title level={2} className="enterprise-hero-title">
+              Time Series Explorer
+            </Typography.Title>
+            <Typography.Paragraph className="enterprise-hero-desc">
+              时序浏览页现在统一到算法模块的控制台风格。原来的任务过滤、图表刷新、详情跳转和批量删除都保留，只把信息分层和版式重新整理。
+            </Typography.Paragraph>
+          </div>
+          <div className="enterprise-hero-meta">
+            <div className="enterprise-meta-card">
+              <span className="enterprise-meta-label">Visible Tasks</span>
+              <div className="enterprise-meta-value">{filteredTasks.length}</div>
+              <div className="enterprise-meta-copy">当前筛选条件下可选的任务数。</div>
+            </div>
+            <div className="enterprise-meta-card">
+              <span className="enterprise-meta-label">Series Rows</span>
+              <div className="enterprise-meta-value">{filteredSeriesRows.length}</div>
+              <div className="enterprise-meta-copy">当前库存中可见的时序行数。</div>
+            </div>
+          </div>
+        </div>
+      </Card>
+
+      <Card
+        className="enterprise-section-card"
+        title={
+          <div className="enterprise-section-title">
+            <ReloadOutlined />
+            <div className="enterprise-section-copy">
+              <strong>Filters</strong>
+              <span>按词项、任务与时间范围切换当前时序视图。</span>
+            </div>
+          </div>
+        }
+        extra={<Button icon={<ReloadOutlined />} onClick={() => void loadAll()} loading={loading}>Refresh</Button>}
+      >
         <Space wrap>
           <Select
             style={{ width: 220 }}
@@ -127,44 +168,61 @@ export function TimeSeriesExplorerPage() {
             onChange={setTaskId}
             options={filteredTasks.map((row) => ({
               value: row.task_id,
-              label: `${parseTaskWord(row)} | ${row.task_id.slice(0, 12)}...`
+              label: `${parseTaskWord(row)} | ${row.task_id.slice(0, 12)}...`,
             }))}
           />
           <DatePicker.RangePicker onChange={(v) => setRange(v ? [v[0]!.format("YYYY-MM-DD"), v[1]!.format("YYYY-MM-DD")] : null)} />
-          <Button onClick={() => taskId && goToTask(taskId)} disabled={!taskId}>Open Task Detail</Button>
-          <Button onClick={() => taskId && void loadChart(taskId)} disabled={!taskId}>Refresh Chart</Button>
+          <Button onClick={() => taskId && goToTask(taskId)} disabled={!taskId}>
+            Open Task Detail
+          </Button>
+          <Button onClick={() => taskId && void loadChart(taskId)} disabled={!taskId}>
+            Refresh Chart
+          </Button>
         </Space>
-        {meta ? (
-          <Typography.Paragraph type="secondary" style={{ marginTop: 10 }}>
-            source={meta.source} | word={meta.word} | granularity={meta.granularity} | variants={meta.variants.length} |
-            points={meta.point_count}
-          </Typography.Paragraph>
-        ) : (
-          <Typography.Paragraph type="secondary" style={{ marginTop: 10 }}>
-            No time-series data loaded yet.
-          </Typography.Paragraph>
-        )}
+        <Typography.Paragraph type="secondary" style={{ marginTop: 12, marginBottom: 0 }}>
+          {meta
+            ? `source=${meta.source} | word=${meta.word} | granularity=${meta.granularity} | variants=${meta.variants.length} | points=${meta.point_count}`
+            : "No time-series data loaded yet."}
+        </Typography.Paragraph>
       </Card>
 
-      <Card title="Series Chart">
+      <Card
+        className="enterprise-section-card"
+        title={
+          <div className="enterprise-section-title">
+            <ReloadOutlined />
+            <div className="enterprise-section-copy">
+              <strong>Series Chart</strong>
+              <span>展示当前任务下的全部变体时序曲线。</span>
+            </div>
+          </div>
+        }
+      >
         {Object.keys(seriesMap).length > 0 ? (
           <TimeSeriesChart
             series={Object.entries(seriesMap).map(([variant, points]) => ({
               name: variant,
-              data: points.map((p) => ({ time: p.time, value: p.value }))
+              data: points.map((point) => ({ time: point.time, value: point.value })),
             }))}
             title={meta ? `Time Series: ${meta.word}` : "Time Series"}
             height={500}
           />
         ) : (
-          <Typography.Text type="secondary">
-            No time series data available. Please select a task.
-          </Typography.Text>
+          <Typography.Text type="secondary">No time series data available. Please select a task.</Typography.Text>
         )}
       </Card>
 
       <Card
-        title="Series Inventory"
+        className="enterprise-section-card"
+        title={
+          <div className="enterprise-section-title">
+            <DeleteOutlined />
+            <div className="enterprise-section-copy">
+              <strong>Series Inventory</strong>
+              <span>查看库存明细，并支持批量删除可访问的时序记录。</span>
+            </div>
+          </div>
+        }
         extra={
           <Space>
             <Typography.Text type="secondary">Selected: {selectedSeries.length}</Typography.Text>
@@ -199,7 +257,7 @@ export function TimeSeriesExplorerPage() {
           dataSource={filteredSeriesRows}
           rowSelection={{
             selectedRowKeys: selectedSeries,
-            onChange: (keys) => setSelectedSeries(keys.map((k) => Number(k)).filter((v) => Number.isFinite(v)))
+            onChange: (keys) => setSelectedSeries(keys.map((key) => Number(key)).filter((value) => Number.isFinite(value))),
           }}
           pagination={{ pageSize: 10 }}
           columns={[
@@ -207,21 +265,21 @@ export function TimeSeriesExplorerPage() {
             {
               title: "Task",
               dataIndex: "task_id",
-              render: (v: string) => (v ? <Typography.Text code>{v.slice(0, 12)}...</Typography.Text> : "-")
+              render: (value: string) => (value ? <Typography.Text code>{value.slice(0, 12)}...</Typography.Text> : "-"),
             },
             { title: "Word", dataIndex: "canonical" },
-            { title: "Algorithm", dataIndex: "task_type", render: (v: string) => v || "-" },
-            { title: "Variant", dataIndex: "variant", render: (v: string) => <Tag>{v}</Tag> },
+            { title: "Algorithm", dataIndex: "task_type", render: (value: string) => value || "-" },
+            { title: "Variant", dataIndex: "variant", render: (value: string) => <Tag>{value}</Tag> },
             { title: "Source", dataIndex: "source_name" },
             { title: "Points", dataIndex: "point_count" },
             {
               title: "Window",
               render: (_: unknown, row: { window_start?: string; window_end?: string }) =>
-                `${row.window_start || "-"} ~ ${row.window_end || "-"}`
-            }
+                `${row.window_start || "-"} ~ ${row.window_end || "-"}`,
+            },
           ]}
         />
       </Card>
-    </Space>
+    </div>
   );
 }

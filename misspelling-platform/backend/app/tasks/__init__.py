@@ -117,6 +117,7 @@ def _algo_params(payload: dict[str, Any] | Any) -> dict[str, Any]:
         "end_year": _to_int(data.get("end_year"), 2019),
         "corpus": str(data.get("corpus") or "eng_2019"),
         "smoothing": _to_int(data.get("smoothing"), 3),
+        "origin_year": _to_int(data.get("origin_year"), 0) or None,
         "tau_max": _to_int(data.get("tau_max"), 8),
         "window_size": _to_int(data.get("window_size"), 0),
         "window_step": _to_int(data.get("window_step"), 0),
@@ -159,13 +160,14 @@ def _build_algo_provenance(
     mode: str,
     params: dict[str, Any],
     fallback_reason: str | None = None,
+    impl: str | None = None,
 ) -> dict[str, Any]:
     return {
         "task_id": task_id,
         "task_type": task_type,
         "source_repo": ALGO_SOURCE_REPO,
         "source_repo_commit": ALGO_SOURCE_COMMIT,
-        "impl": ALGO_IMPL,
+        "impl": str(impl or ALGO_IMPL),
         "dataset_source": dataset_source,
         "mode": mode,
         "fallback_reason": fallback_reason,
@@ -216,7 +218,7 @@ def _try_save_algo_preview(
         elif task_type == "mrnmr-steady":
             write_mrnmr_preview_png(algo_payload.get("metrics") or [], algo_payload.get("summary") or {}, out_png)
         elif task_type == "deltaT-null":
-            write_delta_t_preview_png(algo_payload.get("events") or [], algo_payload.get("delta_t_stats") or {}, out_png)
+            write_delta_t_preview_png(algo_payload, out_png)
         else:
             return None, None
         register_artifact(task_id, "png", "preview.png", out_png, "image/png")
@@ -302,6 +304,7 @@ def _execute_algo_task(
                 mode=mode,
                 params=params,
                 fallback_reason=fallback_reason,
+                impl=str(algo_payload.get("impl") or ALGO_IMPL),
             ),
             "artifacts": artifacts,
             "warnings": warnings,
@@ -461,12 +464,22 @@ def mrnmr_steady(self, payload: dict[str, Any]):
             params=params,
             runner=lambda dataset, cfg: run_mrnmr(
                 dataset,
+                origin_year=cfg.get("origin_year"),
                 tipping_index=int(cfg["tipping_index"]),
                 kde_bandwidth=str(cfg["kde_bandwidth"]),
                 poly_degree=int(cfg["poly_degree"]),
             ),
             rows_builder=to_metric_rows,
-            fieldnames=["year", "misspelling", "correct", "MR", "NMR", "density"],
+            fieldnames=[
+                "year",
+                "misspelling",
+                "correct",
+                "signal_total",
+                "noise_misspelling",
+                "MR",
+                "NMR",
+                "density",
+            ],
             preview_key="metrics_preview",
         )
     except Exception as exc:
@@ -488,12 +501,27 @@ def deltat_null(self, payload: dict[str, Any]):
             params=params,
             runner=lambda dataset, cfg: run_delta_t(
                 dataset,
+                origin_year=cfg.get("origin_year"),
                 bootstrap_samples=int(cfg["bootstrap_samples"]),
                 event_threshold_quantile=float(cfg["event_threshold_quantile"]),
                 random_seed=int(cfg["random_seed"]),
             ),
             rows_builder=to_event_rows,
-            fieldnames=["year", "index"],
+            fieldnames=[
+                "year",
+                "correct",
+                "misspelling_total",
+                "actual_total",
+                "predicted_correct",
+                "correct_share",
+                "actual_bootstrap",
+                "predicted_bootstrap",
+                "actual_focus",
+                "predicted_focus",
+                "actual_mutation",
+                "predicted_mutation",
+                "event_threshold",
+            ],
             preview_key="events_preview",
         )
     except Exception as exc:

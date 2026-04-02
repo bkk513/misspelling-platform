@@ -1,14 +1,11 @@
 import {
-  AuditOutlined,
   DashboardOutlined,
-  DatabaseOutlined,
   SafetyCertificateOutlined,
   SettingOutlined,
-  TeamOutlined,
   BulbOutlined,
   BulbFilled
 } from "@ant-design/icons";
-import { Alert, Badge, Breadcrumb, Button, Layout, Menu, Space, Tag, Typography, Tooltip } from "antd";
+import { Badge, Breadcrumb, Button, Layout, Menu, Space, Tag, Typography, Tooltip } from "antd";
 import type { ReactNode } from "react";
 import type { MenuProps } from "antd";
 import { useTheme } from "../contexts/ThemeContext";
@@ -59,7 +56,12 @@ export function AdminLayout({
   return (
     <Layout className="enterprise-layout admin-layout">
       <Sider width={250} className="enterprise-sider" theme="dark">
-        <div className="enterprise-logo admin-logo">Admin Console</div>
+        <div className="enterprise-logo admin-logo">
+          <div className="enterprise-logo-inner">
+            <span>Misspelling Research OS</span>
+            <small>Admin Console</small>
+          </div>
+        </div>
         <Menu
           theme="dark"
           mode="inline"
@@ -71,19 +73,18 @@ export function AdminLayout({
       </Sider>
       <Layout>
         <Header className="enterprise-header">
-          <Space size="middle">
-            <Tag color="volcano" icon={<SafetyCertificateOutlined />}>
-              Privileged Zone
-            </Tag>
-            <Alert
-              type="warning"
-              showIcon
-              banner
-              message="Admin operations are audited. Use production credentials only in secure environments."
-            />
-          </Space>
-          <Space size="middle">
-            <Badge status="processing" text={`role:${role}`} />
+          <div className="enterprise-header-left">
+            <Space size={8} wrap>
+              <Tag color="volcano" icon={<SafetyCertificateOutlined />}>
+                Privileged Zone
+              </Tag>
+              <Typography.Text type="secondary">
+                Admin operations are audited.
+              </Typography.Text>
+            </Space>
+          </div>
+          <div className="enterprise-header-right">
+            <Badge status="processing" text={`role: ${role}`} />
             <Typography.Text>{username}</Typography.Text>
             <Tooltip title={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}>
               <Button
@@ -97,7 +98,7 @@ export function AdminLayout({
             <Button size="small" onClick={onLogout}>
               Logout
             </Button>
-          </Space>
+          </div>
         </Header>
         <Content className="enterprise-content">
           <Breadcrumb items={breadcrumbs.map((b) => ({ title: b }))} />

@@ -11,7 +11,7 @@ from ..services.auth_service import (
     validate_password_strength,
 )
 from ..db.users_repo import update_user_password
-from ..services.turnstile_service import verify_turnstile_token
+from ..services.turnstile_service import is_turnstile_configured, verify_turnstile_token
 from .auth_deps import get_current_user
 
 router = APIRouter()
@@ -43,16 +43,17 @@ def captcha():
 
 @router.post("/api/auth/login")
 def login(body: LoginBody, request: Request, turnstile_token: str | None = Header(default=None, alias="X-Turnstile-Token")):
-    client_ip = request.client.host if request.client else None
-    ok, errors = verify_turnstile_token(turnstile_token or "", remote_ip=client_ip)
-    if not ok:
-        insert_audit_log(
-            action="AUTH_LOGIN_FAILED",
-            target_type="user",
-            target_id=body.username,
-            meta={"reason": "turnstile_invalid", "turnstile_errors": errors},
-        )
-        raise HTTPException(status_code=400, detail="Turnstile verification failed")
+    if is_turnstile_configured():
+        client_ip = request.client.host if request.client else None
+        ok, errors = verify_turnstile_token(turnstile_token or "", remote_ip=client_ip)
+        if not ok:
+            insert_audit_log(
+                action="AUTH_LOGIN_FAILED",
+                target_type="user",
+                target_id=body.username,
+                meta={"reason": "turnstile_invalid", "turnstile_errors": errors},
+            )
+            raise HTTPException(status_code=400, detail="Turnstile verification failed")
     user = authenticate_user(body.username, body.password)
     if not user:
         insert_audit_log(action="AUTH_LOGIN_FAILED", target_type="user", target_id=body.username, meta={"reason": "invalid_credentials"})

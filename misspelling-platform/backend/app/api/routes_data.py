@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import FileResponse
 
 from .auth_deps import get_optional_user
 from ..services.gbnc_data_service import (
@@ -6,6 +7,7 @@ from ..services.gbnc_data_service import (
     get_gbnc_series_points_payload,
     pull_gbnc_series_payload,
 )
+from ..services.artifact_service import find_delta_t_source_figure
 
 router = APIRouter()
 
@@ -40,3 +42,11 @@ def gbnc_series(series_id: int, current_user=Depends(get_optional_user)):
 @router.get("/api/data/gbnc/series/{series_id}/points")
 def gbnc_series_points(series_id: int, variant: str | None = None, current_user=Depends(get_optional_user)):
     return get_gbnc_series_points_payload(series_id=series_id, variant=variant, current_user=current_user)
+
+
+@router.get("/api/paper-assets/deltat/{word}")
+def delta_t_paper_asset(word: str):
+    hit = find_delta_t_source_figure(word)
+    if hit is None or not hit.exists():
+        raise HTTPException(status_code=404, detail="paper asset not found")
+    return FileResponse(str(hit), filename=hit.name)

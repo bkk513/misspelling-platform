@@ -22,7 +22,7 @@ from ..services.task_service import (
 )
 from ..services.artifact_service import list_task_artifacts_payload
 from ..services.task_event_service import list_task_events_payload
-from ..services.turnstile_service import verify_turnstile_token
+from ..services.turnstile_service import is_turnstile_configured, verify_turnstile_token
 from ..tasks import deltat_null, demo_analysis, mrnmr_steady, pcmci_causal, simulation_run
 
 router = APIRouter()
@@ -38,6 +38,8 @@ def _enforce_turnstile(
     task_type: str,
     owner_user_id: int | None = None,
 ):
+    if not is_turnstile_configured():
+        return
     client_ip = request.client.host if request.client else None
     ok, errors = verify_turnstile_token(turnstile_token or "", remote_ip=client_ip)
     if ok:
@@ -250,6 +252,7 @@ def create_mrnmr_task(
     smoothing: int = 3,
     corpus: str = "eng_2019",
     variants: str | None = None,
+    origin_year: int | None = None,
     tipping_index: int = 0,
     kde_bandwidth: str = "scott",
     poly_degree: int = 20,
@@ -267,6 +270,7 @@ def create_mrnmr_task(
         "smoothing": int(smoothing),
         "corpus": corpus,
         "variants": selected_variants,
+        "origin_year": int(origin_year) if origin_year not in (None, "") else None,
         "tipping_index": int(tipping_index),
         "kde_bandwidth": kde_bandwidth,
         "poly_degree": int(poly_degree),
@@ -291,6 +295,7 @@ def create_delta_t_task(
     smoothing: int = 3,
     corpus: str = "eng_2019",
     variants: str | None = None,
+    origin_year: int | None = None,
     bootstrap_samples: int = 500,
     event_threshold_quantile: float = 0.9,
     random_seed: int = 42,
@@ -308,6 +313,7 @@ def create_delta_t_task(
         "smoothing": int(smoothing),
         "corpus": corpus,
         "variants": selected_variants,
+        "origin_year": int(origin_year) if origin_year not in (None, "") else None,
         "bootstrap_samples": int(bootstrap_samples),
         "event_threshold_quantile": float(event_threshold_quantile),
         "random_seed": int(random_seed),

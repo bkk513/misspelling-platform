@@ -9,6 +9,7 @@ from ..services.lexicon_service import (
     list_variant_cache_payload,
     list_terms_payload,
     save_variant_cache_payload,
+    suggest_origin_year_payload,
     suggest_and_cache_variants,
 )
 
@@ -28,13 +29,50 @@ class SaveVariantCacheBody(BaseModel):
 
 
 @router.post("/api/lexicon/variants/suggest")
-def suggest_variants(word: str, k: int = 12, current_user=Depends(get_optional_user)):
-    return suggest_and_cache_variants(word=word, k=max(1, min(int(k), 50)), current_user=current_user)
+def suggest_variants(
+    word: str,
+    k: int = 12,
+    persist: bool = True,
+    prefer_cache: bool = True,
+    current_user=Depends(get_optional_user),
+):
+    return suggest_and_cache_variants(
+        word=word,
+        k=max(1, min(int(k), 50)),
+        current_user=current_user,
+        persist=bool(persist),
+        prefer_cache=bool(prefer_cache),
+    )
 
 
 @router.post("/api/lexicon/term/enrich")
 def enrich_term(word: str, current_user=Depends(get_optional_user)):
     return enrich_term_payload(word=word, current_user=current_user)
+
+
+@router.get("/api/lexicon/origin-year/suggest")
+@router.get("/api/lexicon/origin_year/suggest")
+@router.post("/api/lexicon/origin-year/suggest")
+@router.post("/api/lexicon/origin_year/suggest")
+def suggest_origin_year(
+    word: str,
+    variants: str | None = None,
+    start_year: int = 1500,
+    end_year: int = 2019,
+    corpus: str = "eng_2019",
+    smoothing: int = 0,
+    current_user=Depends(get_optional_user),
+):
+    selected_variants = [v.strip().lower() for v in str(variants or "").split(",") if v.strip()]
+    return suggest_origin_year_payload(
+        word=word,
+        variants=selected_variants,
+        start_year=start_year,
+        end_year=end_year,
+        corpus=corpus,
+        smoothing=smoothing,
+        current_user=current_user,
+    )
 
 
 @router.get("/api/lexicon/terms")

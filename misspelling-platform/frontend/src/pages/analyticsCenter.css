@@ -1,0 +1,158 @@
+.analytics-center-shell {
+  width: 100%;
+}
+
+.analytics-center-hero {
+  border-radius: 18px;
+  border: 1px solid #dce8f9;
+  background:
+    radial-gradient(130% 110% at 0% 0%, rgba(22, 119, 255, 0.14) 0%, rgba(22, 119, 255, 0) 50%),
+    radial-gradient(140% 120% at 100% 20%, rgba(19, 194, 194, 0.12) 0%, rgba(19, 194, 194, 0) 54%),
+    linear-gradient(145deg, #ffffff 0%, #f8fbff 54%, #f4fffd 100%);
+  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.06);
+}
+
+.ac-metric-card {
+  border-radius: 12px;
+  border: 1px solid #dce9fb;
+  background: rgba(255, 255, 255, 0.85);
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.04);
+}
+
+.ac-card {
+  border-radius: 14px;
+  border: 1px solid #e7ecf4;
+  box-shadow: var(--shadow-sm);
+}
+
+.ac-bar-list {
+  display: grid;
+  gap: 12px;
+}
+
+.ac-bar-row {
+  display: grid;
+  gap: 6px;
+}
+
+.ac-bar-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: #1d2939;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.ac-bar-track {
+  width: 100%;
+  height: 10px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e4ecf7;
+}
+
+.ac-bar-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #1164d6 0%, #52a4ff 100%);
+}
+
+.ac-inline-copy {
+  color: #60758f;
+  font-size: 12px;
+}
+
+.ac-scatter-shell {
+  overflow: hidden;
+  border-radius: 18px;
+  border: 1px solid #e4ebf6;
+  background: linear-gradient(180deg, #fcfdff 0%, #f5f9ff 100%);
+}
+
+.ac-scatter-svg {
+  display: block;
+  width: 100%;
+  min-height: 320px;
+}
+
+.ac-subcard {
+  border-radius: 12px;
+  border: 1px solid #edf2f8;
+  background: linear-gradient(180deg, #fcfdff 0%, #f7faff 100%);
+}
+
+.ac-card .ant-card-head,
+.ac-subcard .ant-card-head {
+  border-bottom-color: #edf2f8;
+}
+
+.ac-card .ant-table-thead > tr > th,
+.ac-subcard .ant-table-thead > tr > th {
+  background: #f7f9fd;
+  font-weight: 600;
+}
+
+.ac-card .ant-table-tbody > tr:hover > td,
+.ac-subcard .ant-table-tbody > tr:hover > td {
+  background: #f3f8ff;
+}
+
+.ac-tabs .ant-tabs-nav {
+  margin-bottom: 10px;
+}
+
+.ac-tabs .ant-tabs-tab {
+  border-radius: 999px;
+  padding-inline: 16px;
+}
+
+@media (max-width: 1200px) {
+  .analytics-center-hero {
+    border-radius: 14px;
+  }
+}
+
+[data-theme="dark"] .analytics-center-hero {
+  border-color: rgba(255, 255, 255, 0.12);
+  background:
+    radial-gradient(130% 120% at 4% 0%, rgba(24, 144, 255, 0.2) 0%, rgba(24, 144, 255, 0) 52%),
+    radial-gradient(130% 120% at 94% 8%, rgba(54, 207, 201, 0.2) 0%, rgba(54, 207, 201, 0) 52%),
+    linear-gradient(145deg, #1c1f24 0%, #181c21 56%, #162022 100%);
+}
+
+[data-theme="dark"] .ac-card,
+[data-theme="dark"] .ac-subcard,
+[data-theme="dark"] .ac-metric-card {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+[data-theme="dark"] .ac-scatter-shell {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+[data-theme="dark"] .ac-bar-track {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+[data-theme="dark"] .ac-bar-head,
+[data-theme="dark"] .ac-inline-copy {
+  color: rgba(255, 255, 255, 0.72);
+}
+
+[data-theme="dark"] .ac-card .ant-card-head,
+[data-theme="dark"] .ac-subcard .ant-card-head {
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+
+[data-theme="dark"] .ac-card .ant-table-thead > tr > th,
+[data-theme="dark"] .ac-subcard .ant-table-thead > tr > th {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+[data-theme="dark"] .ac-card .ant-table-tbody > tr:hover > td,
+[data-theme="dark"] .ac-subcard .ant-table-tbody > tr:hover > td {
+  background: rgba(24, 144, 255, 0.1);
+}

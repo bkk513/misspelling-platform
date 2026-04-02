@@ -3,6 +3,7 @@ import { Button, Card, DatePicker, Select, Space, Table, Tag, Typography, messag
 import dayjs from "dayjs";
 import { useEffect, useMemo, useState } from "react";
 import { api, describeApiError, type ProjectItem, type ReportItem, type TaskListItem } from "../lib/api";
+import "./algorithmStudio.css";
 
 function taskWord(row: TaskListItem) {
   const params = row.params_json;
@@ -13,7 +14,7 @@ function taskWord(row: TaskListItem) {
   return "-";
 }
 
-export function ReportCenterPage() {
+export function ReportCenterPage({ sessionRole }: { sessionRole: "guest" | "user" | "admin" }) {
   const [tasks, setTasks] = useState<TaskListItem[]>([]);
   const [projects, setProjects] = useState<ProjectItem[]>([]);
   const [reports, setReports] = useState<ReportItem[]>([]);
@@ -34,10 +35,10 @@ export function ReportCenterPage() {
   const refresh = async () => {
     setLoading(true);
     try {
-      const [taskResp, projectResp, reportResp] = await Promise.all([
+      const [taskResp, reportResp, projectResp] = await Promise.all([
         api.listTasks(200),
-        api.listProjects(120),
-        api.listReports(300)
+        api.listReports(300),
+        sessionRole === "guest" ? Promise.resolve({ items: [] as ProjectItem[] }) : api.listProjects(120)
       ]);
       setTasks(taskResp.items ?? []);
       setProjects(projectResp.items ?? []);
@@ -52,7 +53,7 @@ export function ReportCenterPage() {
 
   useEffect(() => {
     void refresh();
-  }, []);
+  }, [sessionRole]);
 
   useEffect(() => {
     if (!selectedProjectId) {
@@ -131,6 +132,14 @@ export function ReportCenterPage() {
           Report exports are persisted in DB (`report_exports`) and stored as HTML artifacts under the existing output path.
         </Typography.Paragraph>
 
+        {sessionRole === "guest" ? (
+          <Card bordered={false} className="algo-guard-card" bodyStyle={{ marginBottom: 16 }}>
+            <Typography.Paragraph style={{ marginBottom: 0 }}>
+              Guest 只保留任务级报告导出；项目级报告依赖 project workspace，因此登录后才开放。
+            </Typography.Paragraph>
+          </Card>
+        ) : null}
+
         <Typography.Text strong>Task Report Filters</Typography.Text>
         <Space wrap style={{ marginTop: 8, marginBottom: 12 }}>
           <Select
@@ -200,7 +209,7 @@ export function ReportCenterPage() {
           <DatePicker.RangePicker onChange={(v) => setProjectTaskRange(v ? [v[0]!.format("YYYY-MM-DD"), v[1]!.format("YYYY-MM-DD")] : null)} />
           <Button
             icon={<FileTextOutlined />}
-            disabled={!selectedProjectId}
+            disabled={!selectedProjectId || sessionRole === "guest"}
             loading={busy === "project"}
             onClick={async () => {
               if (!selectedProjectId) return;

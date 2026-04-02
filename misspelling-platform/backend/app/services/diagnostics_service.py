@@ -8,6 +8,7 @@ import redis
 from ..celery_app import celery_app
 from ..db.audit_logs_repo import list_recent_audit_logs
 from ..db.core import check_db, get_engine
+from ..providers.llm_bailian import llm_config_fingerprint
 
 
 def _now_ms() -> int:
@@ -74,28 +75,13 @@ def _env_bool(name: str) -> bool:
 
 
 def _llm_probe() -> dict[str, Any]:
-    dashscope_key = (os.getenv("DASHSCOPE_API_KEY") or "").strip()
-    bailian_key = (os.getenv("BAILIAN_API_KEY") or "").strip()
-    key_present = bool(dashscope_key or bailian_key)
-    key_source = "DASHSCOPE_API_KEY" if dashscope_key else ("BAILIAN_API_KEY" if bailian_key else "none")
-    key_length = len(dashscope_key or bailian_key)
-    base_url = (os.getenv("BAILIAN_BASE_URL") or "https://dashscope.aliyuncs.com/compatible-mode/v1").strip()
-    model = (os.getenv("BAILIAN_MODEL") or "qwen-plus").strip()
-    timeout = int(os.getenv("BAILIAN_TIMEOUT_SECONDS", "8") or "8")
-    proxy_set = _env_bool("HTTPS_PROXY") or _env_bool("HTTP_PROXY")
+    fingerprint = llm_config_fingerprint()
+    key_present = bool(fingerprint["key_present"])
     return {
         "ok": key_present,
         "latency_ms": None,
         "last_error": None if key_present else "key_missing",
-        "config_fingerprint": {
-            "key_present": key_present,
-            "key_source": key_source,
-            "key_length": key_length,
-            "model": model,
-            "base_url": base_url,
-            "timeout_seconds": timeout,
-            "proxy_configured": proxy_set,
-        },
+        "config_fingerprint": fingerprint,
     }
 
 

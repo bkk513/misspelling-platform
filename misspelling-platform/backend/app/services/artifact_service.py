@@ -1,5 +1,6 @@
 import json
 import csv
+import os
 from pathlib import Path
 from typing import Any
 
@@ -7,6 +8,7 @@ from ..db.task_artifacts_repo import list_artifacts, upsert_artifact
 from ..db.tasks_repo import get_task_owner
 
 OUTPUT_ROOT = Path("/app/outputs")
+DELTA_T_SOURCE_REL = Path("Prediction of public perception bias(Fig6)") / "1.CFC_prediction" / "figures"
 
 
 def build_output_dir(task_id: str) -> Path:
@@ -17,6 +19,59 @@ def build_output_dir(task_id: str) -> Path:
 
 def build_output_file(task_id: str, filename: str) -> Path:
     return OUTPUT_ROOT / task_id / filename
+
+
+def _candidate_source_roots() -> list[Path]:
+    env_root = str(os.getenv("MISSPELLING_BEHAVIORS_REPO") or "").strip()
+    candidates = [
+        Path(env_root) if env_root else None,
+        Path("/srv/apps/misspelling_behaviors-main"),
+        Path("/app/misspelling_behaviors-main"),
+    ]
+    out: list[Path] = []
+    seen: set[str] = set()
+    for item in candidates:
+        if item is None:
+            continue
+        key = str(item)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(item)
+    return out
+
+
+def find_delta_t_source_figure(word: str) -> Path | None:
+    normalized = str(word or "").strip().lower()
+    if not normalized:
+        return None
+    candidate_names = []
+    for base in {
+        normalized,
+        normalized.replace(" ", "_"),
+        normalized.replace("-", "_"),
+    }:
+        clean = str(base or "").strip("_")
+        if not clean:
+            continue
+        candidate_names.extend(
+            [
+                f"{clean}_300dpi.jpg",
+                f"{clean}_300dpi.jpeg",
+                f"{clean}_300dpi.png",
+            ]
+        )
+
+    for root in _candidate_source_roots():
+        figure_dir = root / DELTA_T_SOURCE_REL
+        if not figure_dir.exists():
+            continue
+        by_name = {path.name.lower(): path for path in figure_dir.iterdir() if path.is_file()}
+        for name in candidate_names:
+            hit = by_name.get(name.lower())
+            if hit is not None:
+                return hit
+    return None
 
 
 def write_simulation_csv(series: list[dict], out_csv: Path) -> None:
@@ -234,30 +289,75 @@ def write_mrnmr_preview_png(metrics: list[dict], summary: dict, out_png: Path) -
     plt.close(fig)
 
 
-def write_delta_t_preview_png(events: list[dict], delta_stats: dict, out_png: Path) -> None:
+def write_delta_t_preview_png(payload: dict[str, Any], out_png: Path) -> None:
     import matplotlib
 
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
+    from matplotlib.font_manager import FontProperties
+    from matplotlib.patches import Rectangle
 
     plt.rcParams["font.family"] = "Times New Roman"
-    fig, ax = plt.subplots(figsize=(10.2, 4.8))
-    years = [int(row.get("year") or 0) for row in events or []]
-    indices = [float(row.get("index") or 0.0) for row in events or []]
+    fig, ax = plt.subplots(figsize=(5.6, 3.4))
+    series = dict(payload.get("series") or {})
+    summary = dict(payload.get("summary") or {})
+    word = str(payload.get("word") or "DeltaT Bias").strip() or "DeltaT Bias"
+    years = [int(v) for v in (series.get("years") or [])]
+    actual_total = [float(v) for v in (series.get("actual_total") or [])]
+    predicted_curve = [float(v) for v in (series.get("predicted_counterfactual") or series.get("predicted_correct") or [])]
+    origin_year = summary.get("origin_year")
+    base_year = int(summary.get("base_year") or (years[0] if years else 0) or 0)
+    actual_mutation_year = summary.get("actual_mutation_year")
+    predicted_mutation_year = summary.get("predicted_mutation_year")
+    delta_t_years = summary.get("delta_t_years")
     if not years:
-        ax.text(0.5, 0.5, "No detected events", ha="center", va="center", fontsize=11)
+        ax.text(0.5, 0.5, "No DeltaT series", ha="center", va="center", fontsize=11)
         ax.set_axis_off()
     else:
-        ax.plot(years, indices, color="#1d4ed8", linewidth=1.8, marker="o", markersize=3.8, label="Observed events")
-        ax.fill_between(years, indices, [0.0] * len(indices), color="#1d4ed8", alpha=0.12)
-        mean_value = delta_stats.get("mean")
-        if isinstance(mean_value, (int, float)):
-            ax.axhline(float(mean_value), color="#dc2626", linestyle="--", linewidth=1.2, label="Δt mean")
+        color = "#148758"
+        x = list(range(len(years)))
+        tipping_index = max(0, int(origin_year or years[0]) - base_year)
+        actual_index = max(0, int(actual_mutation_year or years[0]) - base_year)
+        predicted_index = max(0, int(predicted_mutation_year or years[0]) - base_year)
+        ax.grid(False)
+        ax.fill_between(x, actual_total, [-0.01] * len(actual_total), facecolor=color, alpha=0.13)
+        ax.plot(x, predicted_curve, linewidth=2.0, color=color)
+        ymin = min(-0.01, min(actual_total + predicted_curve))
+        ymax = max(max(actual_total), max(predicted_curve), 0.02)
+        if isinstance(actual_mutation_year, (int, float)) and isinstance(predicted_mutation_year, (int, float)):
+            left = float(min(actual_index, predicted_index))
+            width = abs(float(predicted_index) - float(actual_index))
+            rect = Rectangle((left, ymin), width, ymax - ymin, facecolor="black", edgecolor="none", alpha=0.08)
+            ax.add_patch(rect)
+        ax.vlines(float(actual_index), ymin, ymax, color="black", linestyle="--", linewidth=0.6, alpha=0.2)
+        ax.vlines(float(predicted_index), ymin, ymax, color="black", linestyle="--", linewidth=0.6, alpha=0.2)
+        if (
+            isinstance(actual_mutation_year, (int, float))
+            and isinstance(predicted_mutation_year, (int, float))
+            and isinstance(delta_t_years, (int, float))
+        ):
+            ax.text(
+                float(actual_index),
+                ymin + ((ymax - ymin) / 2.0),
+                f"Δt = {int(round(float(delta_t_years)))}",
+                rotation=90,
+                ha="right",
+                va="center",
+                color="black",
+                fontsize=8,
+            )
+        ax.set_xlim(float(tipping_index), float(len(years)))
+        ax.set_ylim(ymin, ymax)
         ax.set_xlabel("Year", fontsize=10, fontweight="bold")
-        ax.set_ylabel("Event Index", fontsize=10, fontweight="bold")
-        ax.set_title("DeltaT Event Bias (Observed vs Null Baseline)", fontsize=11, fontweight="bold")
-        ax.grid(linestyle=":", linewidth=0.8, alpha=0.3)
-        ax.legend(frameon=False, fontsize=8, loc="upper right")
+        ax.set_ylabel("Normalized Frenquency", fontsize=10, fontweight="bold")
+        title_obj = ax.set_title(word, fontweight="bold")
+        title_obj.set_color("white")
+        title_obj.set_bbox({"facecolor": color, "alpha": 1, "edgecolor": "none"})
+        title_obj.set_fontproperties(FontProperties(size=13, weight="bold"))
+        ax.spines["top"].set_linewidth(0.9)
+        ax.spines["left"].set_linewidth(0.9)
+        ax.spines["right"].set_linewidth(0.9)
+        ax.spines["bottom"].set_linewidth(0.9)
     fig.tight_layout()
     fig.savefig(out_png, format="png", dpi=180)
     plt.close(fig)

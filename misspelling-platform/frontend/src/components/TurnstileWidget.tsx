@@ -93,7 +93,7 @@ export function TurnstileWidget({
   }, [siteKey, refreshKey, onTokenChange, theme]);
 
   if (!siteKey) {
-    return <Alert type="warning" showIcon message="Turnstile is not configured. Set VITE_TURNSTILE_SITE_KEY." />;
+    return <Alert type="info" showIcon message="Turnstile is not enabled on this deployment." />;
   }
   return <div ref={containerRef} />;
 }

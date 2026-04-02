@@ -1,4 +1,4 @@
-import { CopyOutlined, DeleteOutlined, EyeOutlined, ReloadOutlined } from "@ant-design/icons";
+import { CopyOutlined, DeleteOutlined, EyeOutlined, ReloadOutlined, RocketOutlined, SearchOutlined } from "@ant-design/icons";
 import { Button, Card, DatePicker, Input, Popconfirm, Select, Space, Table, Tag, Typography, message } from "antd";
 import dayjs from "dayjs";
 import { useEffect, useMemo, useState } from "react";
@@ -80,8 +80,72 @@ export function TaskCenterPage() {
   const statuses = Array.from(new Set(items.map((x) => x.status)));
 
   return (
-    <Space direction="vertical" size={16} style={{ width: "100%" }}>
-      <Card title="Task Filters" extra={<Button icon={<ReloadOutlined />} loading={loading} onClick={() => void refresh()}>Refresh Now</Button>}>
+    <div className="enterprise-page-shell">
+      <Card bordered={false} className="enterprise-hero-card">
+        <div className="enterprise-hero-grid">
+          <div>
+            <div className="enterprise-kicker">
+              <RocketOutlined />
+              Task Operations
+            </div>
+            <Typography.Title level={2} className="enterprise-hero-title">
+              Task Center
+            </Typography.Title>
+            <Typography.Paragraph className="enterprise-hero-desc">
+              这里不改任务管理逻辑，只把筛选、批量操作和列表展示统一到和算法页一致的控制台风格。顶部看全局规模，下面做检索、进入详情或清理历史任务。
+            </Typography.Paragraph>
+          </div>
+          <div className="enterprise-hero-meta">
+            <div className="enterprise-meta-card">
+              <span className="enterprise-meta-label">Visible Tasks</span>
+              <div className="enterprise-meta-value">{filtered.length}</div>
+              <div className="enterprise-meta-copy">当前筛选条件下的任务数量。</div>
+            </div>
+            <div className="enterprise-meta-card">
+              <span className="enterprise-meta-label">Selected Rows</span>
+              <div className="enterprise-meta-value">{selectedRowKeys.length}</div>
+              <div className="enterprise-meta-copy">可用于批量删除的已选任务数。</div>
+            </div>
+          </div>
+        </div>
+
+        <div className="enterprise-stat-grid">
+          <div className="enterprise-stat-card">
+            <div className="enterprise-stat-label">Algorithms</div>
+            <div className="enterprise-stat-value">{types.length}</div>
+            <div className="enterprise-stat-copy">当前任务列表中涉及的算法类型数。</div>
+          </div>
+          <div className="enterprise-stat-card">
+            <div className="enterprise-stat-label">Statuses</div>
+            <div className="enterprise-stat-value">{statuses.length}</div>
+            <div className="enterprise-stat-copy">当前列表中的状态类别数。</div>
+          </div>
+          <div className="enterprise-stat-card">
+            <div className="enterprise-stat-label">Search</div>
+            <div className="enterprise-stat-value">{q ? "ACTIVE" : "IDLE"}</div>
+            <div className="enterprise-stat-copy">按 `word / task_id` 检索历史任务。</div>
+          </div>
+          <div className="enterprise-stat-card">
+            <div className="enterprise-stat-label">Refresh</div>
+            <div className="enterprise-stat-value">{loading ? "RUNNING" : "READY"}</div>
+            <div className="enterprise-stat-copy">任务列表拉取状态。</div>
+          </div>
+        </div>
+      </Card>
+
+      <Card
+        className="enterprise-section-card"
+        title={
+          <div className="enterprise-section-title">
+            <SearchOutlined />
+            <div className="enterprise-section-copy">
+              <strong>Filters</strong>
+              <span>按任务类型、状态、时间范围和关键字筛选。</span>
+            </div>
+          </div>
+        }
+        extra={<Button icon={<ReloadOutlined />} loading={loading} onClick={() => void refresh()}>Refresh Now</Button>}
+      >
         <Space wrap>
           <Input placeholder="Search word/task_id" value={q} onChange={(e) => setQ(e.target.value)} style={{ width: 240 }} />
           <Select value={type} onChange={setType} style={{ width: 200 }} options={[{ value: "all", label: "All Algorithms" }, ...types.map((v) => ({ value: v, label: v }))]} />
@@ -92,8 +156,18 @@ export function TaskCenterPage() {
           </Button>
         </Space>
       </Card>
+
       <Card
-        title="Task Center"
+        className="enterprise-section-card"
+        title={
+          <div className="enterprise-section-title">
+            <RocketOutlined />
+            <div className="enterprise-section-copy">
+              <strong>Task Ledger</strong>
+              <span>查看详情、复制任务号或清理历史记录。</span>
+            </div>
+          </div>
+        }
         extra={
           <Space>
             <Typography.Text type="secondary">Selected: {selectedRowKeys.length}</Typography.Text>
@@ -174,6 +248,6 @@ export function TaskCenterPage() {
           ]}
         />
       </Card>
-    </Space>
+    </div>
   );
 }
