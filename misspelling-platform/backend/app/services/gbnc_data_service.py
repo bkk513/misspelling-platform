@@ -412,7 +412,7 @@ def _ensure_series_access(series_row, current_user: dict | None, guest_key: str 
     owner_user_id = series_row.get("owner_user_id")
     uid = _owner_id(current_user)
     task_id = str(series_row.get("task_id") or "").strip()
-    if uid is None and owner_user_id is None and not task_id:
+    if owner_user_id is None and not task_id:
         return
     if uid is not None and owner_user_id == uid:
         return
