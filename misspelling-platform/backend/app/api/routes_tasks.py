@@ -179,21 +179,67 @@ def delete_task(task_id: str, current_user=Depends(get_optional_user), guest_key
 @router.post("/api/tasks/simulation-run")
 def create_sim_task(
     request: Request,
-    n: int = 30,
-    steps: int = 50,
+    word: str = "internet",
+    start_year: int = 1900,
+    end_year: int = 2019,
+    smoothing: int = 3,
+    corpus: str = "eng_2019",
+    variants: str | None = None,
+    topology: str = "watts_strogatz",
+    n_agents: int | None = None,
+    search_rounds: int | None = None,
+    repeats: int = 3,
+    fit_profile: str = "publication",
+    trend_window: int = 3,
+    ws_k: int = 8,
+    ws_p: float = 0.08,
+    ba_m: int = 4,
+    random_seed: int = 42,
+    intervention_year: int | None = None,
+    n: int | None = None,
+    steps: int | None = None,
     current_user=Depends(get_optional_user),
     guest_key: str | None = Header(default=None, alias="X-Guest-Key"),
     turnstile_token: str | None = Header(default=None, alias="X-Turnstile-Token"),
 ):
     owner_user_id = int(current_user["id"]) if current_user else None
     _enforce_turnstile(request, turnstile_token, task_type="simulation-run", owner_user_id=owner_user_id)
-    result = create_simulation_task(n, steps, simulation_run, owner_user_id=owner_user_id, guest_key=guest_key)
+    selected_variants = [v.strip().lower() for v in str(variants or "").split(",") if v.strip()]
+    params = {
+        "word": str(word or "internet").strip().lower() or "internet",
+        "start_year": int(start_year),
+        "end_year": int(end_year),
+        "smoothing": int(smoothing),
+        "corpus": str(corpus or "eng_2019"),
+        "variants": selected_variants,
+        "topology": str(topology or "watts_strogatz"),
+        "n_agents": int(n_agents if n_agents is not None else (n if n is not None else 720)),
+        "search_rounds": int(search_rounds if search_rounds is not None else (steps if steps is not None else 36)),
+        "repeats": int(repeats),
+        "fit_profile": str(fit_profile or "publication").strip().lower() or "publication",
+        "trend_window": int(trend_window),
+        "ws_k": int(ws_k),
+        "ws_p": float(ws_p),
+        "ba_m": int(ba_m),
+        "random_seed": int(random_seed),
+        "intervention_year": int(intervention_year) if intervention_year is not None else None,
+        "n": int(n) if n is not None else None,
+        "steps": int(steps) if steps is not None else None,
+    }
+    result = create_simulation_task(params, simulation_run, owner_user_id=owner_user_id, guest_key=guest_key)
     insert_audit_log(
         action="TASK_CREATE",
         actor_user_id=owner_user_id,
         target_type="task",
         target_id=result["task_id"],
-        meta={"task_type": "simulation-run", "n": n, "steps": steps},
+        meta={
+            "task_type": "simulation-run",
+            "word": params["word"],
+            "topology": params["topology"],
+            "n_agents": params["n_agents"],
+            "search_rounds": params["search_rounds"],
+            "fit_profile": params["fit_profile"],
+        },
     )
     return result
 

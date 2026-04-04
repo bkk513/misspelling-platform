@@ -236,8 +236,7 @@ def create_word_analysis_task(
 
 
 def create_simulation_task(
-    n: int,
-    steps: int,
+    params: dict[str, Any],
     celery_task,
     owner_user_id: int | None = None,
     guest_key: str | None = None,
@@ -245,11 +244,11 @@ def create_simulation_task(
     if owner_user_id is None:
         _cleanup_old_guest_tasks()
     task_id = str(uuid4())
-    params = {"n": n, "steps": steps}
-    _insert_queued_task(task_id, "simulation-run", params, owner_user_id, guest_key)
-    record_task_queued(task_id, "simulation-run", params)
+    safe_params = dict(params)
+    _insert_queued_task(task_id, "simulation-run", safe_params, owner_user_id, guest_key)
+    record_task_queued(task_id, "simulation-run", safe_params)
     try:
-        celery_task.apply_async(args=[n, steps], task_id=task_id)
+        celery_task.apply_async(args=[safe_params], task_id=task_id)
     except Exception as exc:
         _mark_task_enqueue_failure(task_id, "simulation-run", str(exc))
         raise
@@ -375,8 +374,7 @@ def retry_task_payload(
         if task is None:
             return {"ok": False, "reason": "TASK_TYPE_UNSUPPORTED", "task_id": task_id}
         created = create_simulation_task(
-            int(params.get("n", 30) or 30),
-            int(params.get("steps", 50) or 50),
+            params,
             task,
             owner_user_id=row.get("owner_user_id"),
             guest_key=row.get("guest_key"),
@@ -457,9 +455,9 @@ def _task_display_name(task_type: str, params: Any) -> str:
         word = str(params.get("word", "")).strip() or "word"
         return f"word-analysis: {word}"
     if task_type == "simulation-run" and isinstance(params, dict):
-        n = params.get("n", "?")
-        steps = params.get("steps", "?")
-        return f"simulation-run: n={n} steps={steps}"
+        word = str(params.get("word", "")).strip() or "word"
+        topology = str(params.get("topology", "")).strip() or "topology"
+        return f"simulation-run: {word} ({topology})"
     if task_type == "pcmci-causal" and isinstance(params, dict):
         word = str(params.get("word", "")).strip() or "word"
         return f"pcmci-causal: {word}"

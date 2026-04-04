@@ -105,9 +105,14 @@ type AlgoState = {
   edges: Array<Record<string, unknown>>;
   metrics: Array<Record<string, unknown>>;
   events: Array<Record<string, unknown>>;
+  simulationRows: Array<Record<string, unknown>>;
+  interventions: Array<Record<string, unknown>>;
+  variantBreakdown: Array<Record<string, unknown>>;
   windows: Array<Record<string, unknown>>;
   summary: Record<string, unknown> | null;
   deltaStats: Record<string, unknown> | null;
+  networkSummary: Record<string, unknown> | null;
+  explanation: Record<string, unknown> | null;
 };
 
 export function TaskDetailPage({ taskId }: { taskId: string }) {
@@ -129,9 +134,14 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
     edges: [],
     metrics: [],
     events: [],
+    simulationRows: [],
+    interventions: [],
+    variantBreakdown: [],
     windows: [],
     summary: null,
     deltaStats: null,
+    networkSummary: null,
+    explanation: null,
   });
   const [activeWindowIndex, setActiveWindowIndex] = useState(0);
   const prevTaskStateRef = useRef<string>("");
@@ -241,7 +251,7 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
     setTsVariants([]);
     setTsSeriesMap({});
     setTsLoadedAt("-");
-    setAlgoData({ edges: [], metrics: [], events: [], windows: [], summary: null, deltaStats: null });
+    setAlgoData({ edges: [], metrics: [], events: [], simulationRows: [], interventions: [], variantBreakdown: [], windows: [], summary: null, deltaStats: null, networkSummary: null, explanation: null });
     setActiveWindowIndex(0);
     prevTaskStateRef.current = "";
     void loadTimeSeries(false);
@@ -269,11 +279,11 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
   useEffect(() => {
     const state = (task?.state || "").toUpperCase();
     if (state !== "SUCCESS") {
-      setAlgoData({ edges: [], metrics: [], events: [], windows: [], summary: null, deltaStats: null });
+      setAlgoData({ edges: [], metrics: [], events: [], simulationRows: [], interventions: [], variantBreakdown: [], windows: [], summary: null, deltaStats: null, networkSummary: null, explanation: null });
       setActiveWindowIndex(0);
       return;
     }
-    const knownType = ["pcmci-causal", "mrnmr-steady", "deltaT-null"].includes(taskType) ? taskType : "";
+    const knownType = ["pcmci-causal", "mrnmr-steady", "deltaT-null", "simulation-run"].includes(taskType) ? taskType : "";
     if (!knownType) return;
     fetch(api.fileUrl(taskId, "result.json"))
       .then(async (resp) => {
@@ -286,13 +296,18 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
           edges: Array.isArray(obj?.edges) ? (obj.edges as Array<Record<string, unknown>>) : [],
           metrics: Array.isArray(obj?.metrics) ? (obj.metrics as Array<Record<string, unknown>>) : [],
           events: Array.isArray(obj?.events) ? (obj.events as Array<Record<string, unknown>>) : [],
+          simulationRows: Array.isArray(obj?.series_rows) ? (obj.series_rows as Array<Record<string, unknown>>) : [],
+          interventions: Array.isArray(obj?.interventions) ? (obj.interventions as Array<Record<string, unknown>>) : [],
+          variantBreakdown: Array.isArray(obj?.variant_breakdown) ? (obj.variant_breakdown as Array<Record<string, unknown>>) : [],
           windows: Array.isArray(obj?.window_results) ? (obj.window_results as Array<Record<string, unknown>>) : [],
           summary: asObject(obj?.summary),
           deltaStats: asObject(obj?.delta_t_stats),
+          networkSummary: asObject(obj?.network_summary),
+          explanation: asObject(obj?.explanation),
         });
       })
       .catch(() => {
-        setAlgoData({ edges: [], metrics: [], events: [], windows: [], summary: null, deltaStats: null });
+        setAlgoData({ edges: [], metrics: [], events: [], simulationRows: [], interventions: [], variantBreakdown: [], windows: [], summary: null, deltaStats: null, networkSummary: null, explanation: null });
         setActiveWindowIndex(0);
       });
   }, [task?.state, taskId, taskType]);
@@ -328,7 +343,13 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
   const activeNetworkUrl = activeNetworkPng ? api.fileUrl(taskId, activeNetworkPng) : "";
   const activeTimeseriesUrl = activeTimeseriesPng ? api.fileUrl(taskId, activeTimeseriesPng) : "";
   const previewImageUrl = task?.state?.toUpperCase() === "SUCCESS" ? api.fileUrl(taskId, "preview.png") : "";
-  const isAlgoTask = ["pcmci-causal", "mrnmr-steady", "deltaT-null"].includes(taskType);
+  const artifacts = asObject(taskObj?.artifacts);
+  const explanation = algoData.explanation || asObject(taskObj?.explanation);
+  const simulationGifUrl =
+    taskType === "simulation-run" && typeof artifacts?.gif === "string" && task?.state?.toUpperCase() === "SUCCESS"
+      ? api.fileUrl(taskId, "propagation.gif")
+      : "";
+  const isAlgoTask = ["pcmci-causal", "mrnmr-steady", "deltaT-null", "simulation-run"].includes(taskType);
   const currentWindowEdges = Array.isArray(activeWindow?.edges)
     ? normalizeEdges(activeWindow.edges as Array<Record<string, unknown>>)
     : Array.isArray(activeWindow?.top_edges)
@@ -337,6 +358,7 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
   const globalEdges = normalizeEdges(algoData.edges);
   const strongestEdge = currentWindowEdges[0] || globalEdges[0];
   const deltaStats = algoData.deltaStats || asObject(taskObj?.delta_t_stats);
+  const networkSummary = algoData.networkSummary || asObject(taskObj?.network_summary);
   const taskWord = String(paramObj?.word || summary?.word || provenance?.word || "Research Task");
   const taskState = String(task?.state || "loading...");
   const createdAt = eventItems[0]?.created_at || "-";
@@ -366,6 +388,19 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
       .filter(([, value]) => value !== null && value !== undefined && value !== "")
       .slice(0, 10);
   }, [summary]);
+  const explanationWarnings = Array.isArray(explanation?.warnings) ? explanation.warnings.map((item) => String(item)) : [];
+  const fitAssessment = Array.isArray(explanation?.fit_assessment) ? explanation.fit_assessment.map((item) => String(item)) : [];
+  const takeaways = Array.isArray(explanation?.takeaways) ? explanation.takeaways.map((item) => String(item)) : [];
+  const chartGuide = Array.isArray(explanation?.chart_guide)
+    ? explanation.chart_guide
+        .filter((item) => !!item && typeof item === "object")
+        .map((item) => item as Record<string, unknown>)
+    : [];
+  const parameterNotes = Array.isArray(explanation?.parameter_notes)
+    ? explanation.parameter_notes
+        .filter((item) => !!item && typeof item === "object")
+        .map((item) => item as Record<string, unknown>)
+    : [];
 
   return (
     <div className="algo-studio-shell">
@@ -669,7 +704,7 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
               </Space>
             )}
 
-            {taskType !== "pcmci-causal" && (
+            {taskType !== "pcmci-causal" && taskType !== "simulation-run" && (
               <div className="algo-preview-grid">
                 <div className="algo-preview-frame">
                   {previewImageUrl ? (
@@ -720,8 +755,201 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
                       </div>
                     </>
                   )}
+
+                  {taskType === "simulation-run" && (
+                    <>
+                      <div className="algo-insight-card">
+                        <div className="algo-insight-label">Topology</div>
+                        <div className="algo-insight-value">{String(summary?.topology ?? "--")}</div>
+                        <div className="algo-insight-copy">传播网络结构，决定局部复制与 hub 放大模式。</div>
+                      </div>
+                      <div className="algo-insight-card">
+                        <div className="algo-insight-label">Phase Break</div>
+                        <div className="algo-insight-value">{String(summary?.phase_break_year ?? "--")}</div>
+                        <div className="algo-insight-copy">错误传播机制从形成期切到稳定竞争期的年份。</div>
+                      </div>
+                      <div className="algo-insight-card">
+                        <div className="algo-insight-label">Error R²</div>
+                        <div className="algo-insight-value">
+                          {typeof summary?.error_r2 === "number" ? Number(summary.error_r2).toFixed(3) : "--"}
+                        </div>
+                        <div className="algo-insight-copy">错误曲线拟合优度，越接近 1 越好。</div>
+                      </div>
+                      <div className="algo-insight-card">
+                        <div className="algo-insight-label">Avg Degree</div>
+                        <div className="algo-insight-value">
+                          {typeof networkSummary?.avg_degree === "number" ? Number(networkSummary.avg_degree).toFixed(2) : "--"}
+                        </div>
+                        <div className="algo-insight-copy">网络平均连接度，影响传播接触面和纠偏难度。</div>
+                      </div>
+                    <div className="algo-insight-card">
+                      <div className="algo-insight-label">ABM Share Scale</div>
+                      <div className="algo-insight-value">
+                        {typeof summary?.error_share_amplification === "number"
+                          ? `×${Number(summary.error_share_amplification).toFixed(1)}`
+                          : "--"}
+                      </div>
+                      <div className="algo-insight-copy">
+                        {typeof summary?.error_share_amplification === "number" && Number(summary.error_share_amplification) <= 1.0001
+                          ? "当前直接在真实 error share 尺度上拟合，没有额外缩放。"
+                          : "如果词项极度稀疏，这里会显示额外的 error share 校正倍数。"}
+                      </div>
+                    </div>
+                    </>
+                  )}
                 </div>
               </div>
+            )}
+
+            {taskType === "simulation-run" && (
+              <Space direction="vertical" size={16} style={{ width: "100%" }}>
+                <div className="algo-media-grid algo-media-stack">
+                  <div className="algo-media-card">
+                    <div className="algo-preview-frame">
+                      {previewImageUrl ? (
+                        <img src={previewImageUrl} alt="simulation-preview" />
+                      ) : (
+                        <div className="algo-preview-empty">Task preview will appear after a successful run.</div>
+                      )}
+                    </div>
+                    <div className="algo-media-tools">
+                      <div className="algo-preview-caption">静态仪表板展示拟合质量、phase break 和干预收益。</div>
+                      {previewImageUrl ? (
+                        <Button size="small" href={previewImageUrl} target="_blank" rel="noreferrer">
+                          Open Full Size
+                        </Button>
+                      ) : null}
+                    </div>
+                  </div>
+                  <div className="algo-media-card">
+                    <div className="algo-preview-frame algo-preview-secondary">
+                      {simulationGifUrl ? (
+                        <img src={simulationGifUrl} alt="simulation-propagation" />
+                      ) : (
+                        <div className="algo-preview-empty">传播动图会在任务成功后自动生成。</div>
+                      )}
+                    </div>
+                    <div className="algo-media-tools">
+                      <div className="algo-preview-caption">传播动图将网络扩散、热区变化和宏观曲线放到统一时间轴里解释。</div>
+                      {simulationGifUrl ? (
+                        <Button size="small" href={simulationGifUrl} target="_blank" rel="noreferrer">
+                          Open Full Size
+                        </Button>
+                      ) : null}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="algo-preview-grid">
+                  <div className="algo-insight-list">
+                    <div className="algo-insight-card">
+                      <div className="algo-insight-label">How To Read This Run</div>
+                      <div className="algo-insight-copy">
+                        {String(explanation?.overview || "任务成功后，这里会展示本次拟合与传播过程的整段解释。")}
+                      </div>
+                    </div>
+                    {chartGuide.slice(0, 4).map((item) => (
+                      <div className="algo-insight-card" key={String(item.key || item.title || Math.random())}>
+                        <div className="algo-insight-label">{String(item.title || item.key || "Guide")}</div>
+                        <div className="algo-insight-copy">{String(item.explanation || "")}</div>
+                      </div>
+                    ))}
+                    <div className="algo-insight-card">
+                      <div className="algo-insight-label">LLM Source</div>
+                      <div className="algo-insight-value" style={{ fontSize: 18 }}>
+                        {String(explanation?.source || "heuristic").toUpperCase()}
+                      </div>
+                      <div className="algo-insight-copy">
+                        {explanationWarnings.length > 0 ? explanationWarnings.join(" | ") : "参数与曲线说明优先由 Qwen 生成。"}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="algo-insight-list">
+                    <div className="algo-insight-card">
+                      <div className="algo-insight-label">Topology</div>
+                      <div className="algo-insight-value">{String(summary?.topology ?? "--")}</div>
+                      <div className="algo-insight-copy">传播网络结构，决定局部复制与 hub 放大模式。</div>
+                    </div>
+                    <div className="algo-insight-card">
+                      <div className="algo-insight-label">Phase Break</div>
+                      <div className="algo-insight-value">{String(summary?.phase_break_year ?? "--")}</div>
+                      <div className="algo-insight-copy">传播机制从形成期切到稳定竞争期的年份。</div>
+                    </div>
+                    <div className="algo-insight-card">
+                      <div className="algo-insight-label">Fit Profile</div>
+                      <div className="algo-insight-value">{String(summary?.fit_profile ?? "--")}</div>
+                      <div className="algo-insight-copy">决定参数搜索与局部精修的深度。</div>
+                    </div>
+                    <div className="algo-insight-card">
+                      <div className="algo-insight-label">Best Score</div>
+                      <div className="algo-insight-value">
+                        {typeof summary?.best_score === "number" ? Number(summary.best_score).toFixed(3) : "--"}
+                      </div>
+                      <div className="algo-insight-copy">综合拟合代价，越低越好。</div>
+                    </div>
+                    <div className="algo-insight-card">
+                      <div className="algo-insight-label">Right R²</div>
+                      <div className="algo-insight-value">
+                        {typeof summary?.right_r2 === "number" ? Number(summary.right_r2).toFixed(3) : "--"}
+                      </div>
+                      <div className="algo-insight-copy">正确拼写主轨迹拟合优度。</div>
+                    </div>
+                    <div className="algo-insight-card">
+                      <div className="algo-insight-label">Error RMSE</div>
+                      <div className="algo-insight-value">
+                        {typeof summary?.error_rmse === "number" ? Number(summary.error_rmse).toExponential(2) : "--"}
+                      </div>
+                      <div className="algo-insight-copy">错误拼写轨迹的偏差量级，更直观反映拟合精度。</div>
+                    </div>
+                  </div>
+                </div>
+
+                {fitAssessment.length > 0 && (
+                  <div className="algo-score-grid">
+                    {fitAssessment.map((item, index) => (
+                      <div className="algo-score-card" key={`fit-note-${index}`}>
+                        <div className="algo-score-label">Fit Note {index + 1}</div>
+                        <div className="algo-score-copy" style={{ marginTop: 10 }}>{item}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {takeaways.length > 0 && (
+                  <div className="algo-score-grid">
+                    {takeaways.map((item, index) => (
+                      <div className="algo-score-card" key={`takeaway-${index}`}>
+                        <div className="algo-score-label">Interpretation {index + 1}</div>
+                        <div className="algo-score-copy" style={{ marginTop: 10 }}>{item}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {parameterNotes.length > 0 && (
+                  <Card className="algo-table-card" bordered={false}>
+                    <Table
+                      size="small"
+                      rowKey={(row) => String(row.name || Math.random())}
+                      pagination={{ pageSize: 8 }}
+                      dataSource={parameterNotes}
+                      columns={[
+                        { title: "Parameter", dataIndex: "label", width: 180 },
+                        { title: "Value", dataIndex: "display_value", width: 100 },
+                        {
+                          title: "Band",
+                          dataIndex: "band",
+                          width: 90,
+                          render: (value: unknown) => String(value || "").toUpperCase(),
+                        },
+                        { title: "Role", dataIndex: "role" },
+                        { title: "Interpretation", dataIndex: "interpretation" },
+                      ]}
+                    />
+                  </Card>
+                )}
+              </Space>
             )}
 
             {taskType === "mrnmr-steady" && algoData.metrics.length > 0 && (
@@ -756,6 +984,26 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
                     { title: "CfC Counterfactual", dataIndex: "predicted_correct", render: (value: unknown) => formatMetric(Number(value), 6) },
                     { title: "Actual Bootstrap", dataIndex: "actual_bootstrap", render: (value: unknown) => formatMetric(Number(value), 6) },
                     { title: "Predicted Bootstrap", dataIndex: "predicted_bootstrap", render: (value: unknown) => formatMetric(Number(value), 6) },
+                  ]}
+                />
+              </Card>
+            )}
+
+            {taskType === "simulation-run" && algoData.simulationRows.length > 0 && (
+              <Card className="algo-table-card" bordered={false} style={{ marginTop: 16 }}>
+                <Table
+                  size="small"
+                  rowKey={(row) => String((row as Record<string, unknown>).year ?? Math.random())}
+                  pagination={{ pageSize: 8 }}
+                  dataSource={algoData.simulationRows}
+                  columns={[
+                    { title: "Year", dataIndex: "year", width: 90 },
+                    { title: "Observed Correct", dataIndex: "right_actual", render: (value: unknown) => formatMetric(Number(value), 6) },
+                    { title: "Observed Error", dataIndex: "error_actual", render: (value: unknown) => formatMetric(Number(value), 6) },
+                    { title: "Simulated Correct", dataIndex: "right_simulated", render: (value: unknown) => formatMetric(Number(value), 6) },
+                    { title: "Simulated Error", dataIndex: "error_simulated", render: (value: unknown) => formatMetric(Number(value), 6) },
+                    { title: "Observed Share", dataIndex: "error_share_actual", render: (value: unknown) => formatMetric(Number(value), 4) },
+                    { title: "Simulated Share", dataIndex: "error_share_simulated", render: (value: unknown) => formatMetric(Number(value), 4) },
                   ]}
                 />
               </Card>

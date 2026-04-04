@@ -113,6 +113,64 @@ def persist_simulation_stub_timeseries(task_id: str, n: int, steps: int):
     _persist_stub_bundle(task_id, "simulation-run", canonical, count)
 
 
+def persist_simulation_external_series(
+    task_id: str,
+    word: str,
+    payload: dict[str, Any],
+):
+    owner_user_id = get_task_owner(task_id)
+    source_id = ensure_data_source(name="simulation_abm", granularity="year")
+    canonical = (word or "simulation").strip().lower() or "simulation"
+    term_id = ensure_term(canonical=canonical, category="custom", language="en", owner_user_id=owner_user_id)
+    rows = list(payload.get("series_rows") or [])
+    if not rows:
+        return {"series_count": 0, "point_count": 0, "variants": []}
+
+    series_defs = [
+        ("observed_correct", "right_actual"),
+        ("observed_error", "error_actual"),
+        ("simulated_correct", "right_simulated"),
+        ("simulated_error", "error_simulated"),
+        ("observed_error_share", "error_share_actual"),
+        ("simulated_error_share", "error_share_simulated"),
+    ]
+    total_points = 0
+    variants: list[str] = []
+    years = [int(row.get("year") or date.today().year) for row in rows]
+    window_start = date(min(years), 1, 1)
+    window_end = date(max(years), 1, 1)
+
+    for variant_label, field in series_defs:
+        series_id = create_series(
+            term_id=term_id,
+            variant_id=ensure_variant(term_id, variant_label, owner_user_id=owner_user_id),
+            source_id=source_id,
+            granularity="year",
+            window_start=window_start,
+            window_end=window_end,
+            units="relative_frequency",
+            meta={
+                "task_id": task_id,
+                "task_type": "simulation-run",
+                "canonical": canonical,
+                "variant": variant_label,
+                "field": field,
+                "source": payload.get("summary", {}).get("source"),
+            },
+            owner_user_id=owner_user_id,
+        )
+        points = [
+            {"t": date(int(row.get("year") or date.today().year), 1, 1), "value": float(row.get(field) or 0.0)}
+            for row in rows
+        ]
+        if points:
+            insert_series_points(series_id, points)
+            total_points += len(points)
+            variants.append(variant_label)
+
+    return {"series_count": len(variants), "point_count": total_points, "variants": variants}
+
+
 def get_task_timeseries_summary(task_id: str, current_user: dict | None = None, guest_key: str | None = None):
     rows = list_series_by_task(
         task_id,

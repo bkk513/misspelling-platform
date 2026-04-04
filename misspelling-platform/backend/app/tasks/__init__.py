@@ -10,12 +10,13 @@ from ..algos import (
     run_delta_t,
     run_mrnmr,
     run_pcmci,
+    run_simulation,
     to_edge_rows,
     to_event_rows,
     to_metric_rows,
 )
 from ..celery_app import celery_app
-from ..db.tasks_repo import set_task_failure, set_task_running, set_task_success
+from ..db.tasks_repo import get_task_owner, set_task_failure, set_task_running, set_task_success
 from ..services.artifact_service import (
     build_output_dir,
     register_artifact,
@@ -28,23 +29,28 @@ from ..services.artifact_service import (
     write_pcmci_window_network_png,
     write_pcmci_window_timeseries_png,
     write_rows_csv,
+    write_simulation_animation_gif,
     write_simulation_csv,
     write_simulation_preview_png,
     write_word_analysis_csv,
 )
 from ..services.gbnc_service import build_provenance, pull_gbnc_with_fallback
+from ..services.simulation_explain_service import explain_simulation_fit
 from ..services.task_event_service import (
     record_task_failure,
     record_task_running,
     record_task_success,
 )
 from ..services.timeseries_service import (
+    persist_simulation_external_series,
     persist_simulation_stub_timeseries,
     persist_word_analysis_external_series,
 )
 
 ALGO_SOURCE_REPO = "https://github.com/bkk513/misspelling_behaviors"
 ALGO_SOURCE_COMMIT = "4e781ec"
+SIMULATION_SOURCE_REPO = "local:/srv/apps/chaunbofangzhen"
+SIMULATION_SOURCE_COMMIT = "workspace"
 ALGO_IMPL = "internal_rewrite"
 
 
@@ -132,6 +138,32 @@ def _algo_params(payload: dict[str, Any] | Any) -> dict[str, Any]:
     }
 
 
+def _simulation_params(payload: dict[str, Any] | Any) -> dict[str, Any]:
+    data = payload if isinstance(payload, dict) else {}
+    base = _algo_params(data)
+    topology = str(data.get("topology") or "watts_strogatz").strip().lower() or "watts_strogatz"
+    if topology not in {"grid", "watts_strogatz", "newman_watts", "barabasi_albert", "dual_barabasi_albert"}:
+        topology = "watts_strogatz"
+    n_agents = _to_int(data.get("n_agents") if isinstance(data, dict) else None, _to_int(data.get("n"), 720))
+    search_rounds = _to_int(data.get("search_rounds") if isinstance(data, dict) else None, _to_int(data.get("steps"), 36))
+    fit_profile = str(data.get("fit_profile") or "publication").strip().lower() or "publication"
+    if fit_profile not in {"explore", "research", "publication"}:
+        fit_profile = "publication"
+    return {
+        **base,
+        "topology": topology,
+        "n_agents": max(40, n_agents or 720),
+        "search_rounds": max(8, search_rounds or 36),
+        "repeats": max(1, _to_int(data.get("repeats"), 3)),
+        "fit_profile": fit_profile,
+        "trend_window": max(1, _to_int(data.get("trend_window"), 3)),
+        "ws_k": max(2, _to_int(data.get("ws_k"), 8)),
+        "ws_p": _to_float(data.get("ws_p"), 0.08),
+        "ba_m": max(1, _to_int(data.get("ba_m"), 4)),
+        "intervention_year": _to_int(data.get("intervention_year"), 0) or None,
+    }
+
+
 def _algo_strict_mode() -> bool:
     return str(os.getenv("ALGO_STRICT_MODE", "false")).strip().lower() in {"1", "true", "yes", "on"}
 
@@ -161,12 +193,14 @@ def _build_algo_provenance(
     params: dict[str, Any],
     fallback_reason: str | None = None,
     impl: str | None = None,
+    source_repo: str | None = None,
+    source_repo_commit: str | None = None,
 ) -> dict[str, Any]:
     return {
         "task_id": task_id,
         "task_type": task_type,
-        "source_repo": ALGO_SOURCE_REPO,
-        "source_repo_commit": ALGO_SOURCE_COMMIT,
+        "source_repo": str(source_repo or ALGO_SOURCE_REPO),
+        "source_repo_commit": str(source_repo_commit or ALGO_SOURCE_COMMIT),
         "impl": str(impl or ALGO_IMPL),
         "dataset_source": dataset_source,
         "mode": mode,
@@ -394,25 +428,91 @@ def _on_failure(sender=None, exception=None, traceback=None, **kwargs):
 
 
 @celery_app.task(bind=True)
-def simulation_run(self, n: int = 30, steps: int = 50):
+def simulation_run(self, payload: dict[str, Any] | None = None):
     task_id = self.request.id
     set_task_running(task_id)
     record_task_running(task_id, "simulation-run")
+    params = _simulation_params(payload or {})
     try:
-        series = [{"t": t, "errors": (t % 10), "correct": (t * 2) % 17} for t in range(steps)]
+        dataset = build_algorithm_dataset(
+            task_id=task_id,
+            word=params["word"],
+            variants=params.get("variants") or [],
+            start_year=int(params["start_year"]),
+            end_year=int(params["end_year"]),
+            corpus=str(params["corpus"]),
+            smoothing=int(params["smoothing"]),
+        )
+        sim_payload = run_simulation(
+            dataset,
+            topology=str(params["topology"]),
+            n_agents=int(params["n_agents"]),
+            search_rounds=int(params["search_rounds"]),
+            repeats=int(params["repeats"]),
+            fit_profile=str(params.get("fit_profile") or "publication"),
+            trend_window=int(params["trend_window"]),
+            random_seed=int(params["random_seed"]),
+            ws_k=int(params["ws_k"]),
+            ws_p=float(params["ws_p"]),
+            ba_m=int(params["ba_m"]),
+            intervention_year=params.get("intervention_year"),
+        )
+        sim_payload["explanation"] = explain_simulation_fit(
+            word=params["word"],
+            summary=dict(sim_payload.get("summary") or {}),
+            best_params=dict(sim_payload.get("best_params") or {}),
+            metrics=dict(sim_payload.get("metrics_summary") or {}),
+            network_summary=dict(sim_payload.get("network_summary") or {}),
+            variant_breakdown=list(sim_payload.get("variant_breakdown") or []),
+            actor_user_id=get_task_owner(task_id),
+        )
         out_dir = build_output_dir(task_id)
         out_csv = out_dir / "result.csv"
+        out_json = out_dir / "result.json"
         out_png = out_dir / "preview.png"
-        write_simulation_csv(series, out_csv)
-        write_simulation_preview_png(series, out_png)
-        register_simulation_artifacts(task_id, out_csv, out_png)
+        out_gif = out_dir / "propagation.gif"
+        write_simulation_csv(list(sim_payload.get("series_rows") or []), out_csv)
+        write_json_file(sim_payload, out_json)
+        write_simulation_preview_png(sim_payload, out_png)
+        write_simulation_animation_gif(
+            sim_payload,
+            out_gif,
+            ws_k=int(params["ws_k"]),
+            ws_p=float(params["ws_p"]),
+            ba_m=int(params["ba_m"]),
+            random_seed=int(params["random_seed"]),
+        )
+        register_simulation_artifacts(task_id, out_csv, out_png, out_json, out_gif)
+        persisted = persist_simulation_external_series(task_id, params["word"], sim_payload)
         result = {
-            "n": n,
-            "steps": steps,
-            "files": {"csv": f"/api/files/{task_id}/result.csv"},
-            "preview": series[:5],
+            "summary": dict(sim_payload.get("summary") or {}),
+            "provenance": _build_algo_provenance(
+                task_id=task_id,
+                task_type="simulation-run",
+                dataset_source=str(dataset.source).upper(),
+                mode=str(sim_payload.get("mode") or dataset.mode),
+                params=params,
+                fallback_reason=dataset.fallback_reason,
+                impl=str(sim_payload.get("impl") or "group_spelling_abm_integrated"),
+                source_repo=SIMULATION_SOURCE_REPO,
+                source_repo_commit=SIMULATION_SOURCE_COMMIT,
+            ),
+            "artifacts": {
+                "csv": f"/api/files/{task_id}/result.csv",
+                "json": f"/api/files/{task_id}/result.json",
+                "png": f"/api/files/{task_id}/preview.png",
+                "gif": f"/api/files/{task_id}/propagation.gif",
+            },
+            "warnings": _merge_warnings(dataset.warnings, sim_payload.get("warnings")),
+            "network_summary": sim_payload.get("network_summary") or {},
+            "variant_breakdown": sim_payload.get("variant_breakdown") or [],
+            "interventions": list(sim_payload.get("interventions") or [])[:3],
+            "explanation": sim_payload.get("explanation") or {},
+            "series_rows": list(sim_payload.get("series_rows") or [])[:20],
+            "series_count": persisted["series_count"],
+            "point_count": persisted["point_count"],
+            "variants": persisted["variants"],
         }
-        persist_simulation_stub_timeseries(task_id, n, steps)
         set_task_success(task_id, json.dumps(result))
         record_task_success(task_id, "simulation-run")
         return result

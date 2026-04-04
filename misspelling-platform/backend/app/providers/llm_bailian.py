@@ -91,6 +91,27 @@ def _parse_origin_year_content(content: str, fallback_year: int | None = None) -
     return {"suggested_year": suggested_year, "reasoning": reasoning}
 
 
+def _extract_json_payload(content: str) -> Any:
+    text = str(content or "").strip()
+    if not text:
+        return None
+    candidates = [text]
+    fenced = re.findall(r"```(?:json)?\s*(\{.*?\}|\[.*?\])\s*```", text, flags=re.S | re.I)
+    candidates.extend(fenced)
+    obj_match = re.search(r"(\{.*\})", text, flags=re.S)
+    if obj_match:
+        candidates.append(obj_match.group(1))
+    list_match = re.search(r"(\[.*\])", text, flags=re.S)
+    if list_match:
+        candidates.append(list_match.group(1))
+    for candidate in candidates:
+        try:
+            return json.loads(candidate)
+        except Exception:
+            continue
+    return None
+
+
 def _load_file_backed_llm_config() -> dict[str, str]:
     if not LLM_CONFIG_FILE.exists():
         return {}
@@ -131,6 +152,94 @@ def _resolve_llm_config() -> tuple[str, str, str, int]:
     model = (os.getenv("BAILIAN_MODEL") or file_cfg.get("model") or "qwen-plus").strip()
     timeout = int(os.getenv("BAILIAN_TIMEOUT_SECONDS", "20") or "20")
     return key, base_url, model, timeout
+
+
+def strict_json_completion(
+    prompt: str,
+    actor_user_id: int | None = None,
+    action: str = "LLM_JSON",
+    audit_meta: dict[str, Any] | None = None,
+    temperature: float = 0.2,
+    timeout_seconds: int | None = None,
+) -> dict[str, Any]:
+    key, base_url, model, timeout = _resolve_llm_config()
+    if not key:
+        return {
+            "parsed": None,
+            "content": "",
+            "source": "heuristic",
+            "warnings": ["llm_key_missing"],
+            "llm_error": None,
+        }
+
+    started = time.time()
+    url = f"{base_url}/chat/completions"
+    meta = dict(audit_meta or {})
+    effective_timeout = int(timeout_seconds) if timeout_seconds is not None else timeout
+    try:
+        response = requests.post(
+            url,
+            headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+            json={
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": "You are a strict JSON generator."},
+                    {"role": "user", "content": str(prompt or "")},
+                ],
+                "temperature": float(temperature),
+            },
+            timeout=effective_timeout,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        content = payload.get("choices", [{}])[0].get("message", {}).get("content", "")
+        parsed = _extract_json_payload(content)
+        _safe_insert_audit_log(
+            action=action,
+            actor_user_id=actor_user_id,
+            target_type="llm",
+            target_id=model,
+            meta={
+                "ok": True,
+                "provider": "dashscope-compatible",
+                "model": model,
+                "latency_ms": int((time.time() - started) * 1000),
+                "timeout_seconds": effective_timeout,
+                "parsed": parsed is not None,
+                **meta,
+            },
+        )
+        return {
+            "parsed": parsed,
+            "content": str(content or ""),
+            "source": "llm" if parsed is not None else "heuristic",
+            "warnings": [] if parsed is not None else ["llm_empty_response"],
+            "llm_error": None,
+        }
+    except Exception as exc:
+        err = str(exc)
+        _safe_insert_audit_log(
+            action=action,
+            actor_user_id=actor_user_id,
+            target_type="llm",
+            target_id=model,
+            meta={
+                "ok": False,
+                "provider": "dashscope-compatible",
+                "model": model,
+                "latency_ms": int((time.time() - started) * 1000),
+                "timeout_seconds": effective_timeout,
+                "error": err,
+                **meta,
+            },
+        )
+        return {
+            "parsed": None,
+            "content": "",
+            "source": "heuristic",
+            "warnings": ["llm_failed"],
+            "llm_error": err[:200],
+        }
 
 
 def llm_config_fingerprint() -> dict[str, Any]:

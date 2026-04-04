@@ -66,6 +66,19 @@ export type AlgorithmTaskOptions = {
   variants?: string[];
   originYear?: number;
 };
+export type SimulationTaskOptions = AlgorithmTaskOptions & {
+  topology?: string;
+  nAgents?: number;
+  searchRounds?: number;
+  repeats?: number;
+  fitProfile?: string;
+  trendWindow?: number;
+  wsK?: number;
+  wsP?: number;
+  baM?: number;
+  randomSeed?: number;
+  interventionYear?: number;
+};
 export type TaskListItem = {
   task_id: string;
   task_type: string;
@@ -599,11 +612,30 @@ export const api = {
       headers: withTurnstileHeaders(turnstileToken || "")
     });
   },
-  createSimulation: (n: number, steps: number, turnstileToken?: string) =>
-    request<CreateTaskResponse>(`/api/tasks/simulation-run?n=${n}&steps=${steps}`, {
+  createSimulation: (word: string, opts?: SimulationTaskOptions, turnstileToken?: string) => {
+    const params = new URLSearchParams();
+    params.set("word", word);
+    if (opts?.startYear) params.set("start_year", String(opts.startYear));
+    if (opts?.endYear) params.set("end_year", String(opts.endYear));
+    if (opts?.smoothing !== undefined) params.set("smoothing", String(opts.smoothing));
+    if (opts?.corpus) params.set("corpus", opts.corpus);
+    if (opts?.variants && opts.variants.length > 0) params.set("variants", opts.variants.join(","));
+    if (opts?.topology) params.set("topology", String(opts.topology));
+    if (opts?.nAgents !== undefined) params.set("n_agents", String(opts.nAgents));
+    if (opts?.searchRounds !== undefined) params.set("search_rounds", String(opts.searchRounds));
+    if (opts?.repeats !== undefined) params.set("repeats", String(opts.repeats));
+    if (opts?.fitProfile) params.set("fit_profile", String(opts.fitProfile));
+    if (opts?.trendWindow !== undefined) params.set("trend_window", String(opts.trendWindow));
+    if (opts?.wsK !== undefined) params.set("ws_k", String(opts.wsK));
+    if (opts?.wsP !== undefined) params.set("ws_p", String(opts.wsP));
+    if (opts?.baM !== undefined) params.set("ba_m", String(opts.baM));
+    if (opts?.randomSeed !== undefined) params.set("random_seed", String(opts.randomSeed));
+    if (opts?.interventionYear !== undefined) params.set("intervention_year", String(opts.interventionYear));
+    return request<CreateTaskResponse>(`/api/tasks/simulation-run?${params.toString()}`, {
       method: "POST",
       headers: withTurnstileHeaders(turnstileToken || "")
-    }),
+    });
+  },
   listTasks: (limit = 20, scope?: "all" | "guest" | `user:${number}`) =>
     request<TaskListResponse>(
       `/api/tasks?limit=${limit}${scope ? `&scope=${encodeURIComponent(scope)}` : ""}`
