@@ -204,7 +204,10 @@ def explain_simulation_fit(
     fallback_rows = _fallback_parameter_rows(best_params)
     fallback = {
         "source": "heuristic",
-        "overview": f"{word} 的仿真把正确拼写、错拼总量和错误占比放到同一个网络扩散框架里拟合，用来解释这个词在群体传播中何时进入机制切换，以及错拼为何会持续存在。",
+        "overview": (
+            f"{word} 的仿真把正确拼写与由多个错拼变体聚合得到的非规范拼写簇，"
+            "放到同一个网络扩散框架里拟合，用来解释这个词在群体传播中何时进入机制切换，以及非规范拼写为何会持续存在。"
+        ),
         "fit_assessment": _fit_assessment(summary, metrics),
         "chart_guide": _fallback_chart_guide(summary),
         "parameter_notes": fallback_rows,
@@ -228,6 +231,7 @@ def explain_simulation_fit(
         "请用中文解释一个错误拼写传播仿真结果，语言要专业、克制、可答辩。"
         f"单词：{word}。"
         f"摘要指标：best_score={summary.get('best_score')}, right_r2={summary.get('right_r2')}, error_r2={summary.get('error_r2')}, share_r2={summary.get('share_r2')}, phase_break_year={summary.get('phase_break_year')}, best_scenario={summary.get('best_scenario')}。"
+        f"模型口径：unit_of_analysis={summary.get('unit_of_analysis')}, competition_scope={summary.get('competition_scope')}, state_space={summary.get('state_space')}, observed_variant_count={summary.get('observed_variant_count')}, network_semantics={summary.get('network_semantics')}。"
         f"网络摘要：avg_degree={network_summary.get('avg_degree')}, clustering={network_summary.get('clustering')}, density={network_summary.get('density')}。"
         f"参数列表：{best_params}。"
         f"高频错拼摘要：{variant_breakdown or []}。"
@@ -237,6 +241,7 @@ def explain_simulation_fit(
         "3. chart_guide 必须覆盖 fit、share、intervention、animation 四个 key。"
         "4. parameter_notes 必须覆盖所有参数名，并解释该参数在本次结果中的含义。"
         "5. takeaways 给出 2 到 4 条可解释性结论。"
+        "6. 不要把当前模型误写成“每个错误变体都被单独仿真”；当前模型仿真的错误侧是聚合后的非规范拼写簇。"
     )
     llm = strict_json_completion(
         prompt,

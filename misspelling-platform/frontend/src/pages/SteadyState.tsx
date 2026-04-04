@@ -302,15 +302,15 @@ export function SteadyStatePage() {
               <div className="algo-parameter-grid" style={{ marginTop: 18 }}>
                 <div className="algo-field algo-span-3">
                   <span className="algo-field-label">Start Year</span>
-                  <InputNumber min={1500} max={2026} value={startYear} onChange={(value) => setStartYear(value || 1900)} style={{ width: "100%" }} />
+                  <InputNumber min={1500} max={2026} value={startYear} onChange={(value) => setStartYear(value ?? 1900)} style={{ width: "100%" }} />
                 </div>
                 <div className="algo-field algo-span-3">
                   <span className="algo-field-label">End Year</span>
-                  <InputNumber min={1500} max={2026} value={endYear} onChange={(value) => setEndYear(value || 2019)} style={{ width: "100%" }} />
+                  <InputNumber min={1500} max={2026} value={endYear} onChange={(value) => setEndYear(value ?? 2019)} style={{ width: "100%" }} />
                 </div>
                 <div className="algo-field algo-span-2">
                   <span className="algo-field-label">Smoothing</span>
-                  <InputNumber min={0} max={50} value={smoothing} onChange={(value) => setSmoothing(value || 3)} style={{ width: "100%" }} />
+                  <InputNumber min={0} max={50} value={smoothing} onChange={(value) => setSmoothing(value ?? 3)} style={{ width: "100%" }} />
                 </div>
                 <div className="algo-field algo-span-2">
                   <span className="algo-field-label">Poly Degree</span>

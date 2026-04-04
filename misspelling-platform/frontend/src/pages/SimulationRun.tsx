@@ -315,7 +315,7 @@ export function SimulationRunPage() {
                 Group Spelling Diffusion Simulation
               </Typography.Title>
               <Typography.Paragraph className="algo-hero-desc">
-                仿真模块会从 `canonical word + misspellings` 构造真实观测曲线，做阶段化网络 ABM 高精度拟合，再输出静态仪表板、传播动图和 LLM 解释层，方便展示“模型能否拟合”“错误如何传播”“为什么会这样传播”。
+                仿真模块会从 `canonical word + misspellings` 构造真实观测曲线，把多个错拼变体先汇总为一个非规范拼写簇，再做阶段化网络 ABM 拟合，输出静态仪表板、传播动图和解释层，方便展示“模型能否拟合”“非规范拼写簇如何传播”“为什么会这样传播”。
               </Typography.Paragraph>
             </div>
             <div className="algo-hero-side">
@@ -394,15 +394,15 @@ export function SimulationRunPage() {
               <div className="algo-parameter-grid" style={{ marginTop: 18 }}>
                 <div className="algo-field algo-span-2">
                   <span className="algo-field-label">Start Year</span>
-                  <InputNumber min={1500} max={2026} value={startYear} onChange={(v) => setStartYear(v || 1900)} style={{ width: "100%" }} />
+                  <InputNumber min={1500} max={2026} value={startYear} onChange={(v) => setStartYear(v ?? 1900)} style={{ width: "100%" }} />
                 </div>
                 <div className="algo-field algo-span-2">
                   <span className="algo-field-label">End Year</span>
-                  <InputNumber min={1500} max={2026} value={endYear} onChange={(v) => setEndYear(v || 2019)} style={{ width: "100%" }} />
+                  <InputNumber min={1500} max={2026} value={endYear} onChange={(v) => setEndYear(v ?? 2019)} style={{ width: "100%" }} />
                 </div>
                 <div className="algo-field algo-span-2">
                   <span className="algo-field-label">GBNC Smoothing</span>
-                  <InputNumber min={0} max={50} value={smoothing} onChange={(v) => setSmoothing(v || 3)} style={{ width: "100%" }} />
+                  <InputNumber min={0} max={50} value={smoothing} onChange={(v) => setSmoothing(v ?? 3)} style={{ width: "100%" }} />
                 </div>
                 <div className="algo-field algo-span-3">
                   <span className="algo-field-label">Topology</span>
@@ -432,35 +432,35 @@ export function SimulationRunPage() {
                 </div>
                 <div className="algo-field algo-span-2">
                   <span className="algo-field-label">Agents</span>
-                  <InputNumber min={40} max={6000} value={nAgents} onChange={(v) => setNAgents(v || 1200)} style={{ width: "100%" }} />
+                  <InputNumber min={40} max={6000} value={nAgents} onChange={(v) => setNAgents(v ?? 1200)} style={{ width: "100%" }} />
                 </div>
                 <div className="algo-field algo-span-2">
                   <span className="algo-field-label">Search Rounds</span>
-                  <InputNumber min={8} max={800} value={searchRounds} onChange={(v) => setSearchRounds(v || 96)} style={{ width: "100%" }} />
+                  <InputNumber min={8} max={800} value={searchRounds} onChange={(v) => setSearchRounds(v ?? 96)} style={{ width: "100%" }} />
                 </div>
                 <div className="algo-field algo-span-2">
                   <span className="algo-field-label">Repeats</span>
-                  <InputNumber min={1} max={20} value={repeats} onChange={(v) => setRepeats(v || 6)} style={{ width: "100%" }} />
+                  <InputNumber min={1} max={20} value={repeats} onChange={(v) => setRepeats(v ?? 6)} style={{ width: "100%" }} />
                 </div>
                 <div className="algo-field algo-span-2">
                   <span className="algo-field-label">Trend Window</span>
-                  <InputNumber min={1} max={15} value={trendWindow} onChange={(v) => setTrendWindow(v || 3)} style={{ width: "100%" }} />
+                  <InputNumber min={1} max={15} value={trendWindow} onChange={(v) => setTrendWindow(v ?? 3)} style={{ width: "100%" }} />
                 </div>
                 <div className="algo-field algo-span-2">
                   <span className="algo-field-label">WS k</span>
-                  <InputNumber min={2} max={40} value={wsK} onChange={(v) => setWsK(v || 8)} style={{ width: "100%" }} />
+                  <InputNumber min={2} max={40} value={wsK} onChange={(v) => setWsK(v ?? 8)} style={{ width: "100%" }} />
                 </div>
                 <div className="algo-field algo-span-2">
                   <span className="algo-field-label">WS p</span>
-                  <InputNumber min={0} max={1} step={0.01} value={wsP} onChange={(v) => setWsP(v || 0.08)} style={{ width: "100%" }} />
+                  <InputNumber min={0} max={1} step={0.01} value={wsP} onChange={(v) => setWsP(v ?? 0.08)} style={{ width: "100%" }} />
                 </div>
                 <div className="algo-field algo-span-2">
                   <span className="algo-field-label">BA m</span>
-                  <InputNumber min={1} max={20} value={baM} onChange={(v) => setBaM(v || 4)} style={{ width: "100%" }} />
+                  <InputNumber min={1} max={20} value={baM} onChange={(v) => setBaM(v ?? 4)} style={{ width: "100%" }} />
                 </div>
                 <div className="algo-field algo-span-2">
                   <span className="algo-field-label">Random Seed</span>
-                  <InputNumber min={1} max={999999} value={randomSeed} onChange={(v) => setRandomSeed(v || 42)} style={{ width: "100%" }} />
+                  <InputNumber min={1} max={999999} value={randomSeed} onChange={(v) => setRandomSeed(v ?? 42)} style={{ width: "100%" }} />
                 </div>
               </div>
 

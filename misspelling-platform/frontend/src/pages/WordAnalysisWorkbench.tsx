@@ -146,9 +146,9 @@ export function WordAnalysisWorkbenchPage() {
       try {
         const parsed = JSON.parse(lastParams);
         if (parsed.word === word) {
-          setStartYear(parsed.startYear || 1900);
-          setEndYear(parsed.endYear || 2019);
-          setSmoothing(parsed.smoothing || 3);
+          setStartYear(parsed.startYear ?? 1900);
+          setEndYear(parsed.endYear ?? 2019);
+          setSmoothing(parsed.smoothing ?? 3);
           setCorpus(parsed.corpus || "eng_2019");
         }
       } catch {
@@ -438,7 +438,7 @@ export function WordAnalysisWorkbenchPage() {
                 min={1500}
                 max={2026}
                 value={startYear}
-                onChange={(v) => setStartYear(v || 1900)}
+                onChange={(v) => setStartYear(v ?? 1900)}
                 style={{ width: "100%" }}
                 status={startYear >= endYear ? "error" : undefined}
               />
@@ -449,14 +449,14 @@ export function WordAnalysisWorkbenchPage() {
                 min={1500}
                 max={2026}
                 value={endYear}
-                onChange={(v) => setEndYear(v || 2019)}
+                onChange={(v) => setEndYear(v ?? 2019)}
                 style={{ width: "100%" }}
                 status={startYear >= endYear ? "error" : undefined}
               />
             </div>
             <div className="algo-field algo-span-1">
               <span className="algo-field-label">Smoothing</span>
-              <InputNumber min={0} max={50} value={smoothing} onChange={(v) => setSmoothing(v || 3)} style={{ width: "100%" }} />
+              <InputNumber min={0} max={50} value={smoothing} onChange={(v) => setSmoothing(v ?? 3)} style={{ width: "100%" }} />
             </div>
             <div className="algo-field algo-span-2">
               <span className="algo-field-label">Corpus</span>

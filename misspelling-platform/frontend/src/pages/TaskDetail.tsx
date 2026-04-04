@@ -872,6 +872,33 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
                       <div className="algo-insight-copy">传播网络结构，决定局部复制与 hub 放大模式。</div>
                     </div>
                     <div className="algo-insight-card">
+                      <div className="algo-insight-label">Model Family</div>
+                      <div className="algo-insight-value" style={{ fontSize: 18 }}>{String(summary?.model_family ?? "--")}</div>
+                      <div className="algo-insight-copy">当前实现是复杂 contagion 启发的随机 ABM，不是逐变体的纯传染病模型。</div>
+                    </div>
+                    <div className="algo-insight-card">
+                      <div className="algo-insight-label">Node Meaning</div>
+                      <div className="algo-insight-value" style={{ fontSize: 18 }}>{String(summary?.node_semantics ?? "--")}</div>
+                      <div className="algo-insight-copy">节点代表潜在写作者或暴露单元，不直接等同于真实平台用户 ID。</div>
+                    </div>
+                    <div className="algo-insight-card">
+                      <div className="algo-insight-label">Competition Scope</div>
+                      <div className="algo-insight-value" style={{ fontSize: 18 }}>{String(summary?.competition_scope ?? "--")}</div>
+                      <div className="algo-insight-copy">当前仿真竞争的是规范拼写与非规范拼写簇，而不是多个错拼变体彼此竞争。</div>
+                    </div>
+                    <div className="algo-insight-card">
+                      <div className="algo-insight-label">State Space</div>
+                      <div className="algo-insight-value" style={{ fontSize: 18 }}>
+                        {Array.isArray(summary?.state_space) ? (summary?.state_space as unknown[]).join(" / ") : "--"}
+                      </div>
+                      <div className="algo-insight-copy">节点状态分为 unknown、error_cluster、right 三类。</div>
+                    </div>
+                    <div className="algo-insight-card">
+                      <div className="algo-insight-label">Observed Variants</div>
+                      <div className="algo-insight-value">{String(summary?.observed_variant_count ?? "--")}</div>
+                      <div className="algo-insight-copy">输入端实际汇总进错误簇的错拼变体数。</div>
+                    </div>
+                    <div className="algo-insight-card">
                       <div className="algo-insight-label">Phase Break</div>
                       <div className="algo-insight-value">{String(summary?.phase_break_year ?? "--")}</div>
                       <div className="algo-insight-copy">传播机制从形成期切到稳定竞争期的年份。</div>

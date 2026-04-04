@@ -708,6 +708,21 @@ def _scenario_catalog(params: ABMParameters) -> list[tuple[str, str, str, ABMPar
     ]
 
 
+def _model_summary(payload: SimulationDataset, topology: str) -> dict[str, Any]:
+    return {
+        "model_family": "complex-contagion-inspired stochastic ABM",
+        "unit_of_analysis": "single canonical word with selected misspelling set",
+        "competition_scope": "right_vs_error_cluster",
+        "error_state_definition": "aggregate of selected misspelling variants",
+        "node_semantics": "synthetic exposure or writing unit",
+        "network_semantics": "synthetic contact network rather than reconstructed real follower graph",
+        "state_space": ["unknown", "error_cluster", "right"],
+        "observed_variant_count": int(len(payload.variant_names)),
+        "variant_breakdown_level": "observed_only",
+        "topology_family": str(topology or "watts_strogatz"),
+    }
+
+
 def run_simulation(
     dataset: AlgorithmDataset,
     topology: str = "watts_strogatz",
@@ -756,6 +771,7 @@ def run_simulation(
     }
     network_summary = model.graph_summary()
     variant_breakdown = _variant_breakdown(sim_dataset)
+    model_summary = _model_summary(sim_dataset, model.topology)
 
     scenarios: list[dict[str, Any]] = []
     scenario_rows: list[dict[str, Any]] = []
@@ -855,6 +871,7 @@ def run_simulation(
             "predicted_error_peak_year": int(sim_dataset.years[predicted_error_peak_idx]) if sim_dataset.years else None,
             "best_scenario": best_scenario["label"] if isinstance(best_scenario, dict) else None,
             "best_scenario_gain": float(best_scenario["final_error_reduction"]) if isinstance(best_scenario, dict) else 0.0,
+            **model_summary,
         },
         "metrics_summary": metrics,
         "best_params": asdict(best_params),
