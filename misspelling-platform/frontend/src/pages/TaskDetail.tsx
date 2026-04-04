@@ -976,6 +976,36 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
                     />
                   </Card>
                 )}
+
+                {algoData.variantBreakdown.length > 0 && (
+                  <Card className="algo-table-card" bordered={false}>
+                    <Table
+                      size="small"
+                      rowKey={(row) => String((row as Record<string, unknown>).variant ?? Math.random())}
+                      pagination={{ pageSize: 6 }}
+                      dataSource={algoData.variantBreakdown}
+                      columns={[
+                        { title: "Variant", dataIndex: "variant", width: 180 },
+                        { title: "Peak Year", dataIndex: "peak_year", width: 110 },
+                        {
+                          title: "Peak Value",
+                          dataIndex: "peak_value",
+                          render: (value: unknown) => formatMetric(Number(value), 6),
+                        },
+                        {
+                          title: "Final Value",
+                          dataIndex: "final_value",
+                          render: (value: unknown) => formatMetric(Number(value), 6),
+                        },
+                        {
+                          title: "Total Mass",
+                          dataIndex: "total_mass",
+                          render: (value: unknown) => formatMetric(Number(value), 6),
+                        },
+                      ]}
+                    />
+                  </Card>
+                )}
               </Space>
             )}
 

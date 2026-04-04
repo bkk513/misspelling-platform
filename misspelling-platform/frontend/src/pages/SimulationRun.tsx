@@ -87,6 +87,7 @@ export function SimulationRunPage() {
   const [wsP, setWsP] = useState(0.08);
   const [baM, setBaM] = useState(4);
   const [randomSeed, setRandomSeed] = useState(42);
+  const [interventionYear, setInterventionYear] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [latestTaskId, setLatestTaskId] = useState("");
   const [latestTaskState, setLatestTaskState] = useState("");
@@ -286,6 +287,7 @@ export function SimulationRunPage() {
           wsP,
           baM,
           randomSeed,
+          interventionYear: interventionYear ?? undefined,
         },
         turnstileToken
       );
@@ -461,6 +463,17 @@ export function SimulationRunPage() {
                 <div className="algo-field algo-span-2">
                   <span className="algo-field-label">Random Seed</span>
                   <InputNumber min={1} max={999999} value={randomSeed} onChange={(v) => setRandomSeed(v ?? 42)} style={{ width: "100%" }} />
+                </div>
+                <div className="algo-field algo-span-2">
+                  <span className="algo-field-label">Intervention Year</span>
+                  <InputNumber
+                    min={1500}
+                    max={2026}
+                    value={interventionYear}
+                    onChange={(v) => setInterventionYear(v ?? null)}
+                    placeholder="phase break"
+                    style={{ width: "100%" }}
+                  />
                 </div>
               </div>
 
