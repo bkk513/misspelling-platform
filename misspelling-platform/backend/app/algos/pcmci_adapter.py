@@ -307,36 +307,6 @@ def run_pcmci(
         from tigramite.independence_tests.parcorr import ParCorr
         from tigramite.pcmci import PCMCI
 
-        dataframe = pp.DataFrame(values_tn, datatime={0: np.arange(len(values_tn))}, var_names=names)
-        pcmci = PCMCI(dataframe=dataframe, cond_ind_test=ParCorr(significance="analytic"), verbosity=0)
-        results = pcmci.run_pcmci(tau_max=safe_tau, pc_alpha=pc_alpha, alpha_level=float(alpha_level))
-        q_matrix = pcmci.get_corrected_pvalues(
-            p_matrix=results["p_matrix"],
-            tau_max=safe_tau,
-            fdr_method="fdr_bh",
-        )
-        graph = pcmci.get_graph_from_pmatrix(
-            p_matrix=q_matrix,
-            alpha_level=float(alpha_level),
-            tau_min=0,
-            tau_max=safe_tau,
-            link_assumptions=None,
-        )
-        plot_payload = _build_plot_payload(
-            names=names,
-            val_matrix=results["val_matrix"],
-            graph=graph,
-        )
-        edges = _extract_edges(
-            names=names,
-            val_matrix=results["val_matrix"],
-            p_matrix=results["p_matrix"],
-            q_matrix=q_matrix,
-            tau_max=safe_tau,
-            alpha_level=float(alpha_level),
-            method="pcmci",
-        )
-
         window_results: list[dict[str, Any]] = []
         for window_index, (start, end) in enumerate(ranges):
             window_values = values_tn[start:end, :]
@@ -438,6 +408,40 @@ def run_pcmci(
                     )
                 )
 
+        full_window = next(
+            (
+                row
+                for row in reversed(window_results)
+                if int(row.get("start_index") or 0) == 0 and int(row.get("end_index") or -1) == len(values_tn) - 1
+            ),
+            None,
+        )
+        if full_window:
+            edges = [
+                dict(item)
+                for item in (
+                    full_window.get("edges")
+                    or full_window.get("top_edges")
+                    or []
+                )
+            ]
+            plot_payload = {
+                "var_names": full_window.get("var_names") or names,
+                "tigramite_val_matrix": full_window.get("tigramite_val_matrix")
+                or _serialize_float_matrix(np.zeros((len(names), len(names), safe_tau + 1), dtype=float)),
+                "tigramite_graph": full_window.get("tigramite_graph")
+                or _serialize_graph_matrix(np.full((len(names), len(names), safe_tau + 1), "", dtype=object)),
+            }
+            top_level_mode = str(full_window.get("mode") or "real")
+        else:
+            warnings.append("missing_full_window_result")
+            edges = _fallback_edges(dataset, tau_max=safe_tau, alpha_level=max(alpha_level, 0.05))
+            plot_payload = _build_plot_payload_from_edges(
+                names=names,
+                edges=edges,
+                tau_max=safe_tau,
+            )
+            top_level_mode = "stub"
         return {
             "summary": {
                 "nodes": len(names),
@@ -450,7 +454,7 @@ def run_pcmci(
             "edges": edges,
             "window_results": window_results,
             "warnings": warnings,
-            "mode": "real",
+            "mode": top_level_mode,
             "impl": "internal_rewrite",
             **plot_payload,
         }

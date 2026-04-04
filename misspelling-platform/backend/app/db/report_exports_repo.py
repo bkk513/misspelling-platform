@@ -38,16 +38,40 @@ def create_report_export(
         return int(result.lastrowid)
 
 
-def _scope_where(owner_user_id: int | None, include_all: bool):
+def _normalize_guest_key(guest_key: str | None) -> str:
+    return str(guest_key or "").strip()[:64]
+
+
+def _scope_where(owner_user_id: int | None, include_all: bool, guest_key: str | None):
     if include_all:
         return "1=1", {}
     if owner_user_id is None:
-        return "owner_user_id IS NULL", {}
+        safe_guest_key = _normalize_guest_key(guest_key)
+        if not safe_guest_key:
+            return "1=0", {}
+        return (
+            """
+            owner_user_id IS NULL
+            AND EXISTS (
+              SELECT 1 FROM tasks t
+              WHERE t.task_id = report_exports.task_id
+                AND t.guest_key = :guest_key
+                AND t.created_at >= UTC_DATE()
+                AND t.status <> 'DELETED'
+            )
+            """,
+            {"guest_key": safe_guest_key},
+        )
     return "owner_user_id = :owner_user_id", {"owner_user_id": owner_user_id}
 
 
-def list_report_exports(limit: int = 100, owner_user_id: int | None = None, include_all: bool = False):
-    where, params = _scope_where(owner_user_id, include_all)
+def list_report_exports(
+    limit: int = 100,
+    owner_user_id: int | None = None,
+    include_all: bool = False,
+    guest_key: str | None = None,
+):
+    where, params = _scope_where(owner_user_id, include_all, guest_key)
     with get_engine().begin() as conn:
         return (
             conn.execute(
@@ -67,8 +91,13 @@ def list_report_exports(limit: int = 100, owner_user_id: int | None = None, incl
         )
 
 
-def get_report_export(report_id: int, owner_user_id: int | None = None, include_all: bool = False):
-    where, params = _scope_where(owner_user_id, include_all)
+def get_report_export(
+    report_id: int,
+    owner_user_id: int | None = None,
+    include_all: bool = False,
+    guest_key: str | None = None,
+):
+    where, params = _scope_where(owner_user_id, include_all, guest_key)
     with get_engine().begin() as conn:
         return (
             conn.execute(

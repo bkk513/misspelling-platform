@@ -1,15 +1,9 @@
 import {
-  AppstoreOutlined,
   BarChartOutlined,
   DashboardOutlined,
   FunctionOutlined,
   FileSearchOutlined,
-  FileTextOutlined,
-  FolderOpenOutlined,
-  LineChartOutlined,
-  NodeIndexOutlined,
   SettingOutlined,
-  TagsOutlined,
   BulbOutlined,
   BulbFilled
 } from "@ant-design/icons";
@@ -44,6 +38,7 @@ const menuItems: MenuProps['items'] = [
     label: 'Algorithms',
     icon: <FunctionOutlined />,
     children: [
+      { key: 'simulation', label: 'Simulation' },
       { key: 'causal-network', label: 'Causal Network' },
       { key: 'steady-state', label: 'Steady State' },
       { key: 'delta-t-bias', label: 'DeltaT Bias' },
@@ -99,7 +94,12 @@ export function ResearcherLayout({
   return (
     <Layout className="enterprise-layout">
       <Sider width={250} className="enterprise-sider" theme="dark">
-        <div className="enterprise-logo">Researcher Console</div>
+        <div className="enterprise-logo">
+          <div className="enterprise-logo-inner">
+            <span>Misspelling Research OS</span>
+            <small>Researcher Console</small>
+          </div>
+        </div>
         <Menu
           theme="dark"
           mode="inline"
@@ -111,13 +111,15 @@ export function ResearcherLayout({
       </Sider>
       <Layout>
         <Header className="enterprise-header">
-          <Space size="middle">
-            <Tag color={dbOk ? "green" : "red"}>DB {dbOk ? "OK" : "DOWN"}</Tag>
-            <Tag color={llmEnabled ? "blue" : "default"}>LLM {llmEnabled ? "ON" : "OFF"}</Tag>
-            <Tag color={gbncEnabled ? "geekblue" : "default"}>GBNC {gbncEnabled ? "ON" : "OFF"}</Tag>
-          </Space>
-          <Space size="middle">
-            <Badge status={role === "admin" ? "processing" : "default"} text={`role:${role}`} />
+          <div className="enterprise-header-left">
+            <Space size={8} wrap>
+              <Tag color={dbOk ? "green" : "red"}>DB {dbOk ? "OK" : "DOWN"}</Tag>
+              <Tag color={llmEnabled ? "blue" : "default"}>LLM {llmEnabled ? "ON" : "OFF"}</Tag>
+              <Tag color={gbncEnabled ? "geekblue" : "default"}>GBNC {gbncEnabled ? "ON" : "OFF"}</Tag>
+            </Space>
+          </div>
+          <div className="enterprise-header-right">
+            <Badge status={role === "admin" ? "processing" : "default"} text={`role: ${role}`} />
             <Typography.Text>{username}</Typography.Text>
             <Tooltip title={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}>
               <Button
@@ -131,7 +133,7 @@ export function ResearcherLayout({
             <Button size="small" onClick={onLogout}>
               Logout
             </Button>
-          </Space>
+          </div>
         </Header>
         <Content className="enterprise-content">
           <Breadcrumb items={breadcrumbs.map((b) => ({ title: b }))} />

@@ -10,12 +10,13 @@ from ..algos import (
     run_delta_t,
     run_mrnmr,
     run_pcmci,
+    run_simulation,
     to_edge_rows,
     to_event_rows,
     to_metric_rows,
 )
 from ..celery_app import celery_app
-from ..db.tasks_repo import set_task_failure, set_task_running, set_task_success
+from ..db.tasks_repo import get_task_owner, set_task_failure, set_task_running, set_task_success
 from ..services.artifact_service import (
     build_output_dir,
     register_artifact,
@@ -28,23 +29,28 @@ from ..services.artifact_service import (
     write_pcmci_window_network_png,
     write_pcmci_window_timeseries_png,
     write_rows_csv,
+    write_simulation_animation_gif,
     write_simulation_csv,
     write_simulation_preview_png,
     write_word_analysis_csv,
 )
 from ..services.gbnc_service import build_provenance, pull_gbnc_with_fallback
+from ..services.simulation_explain_service import explain_simulation_fit
 from ..services.task_event_service import (
     record_task_failure,
     record_task_running,
     record_task_success,
 )
 from ..services.timeseries_service import (
+    persist_simulation_external_series,
     persist_simulation_stub_timeseries,
     persist_word_analysis_external_series,
 )
 
 ALGO_SOURCE_REPO = "https://github.com/bkk513/misspelling_behaviors"
 ALGO_SOURCE_COMMIT = "4e781ec"
+SIMULATION_SOURCE_REPO = "local:/srv/apps/chaunbofangzhen"
+SIMULATION_SOURCE_COMMIT = "workspace"
 ALGO_IMPL = "internal_rewrite"
 
 
@@ -52,11 +58,18 @@ def _word_params(payload: str | dict):
     if isinstance(payload, dict):
         word = str(payload.get("word") or "demo")
         variants = [str(v).strip().lower() for v in (payload.get("variants") or []) if str(v).strip()]
+        def _int_or_default(value: Any, default: int) -> int:
+            if value is None or value == "":
+                return default
+            try:
+                return int(value)
+            except Exception:
+                return default
         return {
             "word": word,
-            "start_year": int(payload.get("start_year") or 1900),
-            "end_year": int(payload.get("end_year") or 2019),
-            "smoothing": int(payload.get("smoothing") or 3),
+            "start_year": _int_or_default(payload.get("start_year"), 1900),
+            "end_year": _int_or_default(payload.get("end_year"), 2019),
+            "smoothing": _int_or_default(payload.get("smoothing"), 3),
             "corpus": str(payload.get("corpus") or "eng_2019"),
             "variants": variants,
         }
@@ -117,6 +130,7 @@ def _algo_params(payload: dict[str, Any] | Any) -> dict[str, Any]:
         "end_year": _to_int(data.get("end_year"), 2019),
         "corpus": str(data.get("corpus") or "eng_2019"),
         "smoothing": _to_int(data.get("smoothing"), 3),
+        "origin_year": _to_int(data.get("origin_year"), 0) or None,
         "tau_max": _to_int(data.get("tau_max"), 8),
         "window_size": _to_int(data.get("window_size"), 0),
         "window_step": _to_int(data.get("window_step"), 0),
@@ -128,6 +142,32 @@ def _algo_params(payload: dict[str, Any] | Any) -> dict[str, Any]:
         "bootstrap_samples": _to_int(data.get("bootstrap_samples"), 500),
         "event_threshold_quantile": _to_float(data.get("event_threshold_quantile"), 0.9),
         "random_seed": _to_int(data.get("random_seed"), 42),
+    }
+
+
+def _simulation_params(payload: dict[str, Any] | Any) -> dict[str, Any]:
+    data = payload if isinstance(payload, dict) else {}
+    base = _algo_params(data)
+    topology = str(data.get("topology") or "watts_strogatz").strip().lower() or "watts_strogatz"
+    if topology not in {"grid", "watts_strogatz", "newman_watts", "barabasi_albert", "dual_barabasi_albert"}:
+        topology = "watts_strogatz"
+    n_agents = _to_int(data.get("n_agents") if isinstance(data, dict) else None, _to_int(data.get("n"), 720))
+    search_rounds = _to_int(data.get("search_rounds") if isinstance(data, dict) else None, _to_int(data.get("steps"), 36))
+    fit_profile = str(data.get("fit_profile") or "publication").strip().lower() or "publication"
+    if fit_profile not in {"explore", "research", "publication"}:
+        fit_profile = "publication"
+    return {
+        **base,
+        "topology": topology,
+        "n_agents": max(40, n_agents or 720),
+        "search_rounds": max(8, search_rounds or 36),
+        "repeats": max(1, _to_int(data.get("repeats"), 3)),
+        "fit_profile": fit_profile,
+        "trend_window": max(1, _to_int(data.get("trend_window"), 3)),
+        "ws_k": max(2, _to_int(data.get("ws_k"), 8)),
+        "ws_p": _to_float(data.get("ws_p"), 0.08),
+        "ba_m": max(1, _to_int(data.get("ba_m"), 4)),
+        "intervention_year": _to_int(data.get("intervention_year"), 0) or None,
     }
 
 
@@ -159,13 +199,16 @@ def _build_algo_provenance(
     mode: str,
     params: dict[str, Any],
     fallback_reason: str | None = None,
+    impl: str | None = None,
+    source_repo: str | None = None,
+    source_repo_commit: str | None = None,
 ) -> dict[str, Any]:
     return {
         "task_id": task_id,
         "task_type": task_type,
-        "source_repo": ALGO_SOURCE_REPO,
-        "source_repo_commit": ALGO_SOURCE_COMMIT,
-        "impl": ALGO_IMPL,
+        "source_repo": str(source_repo or ALGO_SOURCE_REPO),
+        "source_repo_commit": str(source_repo_commit or ALGO_SOURCE_COMMIT),
+        "impl": str(impl or ALGO_IMPL),
         "dataset_source": dataset_source,
         "mode": mode,
         "fallback_reason": fallback_reason,
@@ -216,7 +259,7 @@ def _try_save_algo_preview(
         elif task_type == "mrnmr-steady":
             write_mrnmr_preview_png(algo_payload.get("metrics") or [], algo_payload.get("summary") or {}, out_png)
         elif task_type == "deltaT-null":
-            write_delta_t_preview_png(algo_payload.get("events") or [], algo_payload.get("delta_t_stats") or {}, out_png)
+            write_delta_t_preview_png(algo_payload, out_png)
         else:
             return None, None
         register_artifact(task_id, "png", "preview.png", out_png, "image/png")
@@ -268,6 +311,7 @@ def _execute_algo_task(
     try:
         dataset = build_algorithm_dataset(
             task_id=task_id,
+            task_type=task_type,
             word=params["word"],
             variants=params.get("variants") or [],
             start_year=int(params["start_year"]),
@@ -302,6 +346,7 @@ def _execute_algo_task(
                 mode=mode,
                 params=params,
                 fallback_reason=fallback_reason,
+                impl=str(algo_payload.get("impl") or ALGO_IMPL),
             ),
             "artifacts": artifacts,
             "warnings": warnings,
@@ -339,7 +384,14 @@ def demo_analysis(self, payload: str | dict):
             corpus=params["corpus"],
             smoothing=params["smoothing"],
         )
-        persisted = persist_word_analysis_external_series(task_id, params["word"], pulled)
+        persisted = persist_word_analysis_external_series(
+            task_id,
+            params["word"],
+            pulled,
+            task_type="word-analysis",
+            corpus=str(params["corpus"]),
+            smoothing=int(params["smoothing"]),
+        )
 
         csv_rows: list[dict] = []
         for item in pulled.get("series") or []:
@@ -391,25 +443,92 @@ def _on_failure(sender=None, exception=None, traceback=None, **kwargs):
 
 
 @celery_app.task(bind=True)
-def simulation_run(self, n: int = 30, steps: int = 50):
+def simulation_run(self, payload: dict[str, Any] | None = None):
     task_id = self.request.id
     set_task_running(task_id)
     record_task_running(task_id, "simulation-run")
+    params = _simulation_params(payload or {})
     try:
-        series = [{"t": t, "errors": (t % 10), "correct": (t * 2) % 17} for t in range(steps)]
+        dataset = build_algorithm_dataset(
+            task_id=task_id,
+            task_type="simulation-run",
+            word=params["word"],
+            variants=params.get("variants") or [],
+            start_year=int(params["start_year"]),
+            end_year=int(params["end_year"]),
+            corpus=str(params["corpus"]),
+            smoothing=int(params["smoothing"]),
+        )
+        sim_payload = run_simulation(
+            dataset,
+            topology=str(params["topology"]),
+            n_agents=int(params["n_agents"]),
+            search_rounds=int(params["search_rounds"]),
+            repeats=int(params["repeats"]),
+            fit_profile=str(params.get("fit_profile") or "publication"),
+            trend_window=int(params["trend_window"]),
+            random_seed=int(params["random_seed"]),
+            ws_k=int(params["ws_k"]),
+            ws_p=float(params["ws_p"]),
+            ba_m=int(params["ba_m"]),
+            intervention_year=params.get("intervention_year"),
+        )
+        sim_payload["explanation"] = explain_simulation_fit(
+            word=params["word"],
+            summary=dict(sim_payload.get("summary") or {}),
+            best_params=dict(sim_payload.get("best_params") or {}),
+            metrics=dict(sim_payload.get("metrics_summary") or {}),
+            network_summary=dict(sim_payload.get("network_summary") or {}),
+            variant_breakdown=list(sim_payload.get("variant_breakdown") or []),
+            actor_user_id=get_task_owner(task_id),
+        )
         out_dir = build_output_dir(task_id)
         out_csv = out_dir / "result.csv"
+        out_json = out_dir / "result.json"
         out_png = out_dir / "preview.png"
-        write_simulation_csv(series, out_csv)
-        write_simulation_preview_png(series, out_png)
-        register_simulation_artifacts(task_id, out_csv, out_png)
+        out_gif = out_dir / "propagation.gif"
+        write_simulation_csv(list(sim_payload.get("series_rows") or []), out_csv)
+        write_json_file(sim_payload, out_json)
+        write_simulation_preview_png(sim_payload, out_png)
+        write_simulation_animation_gif(
+            sim_payload,
+            out_gif,
+            ws_k=int(params["ws_k"]),
+            ws_p=float(params["ws_p"]),
+            ba_m=int(params["ba_m"]),
+            random_seed=int(params["random_seed"]),
+        )
+        register_simulation_artifacts(task_id, out_csv, out_png, out_json, out_gif)
+        persisted = persist_simulation_external_series(task_id, params["word"], sim_payload)
         result = {
-            "n": n,
-            "steps": steps,
-            "files": {"csv": f"/api/files/{task_id}/result.csv"},
-            "preview": series[:5],
+            "summary": dict(sim_payload.get("summary") or {}),
+            "provenance": _build_algo_provenance(
+                task_id=task_id,
+                task_type="simulation-run",
+                dataset_source=str(dataset.source).upper(),
+                mode=str(sim_payload.get("mode") or dataset.mode),
+                params=params,
+                fallback_reason=dataset.fallback_reason,
+                impl=str(sim_payload.get("impl") or "group_spelling_abm_integrated"),
+                source_repo=SIMULATION_SOURCE_REPO,
+                source_repo_commit=SIMULATION_SOURCE_COMMIT,
+            ),
+            "artifacts": {
+                "csv": f"/api/files/{task_id}/result.csv",
+                "json": f"/api/files/{task_id}/result.json",
+                "png": f"/api/files/{task_id}/preview.png",
+                "gif": f"/api/files/{task_id}/propagation.gif",
+            },
+            "warnings": _merge_warnings(dataset.warnings, sim_payload.get("warnings")),
+            "network_summary": sim_payload.get("network_summary") or {},
+            "variant_breakdown": sim_payload.get("variant_breakdown") or [],
+            "interventions": list(sim_payload.get("interventions") or [])[:3],
+            "explanation": sim_payload.get("explanation") or {},
+            "series_rows": list(sim_payload.get("series_rows") or [])[:20],
+            "series_count": persisted["series_count"],
+            "point_count": persisted["point_count"],
+            "variants": persisted["variants"],
         }
-        persist_simulation_stub_timeseries(task_id, n, steps)
         set_task_success(task_id, json.dumps(result))
         record_task_success(task_id, "simulation-run")
         return result
@@ -461,12 +580,22 @@ def mrnmr_steady(self, payload: dict[str, Any]):
             params=params,
             runner=lambda dataset, cfg: run_mrnmr(
                 dataset,
+                origin_year=cfg.get("origin_year"),
                 tipping_index=int(cfg["tipping_index"]),
                 kde_bandwidth=str(cfg["kde_bandwidth"]),
                 poly_degree=int(cfg["poly_degree"]),
             ),
             rows_builder=to_metric_rows,
-            fieldnames=["year", "misspelling", "correct", "MR", "NMR", "density"],
+            fieldnames=[
+                "year",
+                "misspelling",
+                "correct",
+                "signal_total",
+                "noise_misspelling",
+                "MR",
+                "NMR",
+                "density",
+            ],
             preview_key="metrics_preview",
         )
     except Exception as exc:
@@ -488,12 +617,27 @@ def deltat_null(self, payload: dict[str, Any]):
             params=params,
             runner=lambda dataset, cfg: run_delta_t(
                 dataset,
+                origin_year=cfg.get("origin_year"),
                 bootstrap_samples=int(cfg["bootstrap_samples"]),
                 event_threshold_quantile=float(cfg["event_threshold_quantile"]),
                 random_seed=int(cfg["random_seed"]),
             ),
             rows_builder=to_event_rows,
-            fieldnames=["year", "index"],
+            fieldnames=[
+                "year",
+                "correct",
+                "misspelling_total",
+                "actual_total",
+                "predicted_correct",
+                "correct_share",
+                "actual_bootstrap",
+                "predicted_bootstrap",
+                "actual_focus",
+                "predicted_focus",
+                "actual_mutation",
+                "predicted_mutation",
+                "event_threshold",
+            ],
             preview_key="events_preview",
         )
     except Exception as exc:

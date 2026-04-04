@@ -2,7 +2,7 @@ from typing import Any
 
 from ..db.tasks_repo import get_task_owner
 from ..db.time_series_repo import get_series_points_for_task, list_series_by_task
-from ..services.gbnc_service import pull_gbnc_with_fallback
+from ..services.gbnc_data_service import pull_gbnc_snapshot_payload
 from ..services.timeseries_service import persist_word_analysis_external_series
 from .types import AlgorithmDataset, AlgorithmSeries
 
@@ -47,6 +47,7 @@ def _load_dataset_from_task(task_id: str) -> tuple[list[str], list[int], list[Al
 
 def build_algorithm_dataset(
     task_id: str,
+    task_type: str,
     word: str,
     variants: list[str],
     start_year: int,
@@ -55,16 +56,24 @@ def build_algorithm_dataset(
     smoothing: int,
 ) -> AlgorithmDataset:
     owner_user_id = get_task_owner(task_id)
-    pulled = pull_gbnc_with_fallback(
-        term=word,
+    current_user = {"id": int(owner_user_id), "roles": []} if owner_user_id is not None else None
+    pulled = pull_gbnc_snapshot_payload(
+        word=word,
         variants=variants,
         start_year=start_year,
         end_year=end_year,
         corpus=corpus,
         smoothing=smoothing,
-        actor_user_id=owner_user_id,
+        current_user=current_user,
     )
-    persist_word_analysis_external_series(task_id, word, pulled)
+    persist_word_analysis_external_series(
+        task_id,
+        word,
+        pulled,
+        task_type=task_type,
+        corpus=corpus,
+        smoothing=smoothing,
+    )
     var_names, years, series, source_name = _load_dataset_from_task(task_id)
     return AlgorithmDataset(
         task_id=task_id,
@@ -76,4 +85,3 @@ def build_algorithm_dataset(
         warnings=[str(v) for v in (pulled.get("warnings") or [])],
         fallback_reason=pulled.get("error_reason"),
     )
-

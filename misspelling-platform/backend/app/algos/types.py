@@ -24,5 +24,4 @@ class AlgorithmDataset:
 
     @property
     def mode(self) -> str:
-        return "stub" if str(self.source).upper() == "STUB" else "real"
-
+        return "stub" if str(self.source).strip().upper() in {"STUB", "STUB_LOCAL"} else "real"

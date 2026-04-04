@@ -1,6 +1,6 @@
-﻿import { Button, Card, Descriptions, Form, InputNumber, Modal, Space, Typography, message } from "antd";
+import { Button, Card, Descriptions, Form, Input, InputNumber, Modal, Space, Table, Typography, message } from "antd";
 import { useEffect, useState } from "react";
-import { api, describeApiError, type AdminSettingsResponse } from "../lib/api";
+import { api, describeApiError, type AdminSettingsResponse, type VariantCacheItem } from "../lib/api";
 
 export function AdminSettingsPage() {
   const [settings, setSettings] = useState<AdminSettingsResponse | null>(null);
@@ -8,6 +8,11 @@ export function AdminSettingsPage() {
   const [loading, setLoading] = useState(false);
   const [purgeOpen, setPurgeOpen] = useState(false);
   const [purgeForm] = Form.useForm<{ user_id?: number }>();
+
+  const [cacheRows, setCacheRows] = useState<VariantCacheItem[]>([]);
+  const [cacheLoading, setCacheLoading] = useState(false);
+  const [cacheUserId, setCacheUserId] = useState<number | undefined>(undefined);
+  const [cacheWord, setCacheWord] = useState("");
 
   const refresh = async () => {
     setLoading(true);
@@ -21,8 +26,21 @@ export function AdminSettingsPage() {
     }
   };
 
+  const refreshVariantCache = async () => {
+    setCacheLoading(true);
+    try {
+      const resp = await api.adminVariantCache(400, cacheUserId, cacheWord || undefined);
+      setCacheRows(resp.items || []);
+    } catch (e) {
+      message.error(describeApiError(e));
+    } finally {
+      setCacheLoading(false);
+    }
+  };
+
   useEffect(() => {
     void refresh();
+    void refreshVariantCache();
   }, []);
 
   return (
@@ -43,6 +61,65 @@ export function AdminSettingsPage() {
           当前为演示阶段：管理员面板依赖 Bearer + admin role；后续将增加更细粒度 RBAC 权限点控制。
         </Typography.Paragraph>
       </Card>
+
+      <Card title="Variant Cache Management (Admin)">
+        <Space wrap style={{ marginBottom: 12 }}>
+          <InputNumber
+            placeholder="User ID"
+            min={1}
+            value={cacheUserId}
+            onChange={(v) => setCacheUserId(v || undefined)}
+            style={{ width: 160 }}
+          />
+          <Input
+            placeholder="Word"
+            value={cacheWord}
+            onChange={(e) => setCacheWord(e.target.value)}
+            style={{ width: 200 }}
+          />
+          <Button onClick={() => void refreshVariantCache()} loading={cacheLoading}>Query</Button>
+          <Button onClick={() => { setCacheUserId(undefined); setCacheWord(""); void refreshVariantCache(); }}>Clear</Button>
+        </Space>
+
+        <Table
+          rowKey="id"
+          size="small"
+          loading={cacheLoading}
+          dataSource={cacheRows}
+          pagination={{ pageSize: 10 }}
+          columns={[
+            { title: "ID", dataIndex: "id", width: 80 },
+            { title: "User", render: (_: unknown, row: VariantCacheItem) => `${row.username || "-"} (#${row.owner_user_id || "-"})` },
+            { title: "Word", dataIndex: "word" },
+            { title: "Variant", dataIndex: "variant" },
+            { title: "Source", dataIndex: "source" },
+            { title: "Updated", dataIndex: "updated_at" },
+            {
+              title: "Action",
+              render: (_: unknown, row: VariantCacheItem) => (
+                <Button
+                  size="small"
+                  danger
+                  onClick={async () => {
+                    try {
+                      const resp = await api.adminDeleteVariantCache(row.id);
+                      if (resp.deleted) {
+                        message.success("Deleted cache entry");
+                        await refreshVariantCache();
+                      }
+                    } catch (e) {
+                      message.error(describeApiError(e));
+                    }
+                  }}
+                >
+                  Delete
+                </Button>
+              )
+            }
+          ]}
+        />
+      </Card>
+
       <Card title="Data Purge (Admin)">
         <Space wrap>
           <Button

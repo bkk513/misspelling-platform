@@ -75,13 +75,18 @@ def _write_html_report(task_id: str, filename: str, title: str, body_html: str) 
     return path
 
 
-def create_task_report_payload(task_id: str, current_user: dict | None = None, project_id: int | None = None):
-    task = get_task_payload(task_id, async_result_factory=None, current_user=current_user)
+def create_task_report_payload(
+    task_id: str,
+    current_user: dict | None = None,
+    project_id: int | None = None,
+    guest_key: str | None = None,
+):
+    task = get_task_payload(task_id, async_result_factory=None, current_user=current_user, guest_key=guest_key)
     if str(task.get("state", "")).upper() == "NOT_FOUND":
         raise HTTPException(status_code=404, detail="task not found")
 
     events = list_task_events_payload(task_id, limit=400).get("items") or []
-    time_series = get_task_timeseries_summary(task_id, current_user=current_user)
+    time_series = get_task_timeseries_summary(task_id, current_user=current_user, guest_key=guest_key)
     params = _normalize(task.get("params"))
     result = _normalize(task.get("result"))
     event_rows = "".join(
@@ -133,7 +138,7 @@ def create_task_report_payload(task_id: str, current_user: dict | None = None, p
     }
 
 
-def create_project_report_payload(project_id: int, current_user: dict | None = None):
+def create_project_report_payload(project_id: int, current_user: dict | None = None, guest_key: str | None = None):
     tasks_payload = list_project_tasks_payload(project_id=project_id, current_user=current_user, limit=300)
     terms_payload = list_project_terms_payload(project_id=project_id, current_user=current_user)
     tasks = tasks_payload.get("items") or []
@@ -183,14 +188,19 @@ def create_project_report_payload(project_id: int, current_user: dict | None = N
     }
 
 
-def list_reports_payload(limit: int = 100, scope: str | None = None, current_user: dict | None = None):
+def list_reports_payload(
+    limit: int = 100,
+    scope: str | None = None,
+    current_user: dict | None = None,
+    guest_key: str | None = None,
+):
     include_all = _is_admin(current_user) and scope == "all"
     owner_user_id = _owner_id(current_user)
     if _is_admin(current_user) and scope == "guest":
         owner_user_id = None
         include_all = False
 
-    rows = list_report_exports(limit=limit, owner_user_id=owner_user_id, include_all=include_all)
+    rows = list_report_exports(limit=limit, owner_user_id=owner_user_id, include_all=include_all, guest_key=guest_key)
     return {
         "items": [
             {
@@ -211,11 +221,12 @@ def list_reports_payload(limit: int = 100, scope: str | None = None, current_use
     }
 
 
-def get_report_payload(report_id: int, current_user: dict | None = None):
+def get_report_payload(report_id: int, current_user: dict | None = None, guest_key: str | None = None):
     row = get_report_export(
         report_id=report_id,
         owner_user_id=_owner_id(current_user),
         include_all=_is_admin(current_user),
+        guest_key=guest_key,
     )
     if not row:
         raise HTTPException(status_code=404, detail="report not found")

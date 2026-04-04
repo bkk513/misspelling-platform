@@ -6,6 +6,24 @@ from sqlalchemy import bindparam, text
 from .core import get_engine
 
 
+def _normalize_guest_key(guest_key: str | None) -> str:
+    return str(guest_key or "").strip()[:64]
+
+
+def _access_scope(owner_user_id: int | None, include_all: bool, guest_key: str | None, series_alias: str, task_alias: str):
+    if include_all:
+        return "1=1", {}
+    if owner_user_id is not None:
+        return f"{series_alias}.owner_user_id = :owner_user_id", {"owner_user_id": owner_user_id}
+    safe_guest_key = _normalize_guest_key(guest_key)
+    if not safe_guest_key:
+        return "1=0", {}
+    return (
+        f"{series_alias}.owner_user_id IS NULL AND {task_alias}.guest_key = :guest_key "
+        f"AND {task_alias}.created_at >= UTC_DATE() AND {task_alias}.status <> 'DELETED'"
+    ), {"guest_key": safe_guest_key}
+
+
 def ensure_term(
     canonical: str,
     category: str = "custom",
@@ -105,15 +123,13 @@ def insert_series_points(series_id: int, points):
         )
 
 
-def list_series_by_task(task_id: str, owner_user_id: int | None = None, include_all: bool = False):
-    owner_where = ""
-    params = {"task_id": task_id}
-    if not include_all:
-        if owner_user_id is None:
-            owner_where = " AND ts.owner_user_id IS NULL"
-        else:
-            owner_where = " AND ts.owner_user_id = :owner_user_id"
-            params["owner_user_id"] = owner_user_id
+def list_series_by_task(
+    task_id: str,
+    owner_user_id: int | None = None,
+    include_all: bool = False,
+    guest_key: str | None = None,
+):
+    where_access, params = _access_scope(owner_user_id, include_all, guest_key, series_alias="ts", task_alias="t")
     with get_engine().begin() as conn:
         return (
             conn.execute(
@@ -127,18 +143,21 @@ def list_series_by_task(task_id: str, owner_user_id: int | None = None, include_
                       ts.window_start,
                       ts.window_end,
                       COALESCE(JSON_UNQUOTE(JSON_EXTRACT(ts.meta_json, '$.variant')), 'correct') AS variant,
-                      (SELECT COUNT(*) FROM time_series_points p WHERE p.series_id = ts.id) AS point_count
+                      (SELECT COUNT(*) FROM time_series_points p WHERE p.series_id = ts.id) AS point_count,
+                      t.created_at AS task_created_at,
+                      t.task_type AS task_type
                     FROM time_series ts
                     JOIN data_sources ds ON ds.id = ts.source_id
                     JOIN lexicon_terms lt ON lt.id = ts.term_id
+                    LEFT JOIN tasks t ON t.task_id = JSON_UNQUOTE(JSON_EXTRACT(ts.meta_json, '$.task_id'))
                     WHERE JSON_UNQUOTE(JSON_EXTRACT(ts.meta_json, '$.task_id')) = :task_id
-                    """
-                    + owner_where
-                    + """
+                      AND ("""
+                    + where_access
+                    + """)
                     ORDER BY ts.id
                     """
                 ),
-                params,
+                {"task_id": task_id, **params},
             )
             .mappings()
             .all()
@@ -150,32 +169,28 @@ def get_series_points_for_task(
     variant: str = "correct",
     owner_user_id: int | None = None,
     include_all: bool = False,
+    guest_key: str | None = None,
 ):
-    owner_where = ""
-    params = {"task_id": task_id, "variant": variant}
-    if not include_all:
-        if owner_user_id is None:
-            owner_where = " AND owner_user_id IS NULL"
-        else:
-            owner_where = " AND owner_user_id = :owner_user_id"
-            params["owner_user_id"] = owner_user_id
+    where_access, params = _access_scope(owner_user_id, include_all, guest_key, series_alias="ts", task_alias="t")
+    query_params = {"task_id": task_id, "variant": variant, **params}
     with get_engine().begin() as conn:
         series = (
             conn.execute(
                 text(
                     """
-                    SELECT id
-                    FROM time_series
-                    WHERE JSON_UNQUOTE(JSON_EXTRACT(meta_json, '$.task_id')) = :task_id
-                      AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(meta_json, '$.variant')), 'correct') = :variant
-                    """
-                    + owner_where
-                    + """
-                    ORDER BY id
+                    SELECT ts.id
+                    FROM time_series ts
+                    LEFT JOIN tasks t ON t.task_id = JSON_UNQUOTE(JSON_EXTRACT(ts.meta_json, '$.task_id'))
+                    WHERE JSON_UNQUOTE(JSON_EXTRACT(ts.meta_json, '$.task_id')) = :task_id
+                      AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(ts.meta_json, '$.variant')), 'correct') = :variant
+                      AND ("""
+                    + where_access
+                    + """)
+                    ORDER BY ts.id
                     LIMIT 1
                     """
                 ),
-                params,
+                query_params,
             )
             .mappings()
             .first()
@@ -193,15 +208,13 @@ def get_series_points_for_task(
         return int(series["id"]), rows
 
 
-def list_series(limit: int = 100, owner_user_id: int | None = None, include_all: bool = False):
-    owner_where = ""
-    params = {"limit": limit}
-    if not include_all:
-        if owner_user_id is None:
-            owner_where = "WHERE ts.owner_user_id IS NULL"
-        else:
-            owner_where = "WHERE ts.owner_user_id = :owner_user_id"
-            params["owner_user_id"] = owner_user_id
+def list_series(
+    limit: int = 100,
+    owner_user_id: int | None = None,
+    include_all: bool = False,
+    guest_key: str | None = None,
+):
+    where_access, params = _access_scope(owner_user_id, include_all, guest_key, series_alias="ts", task_alias="t")
     with get_engine().begin() as conn:
         return (
             conn.execute(
@@ -217,18 +230,21 @@ def list_series(limit: int = 100, owner_user_id: int | None = None, include_all:
                       ts.owner_user_id,
                       COALESCE(JSON_UNQUOTE(JSON_EXTRACT(ts.meta_json, '$.task_id')), '') AS task_id,
                       COALESCE(JSON_UNQUOTE(JSON_EXTRACT(ts.meta_json, '$.variant')), 'correct') AS variant,
-                      (SELECT COUNT(*) FROM time_series_points p WHERE p.series_id = ts.id) AS point_count
+                      (SELECT COUNT(*) FROM time_series_points p WHERE p.series_id = ts.id) AS point_count,
+                      t.created_at AS task_created_at,
+                      t.task_type AS task_type
                     FROM time_series ts
                     JOIN data_sources ds ON ds.id = ts.source_id
                     JOIN lexicon_terms lt ON lt.id = ts.term_id
-                    """
-                    + owner_where
-                    + """
+                    LEFT JOIN tasks t ON t.task_id = JSON_UNQUOTE(JSON_EXTRACT(ts.meta_json, '$.task_id'))
+                    WHERE ("""
+                    + where_access
+                    + """)
                     ORDER BY ts.id DESC
                     LIMIT :limit
                     """
                 ),
-                params,
+                {"limit": limit, **params},
             )
             .mappings()
             .all()
@@ -243,9 +259,15 @@ def list_series_owners(series_ids: list[int]):
             conn.execute(
                 text(
                     """
-                    SELECT id, owner_user_id
-                    FROM time_series
-                    WHERE id IN :ids
+                    SELECT
+                      s.id,
+                      s.owner_user_id,
+                      t.guest_key,
+                      t.created_at AS task_created_at,
+                      t.status AS task_status
+                    FROM time_series s
+                    LEFT JOIN tasks t ON t.task_id = JSON_UNQUOTE(JSON_EXTRACT(s.meta_json, '$.task_id'))
+                    WHERE s.id IN :ids
                     """
                 ).bindparams(bindparam("ids", expanding=True)),
                 {"ids": series_ids},

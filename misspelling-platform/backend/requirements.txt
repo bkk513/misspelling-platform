@@ -15,3 +15,8 @@ scipy==1.14.1
 scikit-learn==1.5.2
 tigramite==5.2.9.4
 networkx==3.3
+openpyxl==3.1.5
+pyod==2.0.5
+ncps==1.0.1
+tensorflow==2.21.0
+grpcio==1.80.0

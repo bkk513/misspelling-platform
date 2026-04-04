@@ -1,0 +1,165 @@
+.variant-studio-shell {
+  width: 100%;
+}
+
+.variant-studio-hero {
+  border-radius: 18px;
+  border: 1px solid #dce8f9;
+  background:
+    radial-gradient(120% 120% at 8% 2%, rgba(22, 119, 255, 0.14) 0%, rgba(22, 119, 255, 0) 46%),
+    radial-gradient(110% 130% at 92% 10%, rgba(82, 196, 26, 0.12) 0%, rgba(82, 196, 26, 0) 48%),
+    linear-gradient(140deg, #ffffff 0%, #f8fbff 56%, #f7fff8 100%);
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.05);
+}
+
+.variant-studio-hero .ant-card-body {
+  display: grid;
+  gap: 14px;
+}
+
+.variant-studio-title.ant-typography {
+  margin: 0;
+}
+
+.variant-studio-subtitle.ant-typography {
+  margin: 0;
+  color: #4b5563;
+}
+
+.variant-studio-metrics {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+
+.variant-studio-metric {
+  border-radius: 12px;
+  border: 1px solid #e2eaf8;
+  background: rgba(255, 255, 255, 0.82);
+  padding: 10px 12px;
+  backdrop-filter: blur(4px);
+}
+
+.metric-label.ant-typography {
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.metric-value.ant-typography {
+  margin: 2px 0 0;
+}
+
+.variant-studio-card {
+  border-radius: 14px;
+  border: 1px solid #e7ecf4;
+  box-shadow: var(--shadow-sm);
+}
+
+.variant-studio-card .ant-card-head {
+  border-bottom: 1px solid #eef2f8;
+}
+
+.variant-studio-card .ant-table-thead > tr > th {
+  background: #f7f9fd;
+  font-weight: 600;
+}
+
+.variant-studio-card .ant-table-tbody > tr:hover > td {
+  background: #f3f8ff;
+}
+
+.variant-studio-progress {
+  width: 100%;
+}
+
+.variant-studio-progress .ant-progress {
+  margin-inline-end: 0;
+}
+
+.variant-studio-progress .ant-progress-inner {
+  background-color: #e8edf6;
+}
+
+.variant-studio-busy {
+  text-align: right;
+}
+
+.variant-studio-recommend-head {
+  border-radius: 10px;
+  border: 1px solid #e8eef9;
+  background: linear-gradient(180deg, #fcfdff 0%, #f6f9ff 100%);
+  padding: 10px;
+  margin-bottom: 10px;
+}
+
+.variant-studio-clickable {
+  cursor: pointer;
+  transition: color 0.2s ease;
+}
+
+.variant-studio-clickable:hover {
+  color: #1677ff;
+}
+
+@media (max-width: 1200px) {
+  .variant-studio-recommend-head {
+    padding: 9px;
+  }
+}
+
+@media (max-width: 768px) {
+  .variant-studio-hero {
+    border-radius: 14px;
+  }
+
+  .variant-studio-metrics {
+    grid-template-columns: repeat(2, minmax(120px, 1fr));
+  }
+}
+
+[data-theme="dark"] .variant-studio-hero {
+  border-color: rgba(255, 255, 255, 0.12);
+  background:
+    radial-gradient(130% 120% at 6% 0%, rgba(24, 144, 255, 0.2) 0%, rgba(24, 144, 255, 0) 52%),
+    radial-gradient(130% 120% at 94% 8%, rgba(53, 146, 66, 0.22) 0%, rgba(53, 146, 66, 0) 50%),
+    linear-gradient(140deg, #1c1f24 0%, #171b1f 52%, #141c16 100%);
+}
+
+[data-theme="dark"] .variant-studio-subtitle.ant-typography,
+[data-theme="dark"] .metric-label.ant-typography {
+  color: rgba(255, 255, 255, 0.65);
+}
+
+[data-theme="dark"] .variant-studio-metric {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+[data-theme="dark"] .variant-studio-card {
+  border-color: rgba(255, 255, 255, 0.09);
+}
+
+[data-theme="dark"] .variant-studio-card .ant-card-head {
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+
+[data-theme="dark"] .variant-studio-card .ant-table-thead > tr > th {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+[data-theme="dark"] .variant-studio-card .ant-table-tbody > tr:hover > td {
+  background: rgba(24, 144, 255, 0.1);
+}
+
+[data-theme="dark"] .variant-studio-progress .ant-progress-inner {
+  background-color: rgba(255, 255, 255, 0.08);
+}
+
+[data-theme="dark"] .variant-studio-recommend-head {
+  border-color: rgba(255, 255, 255, 0.12);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.04) 0%, rgba(24, 144, 255, 0.06) 100%);
+}
+
+[data-theme="dark"] .variant-studio-clickable:hover {
+  color: #53a3ff;
+}

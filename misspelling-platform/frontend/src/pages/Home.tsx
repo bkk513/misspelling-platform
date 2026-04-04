@@ -1,8 +1,7 @@
-﻿import { BarChartOutlined, FileSearchOutlined, RocketOutlined } from "@ant-design/icons";
-import { Alert, Button, Card, Col, Input, Row, Space, Statistic, Table, Tag, Typography, message } from "antd";
+import { BarChartOutlined, FileSearchOutlined, LinkOutlined, RadarChartOutlined } from "@ant-design/icons";
+import { Alert, Button, Card, Col, Row, Space, Table, Tag, Typography, message } from "antd";
 import { useEffect, useMemo, useState } from "react";
 import { goToApp, goToTask } from "../app/router";
-import { TurnstileWidget } from "../components/TurnstileWidget";
 import {
   api,
   describeApiError,
@@ -24,13 +23,6 @@ export function HomePage() {
   const [extended, setExtended] = useState<ExtendedHealthResponse | null>(null);
   const [tasks, setTasks] = useState<TaskListItem[]>([]);
   const [loading, setLoading] = useState(false);
-  const [word, setWord] = useState("demo");
-  const [n, setN] = useState("20");
-  const [steps, setSteps] = useState("15");
-  const [busy, setBusy] = useState<"" | "word" | "sim">("");
-  const [turnstileToken, setTurnstileToken] = useState("");
-  const [turnstileNonce, setTurnstileNonce] = useState(0);
-  const turnstileSiteKey = String(import.meta.env.VITE_TURNSTILE_SITE_KEY || "").trim();
 
   const refresh = async () => {
     setLoading(true);
@@ -60,162 +52,155 @@ export function HomePage() {
     return Math.round((ok / tasks.length) * 100);
   }, [tasks]);
 
-  const runWord = async () => {
-    if (!turnstileToken) {
-      message.warning("Please complete Turnstile verification first.");
-      return;
-    }
-    setBusy("word");
-    try {
-      const resp = await api.createWordAnalysis(word.trim() || "demo", undefined, turnstileToken);
-      message.success(`word-analysis queued: ${resp.task_id}`);
-      goToTask(resp.task_id);
-    } catch (e) {
-      message.error(describeApiError(e));
-    } finally {
-      setBusy("");
-      setTurnstileNonce((v) => v + 1);
-    }
-  };
-
-  const runSimulation = async () => {
-    if (!turnstileToken) {
-      message.warning("Please complete Turnstile verification first.");
-      return;
-    }
-    setBusy("sim");
-    try {
-      const resp = await api.createSimulation(Number(n) || 20, Number(steps) || 15, turnstileToken);
-      message.success(`simulation-run queued: ${resp.task_id}`);
-      goToTask(resp.task_id);
-    } catch (e) {
-      message.error(describeApiError(e));
-    } finally {
-      setBusy("");
-      setTurnstileNonce((v) => v + 1);
-    }
-  };
-
   return (
-    <Space direction="vertical" size={16} style={{ width: "100%" }}>
-      <Typography.Text type="secondary">
-        当前为 Guest 演示模式：任务与数据暂为共享视图。后续版本将启用 owner 绑定与“我的任务”隔离。
-      </Typography.Text>
+    <div className="enterprise-page-shell">
       {extended?.warnings && extended.warnings.length > 0 && (
         <Alert type="warning" showIcon message={`System warnings: ${extended.warnings.join(", ")}`} />
       )}
-      <Row gutter={16}>
-        <Col xs={24} md={8}>
-          <Card>
-            <Statistic title="DB Health" value={health?.db ? "ONLINE" : "OFFLINE"} />
-          </Card>
-        </Col>
-        <Col xs={24} md={8}>
-          <Card>
-            <Statistic title="Today Task Volume" value={tasks.length} />
-          </Card>
-        </Col>
-        <Col xs={24} md={8}>
-          <Card>
-            <Statistic title="Recent Success Rate" value={successRate} suffix="%" />
-          </Card>
-        </Col>
-      </Row>
-      <Row gutter={16}>
-        <Col xs={24} md={8}>
-          <Card title="Redis Status">
-            <Tag color={extended?.redis ? "green" : "orange"}>{extended?.redis ? "ONLINE" : "DEGRADED"}</Tag>
-          </Card>
-        </Col>
-        <Col xs={24} md={8}>
-          <Card title="LLM Status">
-            <Tag color={extended?.llm_enabled ? "green" : "default"}>
-              {extended?.llm_enabled ? "ENABLED" : "DISABLED"}
-            </Tag>
-          </Card>
-        </Col>
-        <Col xs={24} md={8}>
-          <Card title="GBNC Status">
-            <Tag color={extended?.gbnc_enabled ? "green" : "orange"}>
-              {extended?.gbnc_enabled ? "ENABLED" : "STUB_FALLBACK"}
-            </Tag>
-          </Card>
-        </Col>
-      </Row>
-      <Card title="Bot Protection">
-        <TurnstileWidget siteKey={turnstileSiteKey} refreshKey={turnstileNonce} onTokenChange={setTurnstileToken} />
+      <Card bordered={false} className="enterprise-hero-card">
+        <div className="enterprise-hero-grid">
+          <div>
+            <div className="enterprise-kicker">
+              <RadarChartOutlined />
+              Researcher Dashboard
+            </div>
+            <Typography.Title level={2} className="enterprise-hero-title">
+              Misspelling Research Control Plane
+            </Typography.Title>
+            <Typography.Paragraph className="enterprise-hero-desc">
+              首页统一成和算法页同一套视觉语言，只保留真正高频的信息：系统健康、近期任务执行情况，以及三个最常用的入口。这里不改功能，只把研究操作入口收成一个更清晰的总览面。
+            </Typography.Paragraph>
+          </div>
+          <div className="enterprise-hero-meta">
+            <div className="enterprise-meta-card">
+              <span className="enterprise-meta-label">System Health</span>
+              <div className="enterprise-meta-value">{health?.db ? "ONLINE" : "OFFLINE"}</div>
+              <div className="enterprise-meta-copy">Database {health?.db ? "is available" : "is unavailable"}.</div>
+            </div>
+            <div className="enterprise-meta-card">
+              <span className="enterprise-meta-label">Recent Task Volume</span>
+              <div className="enterprise-meta-value">{tasks.length}</div>
+              <div className="enterprise-meta-copy">当前首页展示的最近任务数量。</div>
+            </div>
+          </div>
+        </div>
+
+        <div className="enterprise-stat-grid">
+          <div className="enterprise-stat-card">
+            <div className="enterprise-stat-label">Success Rate</div>
+            <div className="enterprise-stat-value">{successRate}%</div>
+            <div className="enterprise-stat-copy">最近任务中的成功率。</div>
+          </div>
+          <div className="enterprise-stat-card">
+            <div className="enterprise-stat-label">Redis</div>
+            <div className="enterprise-stat-value">{extended?.redis ? "ONLINE" : "DEGRADED"}</div>
+            <div className="enterprise-stat-copy">任务与缓存链路状态。</div>
+          </div>
+          <div className="enterprise-stat-card">
+            <div className="enterprise-stat-label">LLM</div>
+            <div className="enterprise-stat-value">{extended?.llm_enabled ? "ENABLED" : "DISABLED"}</div>
+            <div className="enterprise-stat-copy">变体推荐与起点建议能力。</div>
+          </div>
+          <div className="enterprise-stat-card">
+            <div className="enterprise-stat-label">GBNC</div>
+            <div className="enterprise-stat-value">{extended?.gbnc_enabled ? "LIVE" : "STUB"}</div>
+            <div className="enterprise-stat-copy">外部语料数据源可用性。</div>
+          </div>
+        </div>
       </Card>
-      <Row gutter={16}>
-        <Col xs={24} md={12}>
+
+      <Row gutter={[18, 18]}>
+        <Col xs={24} xl={8}>
           <Card
-            title="Run Word Analysis"
-            extra={
-              <Button icon={<FileSearchOutlined />} onClick={() => goToApp("word-analysis")}>
-                Open Workbench
-              </Button>
+            className="enterprise-section-card"
+            title={
+              <div className="enterprise-section-title">
+                <LinkOutlined />
+                <div className="enterprise-section-copy">
+                  <strong>Quick Entry</strong>
+                  <span>直接进入最常用的研究面板。</span>
+                </div>
+              </div>
             }
           >
-            <Space.Compact style={{ width: "100%" }}>
-              <Input value={word} onChange={(e) => setWord(e.target.value)} placeholder="word" />
-              <Button type="primary" loading={busy === "word"} onClick={runWord} disabled={!turnstileToken}>
-                Run
+            <div className="enterprise-toolbar">
+              <div className="enterprise-toolbar-copy">
+                <strong>Open A Workspace</strong>
+                <span>保持原功能，只优化呈现方式。</span>
+              </div>
+              <Button onClick={() => void refresh()} loading={loading}>
+                Refresh
               </Button>
-            </Space.Compact>
+            </div>
+
+            <Space direction="vertical" size={12} style={{ width: "100%" }}>
+              <div className="enterprise-note-box">
+                <Button type="primary" icon={<FileSearchOutlined />} block onClick={() => goToApp("word-analysis")}>
+                  Open Word Analysis
+                </Button>
+              </div>
+              <div className="enterprise-note-box">
+                <Button icon={<BarChartOutlined />} block onClick={() => goToApp("simulation")}>
+                  Open Simulation
+                </Button>
+              </div>
+              <div className="enterprise-note-box">
+                <Button block onClick={() => goToApp("tasks")}>
+                  Open Task Center
+                </Button>
+              </div>
+            </Space>
           </Card>
         </Col>
-        <Col xs={24} md={12}>
+
+        <Col xs={24} xl={16}>
           <Card
-            title="Run Simulation"
-            extra={
-              <Button icon={<BarChartOutlined />} onClick={() => goToApp("time-series")}>
-                Open Explorer
-              </Button>
+            className="enterprise-section-card"
+            title={
+              <div className="enterprise-section-title">
+                <RadarChartOutlined />
+                <div className="enterprise-section-copy">
+                  <strong>Recent Tasks</strong>
+                  <span>最近任务的状态、时间和详情入口。</span>
+                </div>
+              </div>
             }
           >
-            <Space.Compact style={{ width: "100%" }}>
-              <Input value={n} onChange={(e) => setN(e.target.value)} placeholder="n" style={{ width: 120 }} />
-              <Input
-                value={steps}
-                onChange={(e) => setSteps(e.target.value)}
-                placeholder="steps"
-                style={{ width: 120 }}
-              />
-              <Button
-                type="primary"
-                icon={<RocketOutlined />}
-                loading={busy === "sim"}
-                onClick={runSimulation}
-                disabled={!turnstileToken}
-              >
-                Run
-              </Button>
-            </Space.Compact>
+            <Table
+              size="small"
+              rowKey="task_id"
+              loading={loading}
+              dataSource={tasks}
+              pagination={{ pageSize: 6 }}
+              columns={[
+                {
+                  title: "Task",
+                  render: (_: unknown, row: TaskListItem) => (
+                    <Space direction="vertical" size={0}>
+                      <Typography.Text>{row.display_name || row.task_type}</Typography.Text>
+                      <Typography.Text code>{row.task_id.slice(0, 12)}...</Typography.Text>
+                    </Space>
+                  )
+                },
+                {
+                  title: "Status",
+                  dataIndex: "status",
+                  render: (v: string) => <Tag color={statusColor(v)}>{v}</Tag>
+                },
+                { title: "Created", dataIndex: "created_at", render: (v: string) => v || "-" },
+                {
+                  title: "Action",
+                  render: (_: unknown, row: TaskListItem) => (
+                    <Button size="small" onClick={() => goToTask(row.task_id)}>
+                      Detail
+                    </Button>
+                  )
+                }
+              ]}
+            />
           </Card>
         </Col>
       </Row>
-      <Card title="Recent Tasks" extra={<Button onClick={() => void refresh()} loading={loading}>Refresh</Button>}>
-        <Table
-          size="small"
-          rowKey="task_id"
-          loading={loading}
-          dataSource={tasks}
-          pagination={{ pageSize: 6 }}
-          columns={[
-            {
-              title: "Task",
-              render: (_: unknown, row: TaskListItem) => (
-                <Space direction="vertical" size={0}>
-                  <Typography.Text>{row.display_name || row.task_type}</Typography.Text>
-                  <Typography.Text code>{row.task_id.slice(0, 12)}...</Typography.Text>
-                </Space>
-              )
-            },
-            { title: "Status", dataIndex: "status", render: (v: string) => <Tag color={statusColor(v)}>{v}</Tag> },
-            { title: "Created", dataIndex: "created_at", render: (v: string) => v || "-" },
-            { title: "Action", render: (_: unknown, row: TaskListItem) => <Button size="small" onClick={() => goToTask(row.task_id)}>Detail</Button> }
-          ]}
-        />
-      </Card>
-    </Space>
+    </div>
   );
 }

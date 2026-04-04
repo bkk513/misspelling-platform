@@ -8,8 +8,10 @@ from ..db.audit_logs_repo import insert_audit_log, list_audit_logs
 from ..db.core import get_engine
 from ..db.data_sources_repo import list_data_sources
 from ..db.users_repo import create_user, get_user_by_id, list_users, update_user_active, update_user_password
+from ..providers.llm_bailian import is_llm_configured
 from ..services.auth_service import hash_password
 from ..services.diagnostics_service import get_admin_diagnostics_payload
+from ..services.lexicon_service import admin_delete_variant_cache_payload, admin_list_variant_cache_payload
 from .auth_deps import require_admin
 
 router = APIRouter()
@@ -138,11 +140,21 @@ def admin_data_sources(limit: int = 50, current=Depends(require_admin)):
     return {"items": [dict(r) for r in rows]}
 
 
+@router.get("/api/admin/variant-cache")
+def admin_variant_cache(limit: int = 300, user_id: int | None = None, word: str | None = None, current=Depends(require_admin)):
+    return admin_list_variant_cache_payload(limit=limit, user_id=user_id, word=word)
+
+
+@router.delete("/api/admin/variant-cache/{entry_id}")
+def admin_delete_variant_cache(entry_id: int, current=Depends(require_admin)):
+    return admin_delete_variant_cache_payload(entry_id=entry_id, actor_user_id=int(current["id"]))
+
+
 @router.get("/api/admin/settings")
 def admin_settings(current=Depends(require_admin)):
     return {
         "allow_guest": True,
-        "llm_enabled": bool((os.getenv("BAILIAN_API_KEY") or os.getenv("DASHSCOPE_API_KEY") or "").strip()),
+        "llm_enabled": is_llm_configured(),
         "gbnc_enabled": True,
         "admin_token_compat": False,
     }
@@ -210,6 +222,7 @@ def admin_purge(body: AdminPurgeBody, current=Depends(require_admin)):
             conn.execute(text(f"DELETE FROM lexicon_variants WHERE {scope_where}"), scope_params)
             result = conn.execute(text(f"DELETE FROM lexicon_terms WHERE {scope_where}"), scope_params)
             deleted_counts["lexicon"] = int(result.rowcount or 0)
+            conn.execute(text(f"DELETE FROM variant_cache_entries WHERE {scope_where}"), scope_params)
 
     insert_audit_log(
         action="ADMIN_PURGE",
