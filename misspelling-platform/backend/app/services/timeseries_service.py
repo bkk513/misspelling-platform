@@ -287,12 +287,21 @@ def persist_word_analysis_external_series(
     task_id: str,
     word: str,
     payload: dict[str, Any],
+    task_type: str = "word-analysis",
+    corpus: str | None = None,
+    smoothing: int | None = None,
 ):
     owner_user_id = get_task_owner(task_id)
     source_name = "GBNC" if str(payload.get("source", "")).upper() == "GBNC" else "stub_local"
     source_id = ensure_data_source(name=source_name, granularity="year")
     canonical = (word or "word").strip().lower()
     term_id = ensure_term(canonical=canonical, category="custom", language="en", owner_user_id=owner_user_id)
+    meta_corpus = str(corpus or payload.get("corpus") or "").strip() or None
+    raw_smoothing = payload.get("smoothing") if smoothing is None else smoothing
+    try:
+        meta_smoothing = None if raw_smoothing is None or raw_smoothing == "" else int(raw_smoothing)
+    except Exception:
+        meta_smoothing = None
 
     series_rows = payload.get("series") or []
     if not series_rows:
@@ -325,10 +334,12 @@ def persist_word_analysis_external_series(
             units=str(payload.get("unit") or "relative_frequency"),
             meta={
                 "task_id": task_id,
-                "task_type": "word-analysis",
+                "task_type": task_type,
                 "canonical": canonical,
                 "variant": variant,
                 "source": payload.get("source"),
+                "corpus": meta_corpus,
+                "smoothing": meta_smoothing,
                 "warnings": payload.get("warnings") or [],
                 "error_reason": payload.get("error_reason"),
             },

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from fastapi.responses import FileResponse
 
 from .auth_deps import get_optional_user
@@ -35,13 +35,18 @@ def pull_gbnc(
 
 
 @router.get("/api/data/gbnc/series/{series_id}")
-def gbnc_series(series_id: int, current_user=Depends(get_optional_user)):
-    return get_gbnc_series_payload(series_id=series_id, current_user=current_user)
+def gbnc_series(series_id: int, guest_key: str | None = Header(None, alias="X-Guest-Key"), current_user=Depends(get_optional_user)):
+    return get_gbnc_series_payload(series_id=series_id, current_user=current_user, guest_key=guest_key)
 
 
 @router.get("/api/data/gbnc/series/{series_id}/points")
-def gbnc_series_points(series_id: int, variant: str | None = None, current_user=Depends(get_optional_user)):
-    return get_gbnc_series_points_payload(series_id=series_id, variant=variant, current_user=current_user)
+def gbnc_series_points(
+    series_id: int,
+    variant: str | None = None,
+    guest_key: str | None = Header(None, alias="X-Guest-Key"),
+    current_user=Depends(get_optional_user),
+):
+    return get_gbnc_series_points_payload(series_id=series_id, variant=variant, current_user=current_user, guest_key=guest_key)
 
 
 @router.get("/api/paper-assets/deltat/{word}")

@@ -1,5 +1,6 @@
 import json
 from datetime import date, datetime, timezone
+from typing import Any
 
 from fastapi import HTTPException
 from sqlalchemy import text
@@ -19,6 +20,41 @@ def _owner_id(current_user: dict | None) -> int | None:
 
 def _is_admin(current_user: dict | None) -> bool:
     return bool(current_user and "admin" in set(current_user.get("roles") or []))
+
+
+def _normalize_guest_key(guest_key: str | None) -> str:
+    return str(guest_key or "").strip()[:64]
+
+
+def _is_today_utc(value: Any) -> bool:
+    today = datetime.now(timezone.utc).date()
+    if value is None:
+        return False
+    if hasattr(value, "date"):
+        try:
+            return value.date() == today
+        except Exception:
+            pass
+    text_value = str(value)
+    if len(text_value) >= 10:
+        try:
+            return datetime.strptime(text_value[:10], "%Y-%m-%d").date() == today
+        except Exception:
+            return False
+    return False
+
+
+def _parse_meta(meta_json: Any) -> dict[str, Any]:
+    if isinstance(meta_json, dict):
+        return dict(meta_json)
+    if isinstance(meta_json, str):
+        try:
+            parsed = json.loads(meta_json)
+            if isinstance(parsed, dict):
+                return parsed
+        except Exception:
+            return {}
+    return {}
 
 
 def _owner_where(owner_user_id: int | None, include_all: bool):
@@ -58,6 +94,7 @@ def _series_rows_for_signature(
                       AND ts.granularity='year'
                       AND ts.window_start=:window_start
                       AND ts.window_end=:window_end
+                      AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(ts.meta_json, '$.task_id')), '') = ''
                       AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(ts.meta_json, '$.corpus')), '')=:corpus
                       AND COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(ts.meta_json, '$.smoothing')) AS SIGNED), -1)=:smoothing
                       AND ({where_owner})
@@ -86,6 +123,19 @@ def _normalize_variants(word: str, variants: list[str] | None):
         if value and value not in values:
             values.append(value)
     return values
+
+
+def _dedupe_series_rows(rows: list[Any]) -> list[Any]:
+    seen: set[str] = set()
+    picked: list[Any] = []
+    for row in reversed(list(rows)):
+        variant = str(row.get("variant") or "").strip().lower()
+        if variant in seen:
+            continue
+        seen.add(variant)
+        picked.append(row)
+    picked.reverse()
+    return picked
 
 
 def _series_points(series_id: int):
@@ -130,6 +180,7 @@ def pull_gbnc_series_payload(
         owner_user_id=owner_user_id,
         include_all=include_all,
     )
+    existing = _dedupe_series_rows(existing)
     existing_by_variant = {str(r["variant"]).lower(): r for r in existing}
     cache_hit = bool(existing) and all(v in existing_by_variant for v in expected_variants)
     if cache_hit:
@@ -235,6 +286,32 @@ def pull_gbnc_series_payload(
     }
 
 
+def pull_gbnc_snapshot_payload(
+    word: str,
+    variants: list[str] | None,
+    start_year: int,
+    end_year: int,
+    corpus: str,
+    smoothing: int,
+    current_user: dict | None = None,
+):
+    pulled = pull_gbnc_series_payload(
+        word=word,
+        variants=variants,
+        start_year=start_year,
+        end_year=end_year,
+        corpus=corpus,
+        smoothing=smoothing,
+        current_user=current_user,
+    )
+    hydrated = _hydrate_gbnc_payload_from_series_ids(
+        [int(series_id) for series_id in (pulled.get("series_ids") or []) if int(series_id) > 0],
+        current_user=current_user,
+    )
+    hydrated["cache_hit"] = bool(pulled.get("cache_hit"))
+    return hydrated
+
+
 def _get_series_row(series_id: int):
     with get_engine().begin() as conn:
         return (
@@ -245,16 +322,23 @@ def _get_series_row(series_id: int):
                       ts.id,
                       ts.owner_user_id,
                       ts.term_id,
+                      ts.source_id,
+                      ts.units,
                       lt.canonical,
                       ds.name AS source_name,
                       ts.granularity,
                       ts.window_start,
                       ts.window_end,
                       ts.meta_json,
+                      JSON_UNQUOTE(JSON_EXTRACT(ts.meta_json, '$.task_id')) AS task_id,
+                      t.guest_key,
+                      t.created_at AS task_created_at,
+                      t.status AS task_status,
                       COALESCE(JSON_UNQUOTE(JSON_EXTRACT(ts.meta_json, '$.variant')), lt.canonical) AS variant
                     FROM time_series ts
                     JOIN lexicon_terms lt ON lt.id = ts.term_id
                     JOIN data_sources ds ON ds.id = ts.source_id
+                    LEFT JOIN tasks t ON t.task_id = JSON_UNQUOTE(JSON_EXTRACT(ts.meta_json, '$.task_id'))
                     WHERE ts.id=:series_id
                     LIMIT 1
                     """
@@ -266,61 +350,167 @@ def _get_series_row(series_id: int):
         )
 
 
-def _ensure_series_access(series_row, current_user: dict | None):
+def _hydrate_gbnc_payload_from_series_ids(series_ids: list[int], current_user: dict | None = None, guest_key: str | None = None):
+    rows: list[Any] = []
+    for series_id in series_ids:
+        row = _get_series_row(int(series_id))
+        if not row:
+            continue
+        _ensure_series_access(row, current_user=current_user, guest_key=guest_key)
+        rows.append(row)
+
+    if not rows:
+        return {
+            "source": "GBNC",
+            "corpus": None,
+            "smoothing": None,
+            "unit": "relative_frequency",
+            "series": [],
+            "warnings": [],
+            "error_reason": None,
+        }
+
+    root_meta = _parse_meta(rows[0].get("meta_json"))
+    warnings: list[str] = []
+    series: list[dict[str, Any]] = []
+    for row in rows:
+        row_meta = _parse_meta(row.get("meta_json"))
+        for warning in row_meta.get("warnings") or []:
+            message = str(warning or "").strip()
+            if message and message not in warnings:
+                warnings.append(message)
+        points = []
+        for item in _series_points(int(row["id"])):
+            try:
+                year = int(str(item.get("time") or "")[:4])
+            except Exception:
+                continue
+            points.append({"year": year, "value": float(item.get("value") or 0.0)})
+        series.append(
+            {
+                "variant": str(row.get("variant") or row.get("canonical") or "").strip().lower(),
+                "points": points,
+            }
+        )
+
+    return {
+        "source": rows[0].get("source_name"),
+        "corpus": root_meta.get("corpus"),
+        "smoothing": root_meta.get("smoothing"),
+        "unit": rows[0].get("units") or "relative_frequency",
+        "series": series,
+        "warnings": warnings,
+        "error_reason": root_meta.get("error_reason"),
+    }
+
+
+def _ensure_series_access(series_row, current_user: dict | None, guest_key: str | None = None):
     if not series_row:
         raise HTTPException(status_code=404, detail="series not found")
     if _is_admin(current_user):
         return
     owner_user_id = series_row.get("owner_user_id")
     uid = _owner_id(current_user)
-    if uid is None and owner_user_id is None:
+    task_id = str(series_row.get("task_id") or "").strip()
+    if uid is None and owner_user_id is None and not task_id:
         return
     if uid is not None and owner_user_id == uid:
         return
+    if uid is None and owner_user_id is None:
+        safe_guest_key = _normalize_guest_key(guest_key)
+        if (
+            safe_guest_key
+            and safe_guest_key == _normalize_guest_key(series_row.get("guest_key"))
+            and _is_today_utc(series_row.get("task_created_at"))
+            and str(series_row.get("task_status") or "").upper() != "DELETED"
+        ):
+            return
     raise HTTPException(status_code=403, detail="forbidden")
 
 
-def get_gbnc_series_payload(series_id: int, current_user: dict | None = None):
+def get_gbnc_series_payload(series_id: int, current_user: dict | None = None, guest_key: str | None = None):
     row = _get_series_row(series_id)
-    _ensure_series_access(row, current_user)
-    meta = row.get("meta_json")
-    if isinstance(meta, str):
-        try:
-            meta = json.loads(meta)
-        except Exception:
-            pass
+    _ensure_series_access(row, current_user, guest_key=guest_key)
+    meta = _parse_meta(row.get("meta_json"))
+    task_id = str(row.get("task_id") or "").strip()
+    owner_user_id = row.get("owner_user_id")
 
     with get_engine().begin() as conn:
-        siblings = (
-            conn.execute(
-                text(
-                    """
-                    SELECT
-                      ts.id,
-                      COALESCE(JSON_UNQUOTE(JSON_EXTRACT(ts.meta_json, '$.variant')), lt.canonical) AS variant,
-                      (SELECT COUNT(*) FROM time_series_points p WHERE p.series_id = ts.id) AS point_count
-                    FROM time_series ts
-                    JOIN lexicon_terms lt ON lt.id = ts.term_id
-                    WHERE ts.term_id=:term_id
-                      AND ts.window_start=:window_start
-                      AND ts.window_end=:window_end
-                      AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(ts.meta_json, '$.corpus')), '')=
-                          COALESCE(JSON_UNQUOTE(JSON_EXTRACT(:meta_json, '$.corpus')), '')
-                      AND COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(ts.meta_json, '$.smoothing')) AS SIGNED), -1)=
-                          COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(:meta_json, '$.smoothing')) AS SIGNED), -1)
-                    ORDER BY ts.id ASC
-                    """
-                ),
-                {
-                    "term_id": row["term_id"],
-                    "window_start": row["window_start"],
-                    "window_end": row["window_end"],
-                    "meta_json": json.dumps(meta or {}),
-                },
+        if task_id:
+            siblings = (
+                conn.execute(
+                    text(
+                        """
+                        SELECT
+                          ts.id,
+                          COALESCE(JSON_UNQUOTE(JSON_EXTRACT(ts.meta_json, '$.variant')), lt.canonical) AS variant,
+                          (SELECT COUNT(*) FROM time_series_points p WHERE p.series_id = ts.id) AS point_count
+                        FROM time_series ts
+                        JOIN lexicon_terms lt ON lt.id = ts.term_id
+                        WHERE JSON_UNQUOTE(JSON_EXTRACT(ts.meta_json, '$.task_id')) = :task_id
+                          AND ts.term_id = :term_id
+                          AND ts.source_id = :source_id
+                          AND ts.granularity = :granularity
+                          AND ts.window_start = :window_start
+                          AND ts.window_end = :window_end
+                        ORDER BY ts.id ASC
+                        """
+                    ),
+                    {
+                        "task_id": task_id,
+                        "term_id": row["term_id"],
+                        "source_id": row["source_id"],
+                        "granularity": row["granularity"],
+                        "window_start": row["window_start"],
+                        "window_end": row["window_end"],
+                    },
+                )
+                .mappings()
+                .all()
             )
-            .mappings()
-            .all()
-        )
+        else:
+            siblings = (
+                conn.execute(
+                    text(
+                        """
+                        SELECT
+                          ts.id,
+                          COALESCE(JSON_UNQUOTE(JSON_EXTRACT(ts.meta_json, '$.variant')), lt.canonical) AS variant,
+                          (SELECT COUNT(*) FROM time_series_points p WHERE p.series_id = ts.id) AS point_count
+                        FROM time_series ts
+                        JOIN lexicon_terms lt ON lt.id = ts.term_id
+                        WHERE ts.term_id=:term_id
+                          AND ts.source_id=:source_id
+                          AND ts.granularity=:granularity
+                          AND ts.window_start=:window_start
+                          AND ts.window_end=:window_end
+                          AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(ts.meta_json, '$.task_id')), '') = ''
+                          AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(ts.meta_json, '$.corpus')), '') = :corpus
+                          AND COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(ts.meta_json, '$.smoothing')) AS SIGNED), -1) = :smoothing
+                          AND (
+                            (:owner_user_id IS NULL AND ts.owner_user_id IS NULL)
+                            OR ts.owner_user_id = :owner_user_id
+                          )
+                        ORDER BY ts.id ASC
+                        """
+                    ),
+                    {
+                        "term_id": row["term_id"],
+                        "source_id": row["source_id"],
+                        "granularity": row["granularity"],
+                        "window_start": row["window_start"],
+                        "window_end": row["window_end"],
+                        "corpus": str(meta.get("corpus") or ""),
+                        "smoothing": int(meta.get("smoothing")) if meta.get("smoothing") is not None else -1,
+                        "owner_user_id": owner_user_id,
+                    },
+                )
+                .mappings()
+                .all()
+            )
+    for sibling in siblings:
+        sibling_row = _get_series_row(int(sibling["id"]))
+        _ensure_series_access(sibling_row, current_user=current_user, guest_key=guest_key)
     point_count = int(sum(int(s.get("point_count") or 0) for s in siblings))
     return {
         "series_id": int(row["id"]),
@@ -336,8 +526,13 @@ def get_gbnc_series_payload(series_id: int, current_user: dict | None = None):
     }
 
 
-def get_gbnc_series_points_payload(series_id: int, variant: str | None = None, current_user: dict | None = None):
-    info = get_gbnc_series_payload(series_id, current_user=current_user)
+def get_gbnc_series_points_payload(
+    series_id: int,
+    variant: str | None = None,
+    current_user: dict | None = None,
+    guest_key: str | None = None,
+):
+    info = get_gbnc_series_payload(series_id, current_user=current_user, guest_key=guest_key)
     target_variant = str(variant or "").strip().lower()
     target_series_id = series_id
     if target_variant:

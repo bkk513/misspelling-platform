@@ -58,11 +58,18 @@ def _word_params(payload: str | dict):
     if isinstance(payload, dict):
         word = str(payload.get("word") or "demo")
         variants = [str(v).strip().lower() for v in (payload.get("variants") or []) if str(v).strip()]
+        def _int_or_default(value: Any, default: int) -> int:
+            if value is None or value == "":
+                return default
+            try:
+                return int(value)
+            except Exception:
+                return default
         return {
             "word": word,
-            "start_year": int(payload.get("start_year") or 1900),
-            "end_year": int(payload.get("end_year") or 2019),
-            "smoothing": int(payload.get("smoothing") or 3),
+            "start_year": _int_or_default(payload.get("start_year"), 1900),
+            "end_year": _int_or_default(payload.get("end_year"), 2019),
+            "smoothing": _int_or_default(payload.get("smoothing"), 3),
             "corpus": str(payload.get("corpus") or "eng_2019"),
             "variants": variants,
         }
@@ -304,6 +311,7 @@ def _execute_algo_task(
     try:
         dataset = build_algorithm_dataset(
             task_id=task_id,
+            task_type=task_type,
             word=params["word"],
             variants=params.get("variants") or [],
             start_year=int(params["start_year"]),
@@ -376,7 +384,14 @@ def demo_analysis(self, payload: str | dict):
             corpus=params["corpus"],
             smoothing=params["smoothing"],
         )
-        persisted = persist_word_analysis_external_series(task_id, params["word"], pulled)
+        persisted = persist_word_analysis_external_series(
+            task_id,
+            params["word"],
+            pulled,
+            task_type="word-analysis",
+            corpus=str(params["corpus"]),
+            smoothing=int(params["smoothing"]),
+        )
 
         csv_rows: list[dict] = []
         for item in pulled.get("series") or []:
@@ -436,6 +451,7 @@ def simulation_run(self, payload: dict[str, Any] | None = None):
     try:
         dataset = build_algorithm_dataset(
             task_id=task_id,
+            task_type="simulation-run",
             word=params["word"],
             variants=params.get("variants") or [],
             start_year=int(params["start_year"]),
