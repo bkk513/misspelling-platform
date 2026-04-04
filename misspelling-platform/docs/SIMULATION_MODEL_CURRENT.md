@@ -139,27 +139,31 @@ Primary references that support the current model framing:
    Link: https://doi.org/10.1086/226707
    Relevance: collective adoption can be modeled as socially conditioned state transition rather than simple independent infection.
 
-2. Centola, D., and Macy, M. (2007). `Complex Contagions and the Weakness of Long Ties`. American Journal of Sociology, 113(3), 702-734.
+2. Amato, R., Lacasa, L., Diaz-Guilera, A., and Baronchelli, A. (2018). `The dynamics of norm change in the cultural evolution of language`. Proceedings of the National Academy of Sciences, 115(33), 8260-8265.
+   Link: https://doi.org/10.1073/pnas.1721059115
+   Relevance: directly studies orthographic and lexical norm change, including spelling changes and competition between variants of the same word, and shows that a simple model can reproduce empirical trajectories.
+
+3. Centola, D., and Macy, M. (2007). `Complex Contagions and the Weakness of Long Ties`. American Journal of Sociology, 113(3), 702-734.
    Link: https://doi.org/10.1086/521848
    Relevance: behaviors that require reinforcement are better modeled as complex contagions than as one-shot simple contagions.
 
-3. Centola, D. (2010). `The Spread of Behavior in an Online Social Network Experiment`. Science, 329(5996), 1194-1197.
+4. Centola, D. (2010). `The Spread of Behavior in an Online Social Network Experiment`. Science, 329(5996), 1194-1197.
    Link: https://doi.org/10.1126/science.1185231
    Relevance: clustered network structures can facilitate the spread of behavior when reinforcement matters.
 
-4. Watts, D. J., and Strogatz, S. H. (1998). `Collective dynamics of 'small-world' networks`. Nature, 393, 440-442.
+5. Watts, D. J., and Strogatz, S. H. (1998). `Collective dynamics of 'small-world' networks`. Nature, 393, 440-442.
    Link: https://doi.org/10.1038/30918
    Relevance: supports the use of small-world topology families for diffusion experiments.
 
-5. Barabasi, A.-L., and Albert, R. (1999). `Emergence of scaling in random networks`. Science, 286(5439), 509-512.
+6. Barabasi, A.-L., and Albert, R. (1999). `Emergence of scaling in random networks`. Science, 286(5439), 509-512.
    Link: https://doi.org/10.1126/science.286.5439.509
    Relevance: supports hub-dominated topology assumptions and the use of preferential-attachment families.
 
-6. Abrams, D. M., and Strogatz, S. H. (2003). `Modelling the dynamics of language death`. Nature, 424, 900.
+7. Abrams, D. M., and Strogatz, S. H. (2003). `Modelling the dynamics of language death`. Nature, 424, 900.
    Link: https://doi.org/10.1038/424900a
    Relevance: reduced-state language competition models are standard and defensible when the target is macro competition between language forms.
 
-7. Fujie, R., Aihara, K., and Masuda, N. (2015). `A model of competition among more than two languages`. Journal of Statistical Mechanics: Theory and Experiment, 2015(2), P02010.
+8. Fujie, R., Aihara, K., and Masuda, N. (2015). `A model of competition among more than two languages`. Journal of Statistical Mechanics: Theory and Experiment, 2015(2), P02010.
    Link: https://doi.org/10.1088/1742-5468/2015/02/P02010
    Relevance: if the thesis later upgrades to multi-variant competition, this line of work is the right theoretical bridge.
 
