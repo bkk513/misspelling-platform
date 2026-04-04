@@ -584,13 +584,6 @@ def write_simulation_animation_gif(
     )
     animation.save(out_gif, writer=PillowWriter(fps=int(fps)), dpi=110)
     plt.close(fig)
-
-
-def _write_pcmci_placeholder_png(out_png: Path, title: str, message: str) -> None:
-    import matplotlib
-
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
     fig, ax = plt.subplots(figsize=(10, 5.6))
     ax.text(0.5, 0.6, title, ha="center", va="center", fontsize=12, fontweight="bold")
     ax.text(0.5, 0.45, message, ha="center", va="center", fontsize=10)

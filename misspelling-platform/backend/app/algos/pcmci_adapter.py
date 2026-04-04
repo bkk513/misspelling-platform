@@ -442,7 +442,6 @@ def run_pcmci(
                 tau_max=safe_tau,
             )
             top_level_mode = "stub"
-
         return {
             "summary": {
                 "nodes": len(names),
