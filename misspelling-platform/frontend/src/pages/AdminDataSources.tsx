@@ -1,4 +1,4 @@
-import { Button, Card, Table, Tag } from "antd";
+import { Button, Card, Space, Table, Tag, Typography, message } from "antd";
 import { useEffect, useState } from "react";
 import { api, describeApiError, type AdminDataSourcesResponse } from "../lib/api";
 
@@ -12,8 +12,7 @@ export function AdminDataSourcesPage() {
       const data = await api.adminDataSources(100);
       setItems(data.items);
     } catch (e) {
-      // eslint-disable-next-line no-alert
-      window.alert(describeApiError(e));
+      message.error(describeApiError(e));
     } finally {
       setLoading(false);
     }
@@ -24,7 +23,15 @@ export function AdminDataSourcesPage() {
   }, []);
 
   return (
-    <Card title="Data Sources" extra={<Button onClick={() => void refresh()} loading={loading}>Refresh</Button>}>
+    <Card
+      title="Data Sources"
+      extra={<Button onClick={() => void refresh()} loading={loading}>Refresh</Button>}
+    >
+      <Space direction="vertical" size={8} style={{ width: "100%", marginBottom: 12 }}>
+        <Typography.Text type="secondary">
+          管理系统可用的数据源状态。`ENABLED` 表示 API 侧已经可被任务调度。
+        </Typography.Text>
+      </Space>
       <Table
         rowKey="id"
         size="small"

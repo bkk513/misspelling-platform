@@ -58,7 +58,7 @@ export function AdminSettingsPage() {
       </Card>
       <Card title="Policy Note">
         <Typography.Paragraph type="secondary">
-          当前为演示阶段：管理员面板依赖 Bearer + admin role；后续将增加更细粒度 RBAC 权限点控制。
+          管理员面板当前基于 `Bearer Token + admin role` 做权限控制，并提供用户、缓存、数据源与清理能力。建议在生产环境结合更细粒度 RBAC 策略使用。
         </Typography.Paragraph>
       </Card>
 

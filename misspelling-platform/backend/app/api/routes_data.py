@@ -2,10 +2,11 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 from fastapi.responses import FileResponse
 
 from .auth_deps import get_optional_user
+from ..services.external_data_service import pull_external_series_payload
+from ..services.variant_review_service import review_misspelling_variants
 from ..services.gbnc_data_service import (
     get_gbnc_series_payload,
     get_gbnc_series_points_payload,
-    pull_gbnc_series_payload,
 )
 from ..services.artifact_service import find_delta_t_source_figure
 
@@ -13,6 +14,7 @@ router = APIRouter()
 
 
 @router.post("/api/data/gbnc/pull")
+@router.post("/api/data/source/pull")
 def pull_gbnc(
     word: str,
     start_year: int = 1900,
@@ -20,10 +22,13 @@ def pull_gbnc(
     corpus: str = "eng_2019",
     smoothing: int = 3,
     variants: str | None = None,
+    data_source: str = "gbnc",
     current_user=Depends(get_optional_user),
 ):
-    selected_variants = [v.strip().lower() for v in str(variants or "").split(",") if v.strip()]
-    return pull_gbnc_series_payload(
+    raw_variants = [v.strip().lower() for v in str(variants or "").split(",") if v.strip()]
+    review = review_misspelling_variants(word, raw_variants)
+    selected_variants = [str(v) for v in (review.get("accepted_variants") or [])]
+    result = pull_external_series_payload(
         word=word,
         variants=selected_variants,
         start_year=int(start_year),
@@ -31,7 +36,15 @@ def pull_gbnc(
         corpus=corpus,
         smoothing=int(smoothing),
         current_user=current_user,
+        data_source=data_source,
     )
+    return {
+        **result,
+        "accepted_variants": selected_variants,
+        "rejected_variants": review.get("rejected_variants") or [],
+        "filter_policy": review.get("filter_policy"),
+        "warnings": [str(item) for item in [*(review.get("warnings") or []), *(result.get("warnings") or [])] if str(item or "").strip()],
+    }
 
 
 @router.get("/api/data/gbnc/series/{series_id}")

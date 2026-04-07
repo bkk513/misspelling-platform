@@ -290,7 +290,8 @@ def suggest_variants(word: str, k: int = 20, actor_user_id: int | None = None) -
     url = f"{base_url}/chat/completions"
     prompt = (
         "Return JSON only: {\"variants\": [..]}. "
-        f"Word: {word}. Generate at most {k} misspelling or orthographic variants."
+        f"Word: {word}. Generate at most {k} misspelling variants. "
+        "Only return nonword misspellings. Exclude valid dictionary words, accepted orthographic alternatives, and legitimate lexical variants."
     )
     started = time.time()
     try:

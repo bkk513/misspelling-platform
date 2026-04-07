@@ -278,7 +278,12 @@ def run_pcmci(
             "impl": "internal_rewrite",
         }
 
-    times = [str(v) for v in dataset.years] if len(dataset.years) == len(values_tn) else [str(i) for i in range(len(values_tn))]
+    if len(dataset.labels) == len(values_tn):
+        times = [str(label) for label in dataset.labels]
+    elif len(dataset.years) == len(values_tn):
+        times = [str(v) for v in dataset.years]
+    else:
+        times = [str(i) for i in range(len(values_tn))]
     try:
         from sklearn.preprocessing import MinMaxScaler
 
