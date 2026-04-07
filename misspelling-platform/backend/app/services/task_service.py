@@ -1,3 +1,5 @@
+"""文件说明：任务服务模块，负责创建任务、查询任务、删除任务与任务访问控制。"""
+
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -7,7 +9,8 @@ from uuid import uuid4
 from sqlalchemy import bindparam, text
 
 from ..db.core import get_engine
-from .task_event_service import record_task_failure, record_task_queued
+from ..celery_app import celery_app
+from .task_event_service import record_task_event, record_task_failure, record_task_queued
 
 OUTPUT_ROOT = Path("/app/outputs")
 
@@ -28,6 +31,10 @@ def _owner_id(current_user: dict | None) -> int | None:
 
 def _normalize_guest_key(guest_key: str | None) -> str:
     return str(guest_key or "").strip()[:64]
+
+
+def _is_active_status(status: Any) -> bool:
+    return str(status or "").upper() in {"RUNNING", "QUEUED", "PROGRESS"}
 
 
 def _is_today_utc(value: Any) -> bool:
@@ -55,6 +62,7 @@ def _can_access_row(
     current_user: dict | None,
     guest_key: str | None,
 ) -> bool:
+    # 任务可见性规则的核心：管理员全量可见，登录用户看自己的，访客只能看自己当天同 guest_key 的任务。
     if _is_admin(current_user):
         return True
     user_id = _owner_id(current_user)
@@ -71,6 +79,7 @@ def _can_access_row(
 
 
 def _scope_clause(current_user: dict | None, scope: str | None, guest_key: str | None) -> tuple[str, dict[str, Any]]:
+    # 列表查询和详情查询共用这套过滤条件，保证前端看到的任务和数据库实际权限边界一致。
     if _is_admin(current_user):
         if scope == "all":
             return "1=1", {}
@@ -95,6 +104,7 @@ def _scope_clause(current_user: dict | None, scope: str | None, guest_key: str |
 
 
 def _cleanup_old_guest_tasks() -> None:
+    # 访客任务只保留当天，避免匿名数据长期堆积，也避免不同访客之间串数据。
     with get_engine().begin() as conn:
         rows = (
             conn.execute(
@@ -171,6 +181,7 @@ def _insert_queued_task(
     owner_user_id: int | None,
     guest_key: str | None,
 ) -> None:
+    # 先把任务写入数据库为 QUEUED，再交给 Celery 执行，这样前端创建后立刻能查到任务。
     safe_guest_key = _normalize_guest_key(guest_key) if owner_user_id is None else None
     with get_engine().begin() as conn:
         conn.execute(
@@ -219,6 +230,7 @@ def create_word_analysis_task(
     guest_key: str | None = None,
     extra_params: dict[str, Any] | None = None,
 ) -> dict:
+    # 词分析是所有算法任务的上游入口，因此这里会把查询参数完整记入 params_json，方便后续复跑与审计。
     if owner_user_id is None:
         _cleanup_old_guest_tasks()
     task_id = str(uuid4())
@@ -636,13 +648,49 @@ def _delete_task_with_relations(task_id: str) -> None:
         )
 
 
-def delete_task_payload(task_id: str, current_user: dict | None = None, guest_key: str | None = None) -> Dict[str, Any]:
+def _pause_task_before_delete(task_id: str, task_type: str) -> dict[str, Any]:
+    revoke_error: str | None = None
+    revoked = True
+    try:
+        celery_app.control.revoke(task_id, terminate=True, signal="SIGTERM")
+    except Exception as exc:
+        revoked = False
+        revoke_error = str(exc)
+    with get_engine().begin() as conn:
+        conn.execute(
+            text(
+                """
+                UPDATE tasks
+                SET status='REVOKED',
+                    error_text=:error_text,
+                    updated_at=CURRENT_TIMESTAMP
+                WHERE task_id=:task_id
+                  AND status <> 'DELETED'
+                """
+            ),
+            {"task_id": task_id, "error_text": "task_revoked_by_user"},
+        )
+    record_task_event(
+        task_id,
+        "REVOKED",
+        f"{task_type} revoked by user",
+        {"task_type": task_type, "revoked": revoked, "revoke_error": revoke_error},
+    )
+    return {"revoked": revoked, "revoke_error": revoke_error}
+
+
+def delete_task_payload(
+    task_id: str,
+    current_user: dict | None = None,
+    guest_key: str | None = None,
+    allow_active: bool = False,
+) -> Dict[str, Any]:
     with get_engine().begin() as conn:
         row = (
             conn.execute(
                 text(
                     """
-                    SELECT task_id, status, owner_user_id, guest_key, created_at
+                    SELECT task_id, task_type, status, owner_user_id, guest_key, created_at
                     FROM tasks
                     WHERE task_id=:task_id
                     LIMIT 1
@@ -663,8 +711,19 @@ def delete_task_payload(task_id: str, current_user: dict | None = None, guest_ke
         guest_key,
     ):
         return {"task_id": task_id, "deleted": False, "reason": "FORBIDDEN"}
-    if str(row["status"]).upper() in ("RUNNING", "QUEUED", "PROGRESS"):
-        return {"task_id": task_id, "deleted": False, "reason": "TASK_ACTIVE"}
+    current_status = str(row.get("status") or "").upper()
+    if _is_active_status(current_status):
+        if not bool(allow_active):
+            return {"task_id": task_id, "deleted": False, "reason": "TASK_ACTIVE"}
+        pause_info = _pause_task_before_delete(task_id, str(row.get("task_type") or "task"))
+        _delete_task_with_relations(task_id)
+        return {
+            "task_id": task_id,
+            "deleted": True,
+            "paused": True,
+            "revoked": bool(pause_info.get("revoked")),
+            "revoke_error": pause_info.get("revoke_error"),
+        }
 
     _delete_task_with_relations(task_id)
     return {"task_id": task_id, "deleted": True}
@@ -674,11 +733,12 @@ def bulk_delete_task_payload(
     task_ids: list[str],
     current_user: dict | None = None,
     guest_key: str | None = None,
+    allow_active: bool = False,
 ) -> Dict[str, Any]:
     deleted: list[str] = []
     skipped: list[dict[str, str]] = []
     for task_id in task_ids:
-        item = delete_task_payload(task_id, current_user, guest_key)
+        item = delete_task_payload(task_id, current_user, guest_key, allow_active=allow_active)
         if item.get("deleted"):
             deleted.append(task_id)
         else:

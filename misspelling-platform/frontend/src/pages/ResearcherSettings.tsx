@@ -1,3 +1,5 @@
+/* 文件说明：用户设置页面，负责展示当前账号信息和研究端配置项。 */
+
 import { Alert, Button, Card, Descriptions, Form, Input, Space, Typography, message } from "antd";
 import { useEffect, useState } from "react";
 import { api, describeApiError, type MeResponse } from "../lib/api";
@@ -99,7 +101,7 @@ export function ResearcherSettingsPage({
         </Descriptions>
       </Card>
 
-      <Card className="enterprise-section-card" title="Reset Password">
+      <Card className="enterprise-section-card" title="重置密码">
         <Form
           form={form}
           layout="vertical"

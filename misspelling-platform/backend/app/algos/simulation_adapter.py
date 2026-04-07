@@ -1,3 +1,5 @@
+"""文件说明：传播仿真算法适配模块，负责基于拼写演化数据执行网络化 ABM 传播仿真。"""
+
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, replace
@@ -154,6 +156,7 @@ class ABMParameters:
 
 
 def build_simulation_dataset(dataset: AlgorithmDataset, trend_window: int = 3) -> SimulationDataset:
+    # 仿真先把“正确拼写 / 错拼总量 / 错拼占比 / 热度”提炼出来，后面的 ABM 只依赖这份标准化输入。
     canonical = np.asarray(dataset.series[0].values if dataset.series else [], dtype=float)
     variant_names = [str(item.variant or "").strip().lower() for item in dataset.series[1:]]
     if len(dataset.series) > 1:
@@ -210,6 +213,7 @@ def _build_graph(
     ws_p: float,
     ba_m: int,
 ) -> nx.Graph:
+    # 这里把前端选择的拓扑参数转换成真实网络，仿真的传播结构就在这一步确定。
     topo = str(topology or "watts_strogatz").strip().lower()
     if topo not in SUPPORTED_TOPOLOGIES:
         topo = "watts_strogatz"
@@ -342,6 +346,7 @@ class NetworkSpellingABM:
         return error_hits / self.degree_safe, right_hits / self.degree_safe
 
     def _step(self, states: np.ndarray, t: int, params: ABMParameters, rng: np.random.Generator) -> np.ndarray:
+        # 每个时间步都依据邻居状态、词项热度、阶段增益和节点中心性来更新代理状态。
         new_states = states.copy()
         local_error, local_right = self._neighbor_ratios(states)
         salience_t = float(np.clip(self.dataset.salience[t], 0.0, 1.0))
@@ -352,6 +357,7 @@ class NetworkSpellingABM:
 
         unknown_idx = np.flatnonzero(states == STATE_UNKNOWN)
         if unknown_idx.size > 0:
+            # 未接触者可能被错误形式吸引，也可能在正确形式影响下直接进入正确状态。
             base_error_floor = 0.002 + 0.010 * salience_t
             p_to_error = np.clip(
                 base_error_floor
@@ -377,6 +383,7 @@ class NetworkSpellingABM:
 
         error_idx = np.flatnonzero(states == STATE_ERROR)
         if error_idx.size > 0:
+            # 已错拼的代理在校对、规范压力和群体活跃度共同作用下可能被纠正。
             p_correct = np.clip(
                 params.p_proofread * (0.30 + 0.55 * salience_t)
                 + params.p_norm * local_right[error_idx]
@@ -389,6 +396,7 @@ class NetworkSpellingABM:
 
         right_idx = np.flatnonzero(states == STATE_RIGHT)
         if right_idx.size > 0:
+            # 已正确的代理也可能遗忘退回未知，或在错误传播压力下复发成错拼。
             p_forget = np.clip(
                 params.p_forget * (1.0 - salience_t) * (1.0 - local_right[right_idx]),
                 0.0,
@@ -422,6 +430,7 @@ class NetworkSpellingABM:
         share = np.zeros(point_count, dtype=float)
 
         for t in range(point_count):
+            # 每个年份先按真实总量补足“活跃代理”数量，再执行一次状态传播更新。
             active_target = float(self.dataset.total[t]) / max(float(self.dataset.total.max()), EPS)
             unknown_idx = np.flatnonzero(states == STATE_UNKNOWN)
             target_active_nodes = int(round(active_target * self.n_agents))
@@ -614,6 +623,7 @@ class NetworkSpellingABM:
             return ABMParameters(*[float(item) for item in arr])
 
         candidate_pool: list[tuple[float, ABMParameters]] = []
+        # 拟合分三步走：先随机粗筛，再围绕最优点扰动细调，最后用更高重复次数做精炼比较。
         screen_repeats = max(1, min(int(repeats), int(profile["screen_repeats_cap"])))
         screen_candidates = max(12, int(round(int(search_rounds) * float(profile["screen_multiplier"]))))
         for _ in range(screen_candidates):
@@ -722,6 +732,7 @@ def run_simulation(
     ba_m: int = 4,
     intervention_year: int | None = None,
 ) -> dict[str, Any]:
+    # 这个总入口负责串起数据预处理、参数拟合、基线仿真、干预情景比较和前端所需摘要字段。
     sim_dataset = build_simulation_dataset(dataset, trend_window=trend_window)
     phase_break_index = _detect_phase_break(sim_dataset.error_share)
     phase_break_year = int(sim_dataset.years[phase_break_index]) if sim_dataset.years else None

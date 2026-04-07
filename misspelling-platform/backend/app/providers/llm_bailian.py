@@ -1,4 +1,6 @@
-﻿import json
+"""文件说明：百炼大模型接入模块，负责向变体建议等能力提供 LLM 调用封装。"""
+
+import json
 import os
 import re
 import time

@@ -1,3 +1,5 @@
+/* 文件说明：管理员设置页面，负责查看系统功能开关与诊断信息。 */
+
 import { Button, Card, Descriptions, Form, Input, InputNumber, Modal, Space, Table, Typography, message } from "antd";
 import { useEffect, useState } from "react";
 import { api, describeApiError, type AdminSettingsResponse, type VariantCacheItem } from "../lib/api";
@@ -45,7 +47,7 @@ export function AdminSettingsPage() {
 
   return (
     <Space direction="vertical" size={16} style={{ width: "100%" }}>
-      <Card title="System Settings" extra={<Button onClick={() => void refresh()} loading={loading}>Refresh</Button>}>
+      <Card title="系统设置" extra={<Button onClick={() => void refresh()} loading={loading}>刷新</Button>}>
         {error && <Typography.Text type="danger">{error}</Typography.Text>}
         {settings && (
           <Descriptions bordered column={1} size="small">
@@ -56,29 +58,23 @@ export function AdminSettingsPage() {
           </Descriptions>
         )}
       </Card>
-      <Card title="Policy Note">
-        <Typography.Paragraph type="secondary">
-          管理员面板当前基于 `Bearer Token + admin role` 做权限控制，并提供用户、缓存、数据源与清理能力。建议在生产环境结合更细粒度 RBAC 策略使用。
-        </Typography.Paragraph>
-      </Card>
-
-      <Card title="Variant Cache Management (Admin)">
+      <Card title="变体缓存管理（管理员）">
         <Space wrap style={{ marginBottom: 12 }}>
           <InputNumber
-            placeholder="User ID"
+            placeholder="用户ID"
             min={1}
             value={cacheUserId}
             onChange={(v) => setCacheUserId(v || undefined)}
             style={{ width: 160 }}
           />
           <Input
-            placeholder="Word"
+            placeholder="词"
             value={cacheWord}
             onChange={(e) => setCacheWord(e.target.value)}
             style={{ width: 200 }}
           />
-          <Button onClick={() => void refreshVariantCache()} loading={cacheLoading}>Query</Button>
-          <Button onClick={() => { setCacheUserId(undefined); setCacheWord(""); void refreshVariantCache(); }}>Clear</Button>
+          <Button onClick={() => void refreshVariantCache()} loading={cacheLoading}>查询</Button>
+          <Button onClick={() => { setCacheUserId(undefined); setCacheWord(""); void refreshVariantCache(); }}>清空</Button>
         </Space>
 
         <Table
@@ -89,13 +85,13 @@ export function AdminSettingsPage() {
           pagination={{ pageSize: 10 }}
           columns={[
             { title: "ID", dataIndex: "id", width: 80 },
-            { title: "User", render: (_: unknown, row: VariantCacheItem) => `${row.username || "-"} (#${row.owner_user_id || "-"})` },
-            { title: "Word", dataIndex: "word" },
-            { title: "Variant", dataIndex: "variant" },
-            { title: "Source", dataIndex: "source" },
-            { title: "Updated", dataIndex: "updated_at" },
+            { title: "用户", render: (_: unknown, row: VariantCacheItem) => `${row.username || "-"} (#${row.owner_user_id || "-"})` },
+            { title: "词", dataIndex: "word" },
+            { title: "变体", dataIndex: "variant" },
+            { title: "来源", dataIndex: "source" },
+            { title: "更新时间", dataIndex: "updated_at" },
             {
-              title: "Action",
+              title: "操作",
               render: (_: unknown, row: VariantCacheItem) => (
                 <Button
                   size="small"
@@ -104,7 +100,7 @@ export function AdminSettingsPage() {
                     try {
                       const resp = await api.adminDeleteVariantCache(row.id);
                       if (resp.deleted) {
-                        message.success("Deleted cache entry");
+                        message.success("已删除缓存");
                         await refreshVariantCache();
                       }
                     } catch (e) {
@@ -112,7 +108,7 @@ export function AdminSettingsPage() {
                     }
                   }}
                 >
-                  Delete
+                  删除
                 </Button>
               )
             }
@@ -120,33 +116,33 @@ export function AdminSettingsPage() {
         />
       </Card>
 
-      <Card title="Data Purge (Admin)">
+      <Card title="数据清理（管理员）">
         <Space wrap>
           <Button
             danger
             onClick={async () => {
               try {
                 const resp = await api.adminPurge("guest", ["tasks", "series", "artifacts", "lexicon"]);
-                message.success(`Guest purge completed: ${JSON.stringify(resp.deleted)}`);
+                message.success(`访客数据清理完成：${JSON.stringify(resp.deleted)}`);
               } catch (e) {
                 message.error(describeApiError(e));
               }
             }}
           >
-            Purge Guest Data
+            清理访客数据
           </Button>
-          <Button onClick={() => setPurgeOpen(true)}>Purge Specific User</Button>
+          <Button onClick={() => setPurgeOpen(true)}>清理指定用户</Button>
         </Space>
       </Card>
       <Modal
-        title="Purge User Data"
+        title="清理用户数据"
         open={purgeOpen}
         onCancel={() => setPurgeOpen(false)}
         onOk={async () => {
           try {
             const values = await purgeForm.validateFields();
             const resp = await api.adminPurge("user", ["tasks", "series", "artifacts", "lexicon"], values.user_id);
-            message.success(`User purge completed: ${JSON.stringify(resp.deleted)}`);
+            message.success(`用户数据清理完成：${JSON.stringify(resp.deleted)}`);
             setPurgeOpen(false);
             purgeForm.resetFields();
           } catch (e) {
@@ -155,7 +151,7 @@ export function AdminSettingsPage() {
         }}
       >
         <Form form={purgeForm} layout="vertical">
-          <Form.Item name="user_id" label="User ID" rules={[{ required: true, type: "number", min: 1 }]}>
+          <Form.Item name="user_id" label="用户ID" rules={[{ required: true, type: "number", min: 1 }]}>
             <InputNumber style={{ width: "100%" }} min={1} />
           </Form.Item>
         </Form>

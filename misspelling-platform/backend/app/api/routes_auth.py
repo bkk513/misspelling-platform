@@ -1,8 +1,9 @@
+"""文件说明：认证接口路由模块，负责接收 HTTP 请求并调用对应服务层。"""
+
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel
 
 from ..db.audit_logs_repo import insert_audit_log
-from ..services.captcha_service import issue_captcha, verify_captcha
 from ..services.auth_service import (
     authenticate_user,
     hash_password,
@@ -27,8 +28,6 @@ class RegisterBody(BaseModel):
     password: str
     display_name: str | None = None
     email: str | None = None
-    captcha_id: str
-    captcha_code: str
 
 
 class ChangePasswordBody(BaseModel):
@@ -36,13 +35,9 @@ class ChangePasswordBody(BaseModel):
     new_password: str
 
 
-@router.get("/api/auth/captcha")
-def captcha():
-    return issue_captcha()
-
-
 @router.post("/api/auth/login")
 def login(body: LoginBody, request: Request, turnstile_token: str | None = Header(default=None, alias="X-Turnstile-Token")):
+    # 登录接口在真正验密前先做 Turnstile 校验，并把失败原因写入审计日志。
     if is_turnstile_configured():
         client_ip = request.client.host if request.client else None
         ok, errors = verify_turnstile_token(turnstile_token or "", remote_ip=client_ip)
@@ -69,14 +64,7 @@ def login(body: LoginBody, request: Request, turnstile_token: str | None = Heade
 
 @router.post("/api/auth/register")
 def register(body: RegisterBody):
-    if not verify_captcha(body.captcha_id, body.captcha_code):
-        insert_audit_log(
-            action="AUTH_REGISTER_FAILED",
-            target_type="user",
-            target_id=body.username,
-            meta={"reason": "captcha_invalid"},
-        )
-        raise HTTPException(status_code=400, detail="captcha invalid or expired")
+    # 注册成功后直接签发 token，前端无需再额外发起一次登录请求。
     try:
         user = register_user(body.username, body.password, body.display_name, body.email)
     except ValueError as exc:
@@ -108,6 +96,7 @@ def me(current=Depends(get_current_user)):
 
 @router.post("/api/auth/change-password")
 def change_password(body: ChangePasswordBody, current=Depends(get_current_user)):
+    # 改密接口遵循“先验旧密码，再校验新密码强度”的顺序，避免弱密码直接入库。
     if not authenticate_user(str(current["username"]), body.old_password):
         raise HTTPException(status_code=400, detail="old password is incorrect")
     weak_reason = validate_password_strength(body.new_password)

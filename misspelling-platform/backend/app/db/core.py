@@ -1,3 +1,5 @@
+"""文件说明：数据库核心模块，负责创建 SQLAlchemy 引擎并提供统一的数据库连接入口。"""
+
 import os
 
 from sqlalchemy import create_engine, text

@@ -1,3 +1,5 @@
+/* 文件说明：因果网络页面，负责提交 PCMCI 任务并展示因果边和统计结果。 */
+
 import {
   ApartmentOutlined,
   DeploymentUnitOutlined,
@@ -346,7 +348,7 @@ export function CausalNetworkPage() {
                   Run PCMCI
                 </Button>
                 <Button loading={busy} onClick={() => void loadPreview()}>
-                  Refresh Current Preview
+                  刷新当前预览
                 </Button>
                 <Button icon={<LinkOutlined />} disabled={!latestTaskId} onClick={() => latestTaskId && goToTask(latestTaskId)}>
                   Open Task Detail

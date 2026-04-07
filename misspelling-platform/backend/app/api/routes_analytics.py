@@ -1,7 +1,10 @@
+"""文件说明：分析接口路由模块，负责接收 HTTP 请求并调用对应服务层。"""
+
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
 from .auth_deps import get_optional_user
+from ..services.meso_service import build_project_meso_clusters_payload, run_project_micro_tasks_payload
 from ..services.analytics_service import (
     cluster_payload,
     cohort_compare_payload,
@@ -9,6 +12,7 @@ from ..services.analytics_service import (
     summary_payload,
     temporal_patterns_payload,
 )
+from ..tasks import deltat_null, mrnmr_steady, pcmci_causal
 
 router = APIRouter()
 
@@ -36,6 +40,19 @@ class TemporalPatternsBody(BaseModel):
 class ExplainabilityBody(BaseModel):
     project_id: int = Field(gt=0)
     target_cohort: str | None = Field(default=None, max_length=64)
+
+
+class ProjectMicroRunBody(BaseModel):
+    project_id: int = Field(gt=0)
+    cohort_names: list[str] = Field(default_factory=list)
+    term_ids: list[int] = Field(default_factory=list)
+
+
+class ProjectMesoClusterBody(BaseModel):
+    project_id: int = Field(gt=0)
+    cohort_names: list[str] = Field(default_factory=list)
+    term_ids: list[int] = Field(default_factory=list)
+    cluster_k: int = Field(default=3, ge=2, le=12)
 
 
 @router.post("/api/analytics/cluster")
@@ -77,3 +94,30 @@ def explainability(body: ExplainabilityBody, current_user=Depends(get_optional_u
 @router.get("/api/analytics/summary")
 def summary(project_id: int, current_user=Depends(get_optional_user)):
     return summary_payload(project_id=project_id, current_user=current_user)
+
+
+@router.post("/api/analytics/project-micro/run")
+def project_micro_run(body: ProjectMicroRunBody, current_user=Depends(get_optional_user)):
+    return run_project_micro_tasks_payload(
+        project_id=body.project_id,
+        cohort_names=body.cohort_names or [],
+        term_ids=body.term_ids or [],
+        current_user=current_user,
+        celery_task_map={
+            "pcmci-causal": pcmci_causal,
+            "mrnmr-steady": mrnmr_steady,
+            "deltaT-null": deltat_null,
+            "deltat-null": deltat_null,
+        },
+    )
+
+
+@router.post("/api/analytics/project-meso/cluster")
+def project_meso_cluster(body: ProjectMesoClusterBody, current_user=Depends(get_optional_user)):
+    return build_project_meso_clusters_payload(
+        project_id=body.project_id,
+        cohort_names=body.cohort_names or [],
+        term_ids=body.term_ids or [],
+        cluster_k=int(body.cluster_k),
+        current_user=current_user,
+    )

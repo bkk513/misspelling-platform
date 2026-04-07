@@ -1,3 +1,5 @@
+/* 文件说明：Turnstile 组件，负责在前端页面中嵌入 Cloudflare 验证控件。 */
+
 import { Alert } from "antd";
 import { useEffect, useRef } from "react";
 

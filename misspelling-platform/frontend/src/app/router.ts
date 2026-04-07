@@ -1,11 +1,11 @@
+/* 文件说明：前端轻量路由模块，负责解析 URL 并在页面间完成导航切换。 */
+
 export type AppRouteKey =
   | "dashboard"
   | "tasks"
   | "task-detail"
   | "word-analysis"
   | "variants"
-  | "projects"
-  | "analytics"
   | "simulation"
   | "causal-network"
   | "steady-state"
@@ -48,8 +48,6 @@ export function parseRoute(pathname: string): Route {
       "tasks",
       "word-analysis",
       "variants",
-      "projects",
-      "analytics",
       "simulation",
       "causal-network",
       "steady-state",

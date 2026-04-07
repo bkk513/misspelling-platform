@@ -1,6 +1,10 @@
-﻿from fastapi import HTTPException
+"""文件说明：项目服务模块，负责项目、项目词项与项目分析任务的业务编排。"""
+
+from fastapi import HTTPException
+from sqlalchemy import bindparam, text
 
 from ..db.audit_logs_repo import insert_audit_log
+from ..db.core import get_engine
 from ..db.lexicon_repo import get_or_create_term
 from ..db.projects_repo import (
     add_project_terms,
@@ -19,6 +23,14 @@ from ..db.projects_repo import (
     upsert_project_term_memberships,
 )
 from .task_service import get_task_owner, get_task_payload
+
+AUTO_BIND_TASK_TYPES = (
+    "word-analysis",
+    "pcmci-causal",
+    "mrnmr-steady",
+    "deltaT-null",
+    "simulation-run",
+)
 
 
 def _is_admin(current_user: dict | None) -> bool:
@@ -65,6 +77,65 @@ def _cohort_color(name: str) -> str:
     return palette.get(key, "#4f7cff")
 
 
+def _list_latest_success_tasks_for_words(owner_user_id: int | None, words: list[str]) -> list[dict]:
+    normalized_words = sorted({str(word or "").strip().lower() for word in words if str(word or "").strip()})
+    if not normalized_words:
+        return []
+
+    owner_where = "t.owner_user_id IS NULL" if owner_user_id is None else "t.owner_user_id = :owner_user_id"
+    query = text(
+        f"""
+        SELECT
+          t.id,
+          t.task_id,
+          t.task_type,
+          LOWER(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(t.params_json, '$.word')), 'null')) AS task_word
+        FROM tasks t
+        WHERE {owner_where}
+          AND t.status = 'SUCCESS'
+          AND t.task_type IN :task_types
+          AND LOWER(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(t.params_json, '$.word')), 'null')) IN :words
+        ORDER BY t.id DESC
+        """
+    ).bindparams(
+        bindparam("task_types", expanding=True),
+        bindparam("words", expanding=True),
+    )
+    params: dict[str, object] = {
+        "task_types": list(AUTO_BIND_TASK_TYPES),
+        "words": normalized_words,
+    }
+    if owner_user_id is not None:
+        params["owner_user_id"] = owner_user_id
+
+    with get_engine().begin() as conn:
+        rows = conn.execute(query, params).mappings().all()
+
+    latest_by_key: dict[tuple[str, str], dict] = {}
+    for row in rows:
+        task_word = str(row.get("task_word") or "").strip().lower()
+        task_type = str(row.get("task_type") or "").strip()
+        task_id = str(row.get("task_id") or "").strip()
+        if not task_word or not task_type or not task_id:
+            continue
+        key = (task_word, task_type)
+        if key not in latest_by_key:
+            latest_by_key[key] = {
+                "task_id": task_id,
+                "task_type": task_type,
+                "word": task_word,
+            }
+    return list(latest_by_key.values())
+
+
+def _auto_bind_existing_word_tasks(project_id: int, owner_user_id: int | None, words: list[str]) -> list[dict]:
+    bound_items: list[dict] = []
+    for item in _list_latest_success_tasks_for_words(owner_user_id=owner_user_id, words=words):
+        bind_project_task(project_id, item["task_id"])
+        bound_items.append(item)
+    return bound_items
+
+
 def create_project_payload(name: str, description: str | None, current_user: dict | None):
     if current_user is None:
         raise HTTPException(status_code=403, detail="login required for project workspace")
@@ -96,11 +167,13 @@ def add_project_terms_payload(project_id: int, words: list[str], category: str |
     _ensure_project_access(project_id, current_user)
     owner_user_id = _owner_id(current_user)
     normalized_category = _normalize_category(category)
+    normalized_words: list[str] = []
     term_ids = []
     for word in words:
         w = str(word or "").strip().lower()
         if not w:
             continue
+        normalized_words.append(w)
         term_ids.append(get_or_create_term(w, owner_user_id=owner_user_id, category=normalized_category))
     added = add_project_terms(project_id, term_ids, normalized_category)
 
@@ -125,15 +198,32 @@ def add_project_terms_payload(project_id: int, words: list[str], category: str |
                 for term_id in term_ids
             ],
         )
+    auto_bound_tasks = _auto_bind_existing_word_tasks(
+        project_id=project_id,
+        owner_user_id=owner_user_id,
+        words=normalized_words,
+    )
 
     insert_audit_log(
         action="PROJECT_ADD_TERMS",
         actor_user_id=owner_user_id,
         target_type="project",
         target_id=str(project_id),
-        meta={"added": added, "category": normalized_category, "synced_to_cohort": bool(cohort)},
+        meta={
+            "added": added,
+            "category": normalized_category,
+            "synced_to_cohort": bool(cohort),
+            "auto_bound_tasks": len(auto_bound_tasks),
+        },
     )
-    return {"project_id": project_id, "added": added, "category": normalized_category, "cohort_id": int(cohort["id"]) if cohort else None}
+    return {
+        "project_id": project_id,
+        "added": added,
+        "category": normalized_category,
+        "cohort_id": int(cohort["id"]) if cohort else None,
+        "auto_bound_count": len(auto_bound_tasks),
+        "auto_bound_tasks": auto_bound_tasks[:100],
+    }
 
 
 def list_project_tasks_payload(project_id: int, current_user: dict | None, limit: int = 100):

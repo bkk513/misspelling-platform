@@ -1,3 +1,5 @@
+/* 文件说明：前端 API 封装模块，负责统一处理请求头、鉴权、访客隔离与接口方法。 */
+
 export type ApiError = Error & { status?: number; bodyText?: string };
 
 let accessToken = "";
@@ -13,6 +15,7 @@ export function setGuestKey(key: string) {
 }
 
 function resolveGuestKey() {
+  // 访客模式下如果内存里没有 guest key，就回退到 localStorage，保证刷新页面后任务仍可见。
   return (
     guestKey ||
     (typeof window !== "undefined" ? String(window.localStorage.getItem("mp-guest-key") || "").trim() : "")
@@ -27,6 +30,7 @@ function withTurnstileHeaders(turnstileToken: string, headers?: HeadersInit) {
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers || {});
+  // 已登录用户走 Authorization，访客则自动带 X-Guest-Key，两者共用同一套接口封装。
   if (accessToken && !headers.has("Authorization")) {
     headers.set("Authorization", `Bearer ${accessToken}`);
   }
@@ -40,6 +44,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const resp = await fetch(url, { ...init, headers });
   const text = await resp.text();
   if (!resp.ok) {
+    // 统一抛出结构化错误，页面层可以直接读取 status 和 bodyText 做提示。
     const err = new Error(`HTTP ${resp.status} ${resp.statusText}`) as ApiError;
     err.status = resp.status;
     err.bodyText = text;
@@ -102,7 +107,14 @@ export type TaskDetailResponse = {
   error?: unknown;
   progress?: unknown;
 };
-export type DeleteTaskResponse = { task_id: string; deleted: boolean; reason?: string };
+export type DeleteTaskResponse = {
+  task_id: string;
+  deleted: boolean;
+  reason?: string;
+  paused?: boolean;
+  revoked?: boolean;
+  revoke_error?: string | null;
+};
 export type TaskEventsResponse = {
   task_id: string;
   items: Array<{ event_type: string; message: string; meta?: unknown; created_at?: string }>;
@@ -177,7 +189,6 @@ export type LoginResponse = {
   user: { id: number; username: string; roles: string[] };
 };
 export type RegisterResponse = LoginResponse;
-export type CaptchaResponse = { captcha_id: string; captcha_text: string; ttl_seconds: number };
 export type MeResponse = { id: number; username: string; roles: string[]; is_active: boolean };
 export type AdminUsersResponse = {
   items: Array<{ id: number; username: string; is_active: boolean; is_admin: boolean; roles: string[]; created_at?: string }>;
@@ -218,6 +229,14 @@ export type ProjectItem = {
 };
 export type ProjectListResponse = { items: ProjectItem[] };
 export type ProjectTasksResponse = { project_id: number; items: TaskListItem[] };
+export type ProjectAddTermsResponse = {
+  project_id: number;
+  added: number;
+  category?: string;
+  cohort_id?: number | null;
+  auto_bound_count: number;
+  auto_bound_tasks: Array<{ task_id: string; task_type: string; word: string }>;
+};
 export type ProjectCohortItem = {
   id: number;
   project_id: number;
@@ -280,6 +299,38 @@ export type AnalyticsSummaryResponse = {
   terms_with_points: number;
   coverage_ratio: number;
   avg_memberships_per_term: number;
+};
+export type ProjectMicroRunResponse = {
+  project_id: number;
+  selected_term_count: number;
+  required_micro_tasks: string[];
+  created_tasks: Array<{ task_id: string; task_type: string; word: string; status: string; mode: string }>;
+  reused_tasks: Array<{ task_id: string; task_type: string; word: string; status: string; mode: string }>;
+  skipped_terms: Array<{ term_id: number; canonical: string; primary_cohort: string; reason: string }>;
+  watched_task_ids: string[];
+};
+export type ProjectMesoClusterResponse = {
+  project_id: number;
+  summary: {
+    selected_terms: number;
+    selected_categories: number;
+    cluster_k: number;
+    ready_terms: number;
+    ready_ratio: number;
+    generated_at: string;
+  };
+  clustering: {
+    k: number;
+    diagnostics?: { silhouette?: number | null; pca_explained_variance?: number[] };
+    clusters: Array<{
+      cluster_id: number;
+      label: string;
+      size: number;
+      representative_terms: string[];
+      terms: string[];
+    }>;
+  };
+  warnings?: string[];
 };
 export type AnalyticsClusterResponse = {
   method: string;
@@ -485,21 +536,13 @@ async function fallbackOriginYearSuggestion(
 export const api = {
   getHealth: () => request<HealthResponse>("/health"),
   getExtendedHealth: () => request<ExtendedHealthResponse>("/api/health/extended"),
-  getCaptcha: () => request<CaptchaResponse>("/api/auth/captcha"),
   login: (username: string, password: string, turnstileToken?: string) =>
     request<LoginResponse>("/api/auth/login", {
       method: "POST",
       headers: withTurnstileHeaders(turnstileToken, { "Content-Type": "application/json" }),
       body: JSON.stringify({ username, password })
     }),
-  register: (
-    username: string,
-    password: string,
-    displayName?: string,
-    email?: string,
-    captchaId?: string,
-    captchaCode?: string
-  ) =>
+  register: (username: string, password: string, displayName?: string, email?: string) =>
     request<RegisterResponse>("/api/auth/register", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -507,9 +550,7 @@ export const api = {
         username,
         password,
         display_name: displayName || undefined,
-        email: email || undefined,
-        captcha_id: captchaId || "",
-        captcha_code: captchaCode || ""
+        email: email || undefined
       })
     }),
   me: () => request<MeResponse>("/api/auth/me"),
@@ -640,13 +681,17 @@ export const api = {
     request<TaskListResponse>(
       `/api/tasks?limit=${limit}${scope ? `&scope=${encodeURIComponent(scope)}` : ""}`
     ),
-  bulkDeleteTasks: (taskIds: string[]) =>
-    request<TaskBulkDeleteResponse>("/api/tasks/bulk-delete", {
+  bulkDeleteTasks: (taskIds: string[], opts?: { force?: boolean }) =>
+    request<TaskBulkDeleteResponse>(`/api/tasks/bulk-delete${opts?.force ? "?force=true" : ""}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ task_ids: taskIds })
     }),
-  deleteTask: (taskId: string) => request<DeleteTaskResponse>(`/api/tasks/${encodeURIComponent(taskId)}`, { method: "DELETE" }),
+  deleteTask: (taskId: string, opts?: { force?: boolean }) =>
+    request<DeleteTaskResponse>(
+      `/api/tasks/${encodeURIComponent(taskId)}${opts?.force ? "?force=true" : ""}`,
+      { method: "DELETE" }
+    ),
   retryTask: (taskId: string) =>
     request<{ ok: boolean; task_id?: string; parent_task_id?: string; reason?: string }>(
       `/api/tasks/${encodeURIComponent(taskId)}/retry`,
@@ -771,7 +816,7 @@ export const api = {
   listProjects: (limit = 100, scope?: "all" | "guest") =>
     request<ProjectListResponse>(`/api/projects?limit=${limit}${scope ? `&scope=${encodeURIComponent(scope)}` : ""}`),
   addProjectTerms: (projectId: number, words: string[], category?: string) =>
-    request<{ project_id: number; added: number; category?: string; cohort_id?: number | null }>(`/api/projects/${projectId}/terms`, {
+    request<ProjectAddTermsResponse>(`/api/projects/${projectId}/terms`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ words, category })
@@ -850,6 +895,31 @@ export const api = {
   listProjectTasks: (projectId: number, limit = 100) => request<ProjectTasksResponse>(`/api/projects/${projectId}/tasks?limit=${limit}`),
   analyticsSummary: (projectId: number) =>
     request<AnalyticsSummaryResponse>(`/api/analytics/summary?project_id=${projectId}`),
+  analyticsRunProjectMicro: (projectId: number, opts?: { cohortNames?: string[]; termIds?: number[] }) =>
+    request<ProjectMicroRunResponse>("/api/analytics/project-micro/run", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        project_id: projectId,
+        cohort_names: opts?.cohortNames || [],
+        term_ids: opts?.termIds || []
+      })
+    }),
+  analyticsProjectMesoCluster: (
+    projectId: number,
+    clusterK = 3,
+    opts?: { cohortNames?: string[]; termIds?: number[] }
+  ) =>
+    request<ProjectMesoClusterResponse>("/api/analytics/project-meso/cluster", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        project_id: projectId,
+        cluster_k: clusterK,
+        cohort_names: opts?.cohortNames || [],
+        term_ids: opts?.termIds || []
+      })
+    }),
   analyticsCluster: (projectId: number, k = 3, method: "kmeans_advanced" | "baseline-kmeans" = "kmeans_advanced") =>
     request<AnalyticsClusterResponse>("/api/analytics/cluster", {
       method: "POST",
@@ -959,8 +1029,8 @@ export const api = {
 
 export function describeApiError(error: unknown) {
   const err = error as ApiError;
-  if (err?.status === 404) return "404: resource not found or feature not enabled.";
-  if (err?.status === 500) return "500: backend exception. Check docker compose logs api/worker.";
+  if (err?.status === 404) return "404：资源不存在或功能未启用。";
+  if (err?.status === 500) return "500：后端异常，请检查 api/worker 日志。";
   if (err instanceof Error) return err.message;
-  return "Request failed.";
+  return "请求失败。";
 }

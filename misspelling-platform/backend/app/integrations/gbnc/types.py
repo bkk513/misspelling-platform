@@ -1,4 +1,6 @@
-﻿from dataclasses import dataclass
+"""文件说明：GBNC 集成类型定义模块，负责描述数据拉取与解析所需的结构。"""
+
+from dataclasses import dataclass
 
 
 @dataclass

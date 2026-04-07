@@ -1,3 +1,5 @@
+/* 文件说明：稳态分析页面，负责提交 MRNMR 任务并展示稳态区间与诊断结果。 */
+
 import {
   ApartmentOutlined,
   DotChartOutlined,
@@ -323,7 +325,7 @@ export function SteadyStatePage() {
                   Run MR/NMR
                 </Button>
                 <Button loading={busy} onClick={() => void loadPreview()}>
-                  Refresh Current Preview
+                  刷新当前预览
                 </Button>
                 <Button icon={<LinkOutlined />} disabled={!latestTaskId} onClick={() => latestTaskId && goToTask(latestTaskId)}>
                   Open Task Detail

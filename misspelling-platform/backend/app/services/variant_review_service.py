@@ -1,3 +1,5 @@
+"""文件说明：变体复核服务模块，负责整理和校验候选变体集合。"""
+
 from __future__ import annotations
 
 import re

@@ -1,3 +1,5 @@
+/* 文件说明：页面头部组件，负责统一页面标题、副标题和操作区布局。 */
+
 import { Breadcrumb, Space, Typography } from 'antd';
 import type { ReactNode } from 'react';
 

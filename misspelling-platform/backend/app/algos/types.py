@@ -1,3 +1,5 @@
+"""文件说明：算法共享类型定义模块，负责约束算法输入输出所需的数据结构。"""
+
 from dataclasses import dataclass, field
 
 

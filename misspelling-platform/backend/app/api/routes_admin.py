@@ -1,3 +1,5 @@
+"""文件说明：管理员接口路由模块，负责接收 HTTP 请求并调用对应服务层。"""
+
 import os
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -137,7 +139,9 @@ def admin_audit_logs(limit: int = 100, current=Depends(require_admin)):
 def admin_data_sources(limit: int = 50, current=Depends(require_admin)):
     safe_limit = max(1, min(limit, 200))
     rows = list_data_sources(safe_limit)
-    return {"items": [dict(r) for r in rows]}
+    hidden_names = {"gdelt", "stub_local"}
+    items = [dict(r) for r in rows if str(r.get("name") or "").strip().lower() not in hidden_names]
+    return {"items": items}
 
 
 @router.get("/api/admin/variant-cache")

@@ -1,3 +1,5 @@
+/* 文件说明：前端变体状态缓存模块，负责持久化词分析工作台里的词项与变体草稿。 */
+
 export type SuggestedVariant = {
   value: string;
   source: "llm" | "cache" | "heuristic" | "dictionary" | "manual";

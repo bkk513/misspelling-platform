@@ -1,3 +1,5 @@
+"""文件说明：认证依赖模块，负责从请求中解析用户身份并实现角色校验。"""
+
 from fastapi import Header, HTTPException
 
 from ..services.auth_service import decode_access_token, get_me_from_payload

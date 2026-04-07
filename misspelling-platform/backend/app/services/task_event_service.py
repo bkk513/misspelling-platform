@@ -1,3 +1,5 @@
+"""文件说明：任务事件服务模块，负责记录任务排队、运行、成功和失败等事件日志。"""
+
 import json
 from typing import Any
 

@@ -1,3 +1,5 @@
+"""文件说明：中观分析服务模块，负责基于微观算法结果计算聚类等更高层分析结果。"""
+
 from __future__ import annotations
 
 import json
@@ -34,8 +36,9 @@ from ..services.task_service import (
     create_word_analysis_task,
 )
 
-DEFAULT_REQUIRED_TASKS = ["word-analysis", "pcmci-causal", "mrnmr-steady", "deltaT-null"]
+DEFAULT_REQUIRED_TASKS = ["word-analysis", "pcmci-causal", "mrnmr-steady", "deltat-null"]
 OPTIONAL_TASKS = ["simulation-run"]
+MICRO_REQUIRED_TASKS = ["pcmci-causal", "mrnmr-steady", "deltat-null"]
 ACTIVE_TASK_STATES = {"QUEUED", "RUNNING", "PROGRESS"}
 SUCCESS_TASK_STATE = "SUCCESS"
 TERMINAL_TASK_STATES = {"SUCCESS", "FAILURE", "REVOKED", "DELETED"}
@@ -60,10 +63,24 @@ def _normalize_word(value: Any) -> str:
     return str(value or "").strip().lower()
 
 
+def _sanitize_required_tasks(values: list[str] | None, include_simulation: bool) -> list[str]:
+    allowed = set(DEFAULT_REQUIRED_TASKS + OPTIONAL_TASKS)
+    if values:
+        normalized = [str(item or "").strip().lower() for item in values]
+        required = [item for item in normalized if item in allowed]
+    else:
+        required = list(DEFAULT_REQUIRED_TASKS)
+    if include_simulation and "simulation-run" not in required:
+        required.append("simulation-run")
+    return list(dict.fromkeys(required))
+
+
 def _normalize_micro_task_type(value: Any) -> str:
     task_type = str(value or "").strip().lower()
     if task_type in {"causal-work", "casual-work", "causal_work"}:
         return "pcmci-causal"
+    if task_type in {"deltat-null", "delta_t_null", "delta-t-null"}:
+        return "deltat-null"
     return task_type
 
 
@@ -219,6 +236,7 @@ def _resolve_terms(
 
 
 def _common_task_params(term: dict[str, Any], data_source: str) -> dict[str, Any]:
+    _ = data_source
     return {
         "word": term["canonical"],
         "variants": term["variants"],
@@ -226,14 +244,13 @@ def _common_task_params(term: dict[str, Any], data_source: str) -> dict[str, Any
         "end_year": DEFAULT_END_YEAR,
         "smoothing": DEFAULT_SMOOTHING,
         "corpus": DEFAULT_CORPUS,
-        "data_source": str(data_source or "gbnc"),
+        "data_source": "gbnc",
     }
 
 
 def _task_data_source(params: dict[str, Any] | None) -> str:
-    if not isinstance(params, dict):
-        return "gbnc"
-    return str(params.get("data_source") or "gbnc").strip().lower() or "gbnc"
+    _ = params
+    return "gbnc"
 
 
 def _build_project_task_index(project_id: int) -> tuple[dict[tuple[str, str, str], dict[str, Any]], dict[tuple[str, str, str], dict[str, Any]]]:
@@ -275,14 +292,20 @@ def _create_micro_task(
 ) -> dict[str, Any]:
     params = _common_task_params(term, data_source)
     if task_type == "word-analysis":
+        celery_task = celery_task_map.get("word-analysis")
+        if celery_task is None:
+            raise HTTPException(status_code=400, detail="missing celery task mapping for word-analysis")
         return create_word_analysis_task(
             term["canonical"],
-            celery_task_map[task_type],
+            celery_task,
             owner_user_id=owner_user_id,
             guest_key=None,
             extra_params={key: value for key, value in params.items() if key != "word"},
         )
     if task_type == "pcmci-causal":
+        celery_task = celery_task_map.get("pcmci-causal")
+        if celery_task is None:
+            raise HTTPException(status_code=400, detail="missing celery task mapping for pcmci-causal")
         return create_pcmci_causal_task(
             {
                 **params,
@@ -292,15 +315,24 @@ def _create_micro_task(
                 "alpha_level": 0.01,
                 "pc_alpha": None,
             },
-            celery_task_map[task_type],
+            celery_task,
             owner_user_id=owner_user_id,
             guest_key=None,
         )
     if task_type == "mrnmr-steady":
-        return create_mrnmr_steady_task(params, celery_task_map[task_type], owner_user_id=owner_user_id, guest_key=None)
-    if task_type == "deltaT-null":
-        return create_delta_t_null_task(params, celery_task_map[task_type], owner_user_id=owner_user_id, guest_key=None)
+        celery_task = celery_task_map.get("mrnmr-steady")
+        if celery_task is None:
+            raise HTTPException(status_code=400, detail="missing celery task mapping for mrnmr-steady")
+        return create_mrnmr_steady_task(params, celery_task, owner_user_id=owner_user_id, guest_key=None)
+    if task_type in {"deltat-null", "deltaT-null"}:
+        celery_task = celery_task_map.get("deltat-null") or celery_task_map.get("deltaT-null")
+        if celery_task is None:
+            raise HTTPException(status_code=400, detail="missing celery task mapping for deltat-null")
+        return create_delta_t_null_task(params, celery_task, owner_user_id=owner_user_id, guest_key=None)
     if task_type == "simulation-run":
+        celery_task = celery_task_map.get("simulation-run")
+        if celery_task is None:
+            raise HTTPException(status_code=400, detail="missing celery task mapping for simulation-run")
         return create_simulation_task(
             {
                 **params,
@@ -316,7 +348,7 @@ def _create_micro_task(
                 "random_seed": 42,
                 "variant_scope": "typo_only",
             },
-            celery_task_map[task_type],
+            celery_task,
             owner_user_id=owner_user_id,
             guest_key=None,
         )
@@ -331,16 +363,41 @@ def prepare_meso_tasks_payload(
     data_source: str,
     current_user: dict | None,
     celery_task_map: dict[str, Any],
+    required_tasks: list[str] | None = None,
 ) -> dict[str, Any]:
+    data_source = "gbnc"
     project = ensure_meso_project_access(project_id, current_user)
     owner_user_id = int(project.get("owner_user_id") or 0) or None
     selected_terms = _resolve_terms(project_id, owner_user_id, cohort_names, term_ids)
+    required_tasks = _sanitize_required_tasks(required_tasks, include_simulation=include_simulation)
     if not selected_terms:
-        raise HTTPException(status_code=400, detail="no terms selected for meso preparation")
-
-    required_tasks = list(DEFAULT_REQUIRED_TASKS)
-    if include_simulation:
-        required_tasks.extend(OPTIONAL_TASKS)
+        result = {
+            "project_id": project_id,
+            "selected_term_count": 0,
+            "selected_terms": [],
+            "required_micro_tasks": required_tasks,
+            "data_source": str(data_source or "gbnc"),
+            "created_tasks": [],
+            "reused_tasks": [],
+            "skipped_terms": [],
+            "watched_task_ids": [],
+            "task_matrix": [],
+            "warnings": ["no_terms_selected"],
+        }
+        insert_audit_log(
+            action="MESO_PREPARE",
+            actor_user_id=_owner_id(current_user),
+            target_type="project",
+            target_id=str(project_id),
+            meta={
+                "selected_terms": 0,
+                "created_tasks": 0,
+                "reused_tasks": 0,
+                "include_simulation": include_simulation,
+                "data_source": str(data_source or "gbnc"),
+            },
+        )
+        return result
 
     latest_any, _ = _build_project_task_index(project_id)
     created_tasks: list[dict[str, Any]] = []
@@ -351,7 +408,6 @@ def prepare_meso_tasks_payload(
 
     for term in selected_terms:
         status_items: list[dict[str, Any]] = []
-        missing_variants = not bool(term["variants"])
         for task_type in required_tasks:
             existing = latest_any.get((term["canonical"], task_type, str(data_source or "gbnc").lower()))
             if existing and existing["status"] in ACTIVE_TASK_STATES.union({SUCCESS_TASK_STATE}):
@@ -368,18 +424,6 @@ def prepare_meso_tasks_payload(
                     watched_task_ids.append(str(existing["task_id"]))
                 continue
 
-            if missing_variants:
-                status_items.append(
-                    {
-                        "task_type": task_type,
-                        "word": term["canonical"],
-                        "status": "SKIPPED",
-                        "mode": "skipped",
-                        "reason": "missing_variants",
-                    }
-                )
-                continue
-
             created = _create_micro_task(task_type, term, owner_user_id, celery_task_map, data_source)
             bind_project_task(project_id, str(created["task_id"]))
             record = {
@@ -393,15 +437,6 @@ def prepare_meso_tasks_payload(
             status_items.append(record)
             watched_task_ids.append(str(created["task_id"]))
 
-        if any(item.get("status") == "SKIPPED" for item in status_items):
-            skipped_terms.append(
-                {
-                    "term_id": term["term_id"],
-                    "canonical": term["canonical"],
-                    "primary_cohort": term["primary_cohort"],
-                    "reason": "missing_variants",
-                }
-            )
         task_matrix.append(
             {
                 "term_id": term["term_id"],
@@ -777,12 +812,17 @@ def _build_cluster_payload(feature_rows: list[dict[str, Any]], cluster_k: int) -
 
     model = KMeans(n_clusters=safe_k, random_state=42, n_init=20)
     labels = model.fit_predict(scaled)
-    pca = PCA(n_components=2, random_state=42)
-    coords = pca.fit_transform(scaled)
-    explained = [float(value) for value in pca.explained_variance_ratio_.tolist()]
+    pca_components = max(1, min(2, int(scaled.shape[0]), int(scaled.shape[1])))
+    pca = PCA(n_components=pca_components, random_state=42)
+    coords_raw = pca.fit_transform(scaled)
+    if pca_components == 1:
+        coords = np.column_stack([coords_raw[:, 0], np.zeros(sample_count, dtype=float)])
+    else:
+        coords = coords_raw
+    explained = [value for value in (_safe_float(item) for item in pca.explained_variance_ratio_.tolist()) if value is not None]
     silhouette = None
-    if len(set(labels.tolist())) > 1:
-        silhouette = float(silhouette_score(scaled, labels))
+    if sample_count > 2 and len(set(labels.tolist())) > 1:
+        silhouette = _safe_float(silhouette_score(scaled, labels))
 
     baselines: dict[str, tuple[float, float]] = {}
     for key in usable_keys:
@@ -799,10 +839,12 @@ def _build_cluster_payload(feature_rows: list[dict[str, Any]], cluster_k: int) -
         indices = [index for index, label in enumerate(labels.tolist()) if label == cluster_id]
         center_scaled = model.cluster_centers_[cluster_id]
         center_raw = scaler.inverse_transform(center_scaled.reshape(1, -1))[0]
-        center_dict = {key: float(center_raw[idx]) for idx, key in enumerate(usable_keys)}
+        center_dict = {key: _safe_float(center_raw[idx]) for idx, key in enumerate(usable_keys)}
         label_text = _cluster_label(center_dict, baselines)
         for row_index in indices:
             row = feature_rows[row_index]
+            x_value = _safe_float(coords[row_index, 0])
+            y_value = _safe_float(coords[row_index, 1])
             scatter.append(
                 {
                     "term_id": int(row["term_id"]),
@@ -810,8 +852,8 @@ def _build_cluster_payload(feature_rows: list[dict[str, Any]], cluster_k: int) -
                     "primary_cohort": str(row["primary_cohort"]),
                     "cluster_id": int(cluster_id),
                     "cluster_label": label_text,
-                    "x": float(coords[row_index, 0]),
-                    "y": float(coords[row_index, 1]),
+                    "x": float(x_value if x_value is not None else 0.0),
+                    "y": float(y_value if y_value is not None else 0.0),
                 }
             )
         clusters.append(
@@ -843,11 +885,10 @@ def build_meso_result_payload(
     cluster_k: int,
     include_simulation: bool,
     data_source: str = "gbnc",
+    required_tasks: list[str] | None = None,
 ) -> dict[str, Any]:
+    data_source = "gbnc"
     selected_terms = _resolve_terms(project_id, owner_user_id, cohort_names, term_ids)
-    if not selected_terms:
-        raise HTTPException(status_code=400, detail="no terms selected for meso analysis")
-
     _, latest_success = _build_project_task_index(project_id)
     word_task_ids = [
         str(task["task_id"])
@@ -857,9 +898,7 @@ def build_meso_result_payload(
     ]
     word_series = _load_word_analysis_points(word_task_ids)
 
-    required_tasks = list(DEFAULT_REQUIRED_TASKS)
-    if include_simulation:
-        required_tasks.extend(OPTIONAL_TASKS)
+    required_tasks = _sanitize_required_tasks(required_tasks, include_simulation=include_simulation)
 
     feature_rows: list[dict[str, Any]] = []
     warnings: list[str] = []
@@ -867,7 +906,7 @@ def build_meso_result_payload(
         key_source = str(data_source or "gbnc").lower()
         word_task = latest_success.get((term["canonical"], "word-analysis", key_source))
         steady_task = latest_success.get((term["canonical"], "mrnmr-steady", key_source))
-        delta_task = latest_success.get((term["canonical"], "deltaT-null", key_source))
+        delta_task = latest_success.get((term["canonical"], "deltat-null", key_source))
         causal_task = latest_success.get((term["canonical"], "pcmci-causal", key_source))
         simulation_task = latest_success.get((term["canonical"], "simulation-run", key_source))
 
@@ -987,4 +1026,83 @@ def build_meso_result_payload(
         "feature_rows": feature_rows,
         "warnings": sorted(dict.fromkeys(warnings)),
     }
+    if not selected_terms:
+        return {
+            **result,
+            "summary": {
+                **result["summary"],
+                "selected_terms": 0,
+                "selected_categories": 0,
+                "cluster_k": 0,
+                "ready_terms": 0,
+                "ready_ratio": 0.0,
+            },
+            "selection": {"categories": [], "term_ids": [], "terms": []},
+            "coverage": {
+                "required_micro_tasks": required_tasks,
+                "task_coverage": {
+                    task_type: {"ready_terms": 0, "coverage_ratio": 0.0} for task_type in required_tasks
+                },
+                "missing_terms": [],
+            },
+            "category_profiles": [],
+            "comparison": {"metrics": [], "heatmap": [], "distributions": []},
+            "clustering": _build_cluster_payload([], cluster_k),
+            "feature_rows": [],
+            "warnings": ["no_terms_selected"],
+        }
+    return result
+
+
+def run_project_micro_tasks_payload(
+    project_id: int,
+    *,
+    cohort_names: list[str] | None,
+    term_ids: list[int] | None,
+    current_user: dict | None,
+    celery_task_map: dict[str, Any],
+) -> dict[str, Any]:
+    return prepare_meso_tasks_payload(
+        project_id=project_id,
+        cohort_names=cohort_names,
+        term_ids=term_ids,
+        include_simulation=False,
+        data_source="gbnc",
+        current_user=current_user,
+        celery_task_map=celery_task_map,
+        required_tasks=MICRO_REQUIRED_TASKS,
+    )
+
+
+def build_project_meso_clusters_payload(
+    project_id: int,
+    *,
+    cohort_names: list[str] | None,
+    term_ids: list[int] | None,
+    cluster_k: int,
+    current_user: dict | None,
+) -> dict[str, Any]:
+    project = ensure_meso_project_access(project_id, current_user)
+    owner_user_id = int(project.get("owner_user_id") or 0) or None
+    result = build_meso_result_payload(
+        project_id=project_id,
+        owner_user_id=owner_user_id,
+        cohort_names=cohort_names,
+        term_ids=term_ids,
+        cluster_k=cluster_k,
+        include_simulation=False,
+        data_source="gbnc",
+        required_tasks=MICRO_REQUIRED_TASKS,
+    )
+    insert_audit_log(
+        action="MESO_CLUSTER",
+        actor_user_id=_owner_id(current_user),
+        target_type="project",
+        target_id=str(project_id),
+        meta={
+            "selected_terms": int(result.get("summary", {}).get("selected_terms") or 0),
+            "cluster_k": int(result.get("summary", {}).get("cluster_k") or 0),
+            "ready_terms": int(result.get("summary", {}).get("ready_terms") or 0),
+        },
+    )
     return result

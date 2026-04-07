@@ -1,3 +1,5 @@
+/* 文件说明：任务详情页面，负责查看单个任务的参数、状态、产物和结果摘要。 */
+
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
@@ -473,7 +475,7 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
           extra={
             <Space wrap>
               <Button icon={<CopyOutlined />} onClick={() => navigator.clipboard?.writeText(taskId).then(() => message.success("Task ID copied")).catch(() => {})}>
-                Copy Task ID
+                复制 Task ID
               </Button>
               <Button
                 icon={polling ? <PauseOutlined /> : <PlayCircleOutlined />}
@@ -482,7 +484,7 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
                   if (!polling) setTicks(0);
                 }}
               >
-                {polling ? "Pause" : "Resume"} Auto Refresh
+                {polling ? "暂停" : "恢复"}自动刷新
               </Button>
               <Select
                 value={pollInterval}
@@ -500,7 +502,26 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
                 ]}
               />
               <Button icon={<ReloadOutlined />} onClick={() => void refresh(false, true)}>
-                Refresh
+                刷新
+              </Button>
+              <Button
+                icon={<PauseOutlined />}
+                danger
+                onClick={async () => {
+                  try {
+                    const resp = await api.deleteTask(taskId, { force: true });
+                    if (!resp.deleted) {
+                      message.warning(resp.reason || "操作被拒绝");
+                      return;
+                    }
+                    message.success("任务已暂停并删除");
+                    await refresh(false, true);
+                  } catch (e) {
+                    message.error(describeApiError(e));
+                  }
+                }}
+              >
+                暂停并删除
               </Button>
               <Button
                 icon={<RetweetOutlined />}
@@ -522,7 +543,7 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
                   }
                 }}
               >
-                Retry Task
+                重试任务
               </Button>
               <Button
                 icon={<FileImageOutlined />}
@@ -540,7 +561,7 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
                   }
                 }}
               >
-                Export Report
+                导出报告
               </Button>
             </Space>
           }
@@ -728,7 +749,7 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
                       </div>
                       <div className="algo-insight-card">
                         <div className="algo-insight-label">Signal / Noise</div>
-                        <div className="algo-insight-value" style={{ fontSize: 18 }}>Correct + Misspellings / Misspellings</div>
+                        <div className="algo-insight-value" style={{ fontSize: 18 }}>正确词 + 错拼词 / 错拼词</div>
                         <div className="algo-insight-copy">与论文中信号和噪声的定义保持一致。</div>
                       </div>
                     </>

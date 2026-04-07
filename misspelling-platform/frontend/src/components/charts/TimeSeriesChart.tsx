@@ -1,3 +1,5 @@
+/* 文件说明：时序图表组件，负责展示词频及算法结果相关的时间序列曲线。 */
+
 import { useEffect, useRef } from 'react';
 import * as echarts from 'echarts/core';
 import { LineChart } from 'echarts/charts';

@@ -1,4 +1,6 @@
-﻿import json
+"""文件说明：诊断服务模块，负责汇总数据库、Redis、Worker 与配置状态供管理员排查问题。"""
+
+import json
 import os
 import time
 from typing import Any

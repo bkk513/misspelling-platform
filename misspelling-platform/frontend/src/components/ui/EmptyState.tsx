@@ -1,3 +1,5 @@
+/* 文件说明：空状态组件，负责在无数据场景下提供统一提示界面。 */
+
 import { Empty } from 'antd';
 import type { ReactNode } from 'react';
 

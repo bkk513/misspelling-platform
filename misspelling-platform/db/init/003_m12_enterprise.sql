@@ -1,4 +1,6 @@
-﻿-- M12 enterprise extensions: projects, reports, task lineage, diagnostics metadata
+-- 文件说明：数据库迁移脚本，负责补充企业版相关字段和表结构。
+
+-- M12 enterprise extensions: projects, reports, task lineage, diagnostics metadata
 SET NAMES utf8mb4;
 SET time_zone = '+00:00';
 

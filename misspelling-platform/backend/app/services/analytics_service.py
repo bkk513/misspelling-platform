@@ -1,3 +1,5 @@
+"""文件说明：分析服务模块，负责聚合算法结果并提供分析中心所需的数据接口。"""
+
 import json
 import math
 import random

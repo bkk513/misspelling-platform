@@ -1,3 +1,5 @@
+/* 文件说明：传播仿真页面，负责配置仿真参数、提交仿真任务并展示结果。 */
+
 import {
   ApartmentOutlined,
   BarChartOutlined,
@@ -469,7 +471,7 @@ export function SimulationRunPage() {
                   Run Simulation
                 </Button>
                 <Button loading={busy} onClick={() => void loadPreview()}>
-                  Refresh Current Preview
+                  刷新当前预览
                 </Button>
                 <Button icon={<LinkOutlined />} onClick={() => latestTaskId && goToTask(latestTaskId)} disabled={!latestTaskId}>
                   Open Task Detail

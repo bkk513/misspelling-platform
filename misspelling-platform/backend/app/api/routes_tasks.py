@@ -1,3 +1,5 @@
+"""文件说明：任务接口路由模块，负责接收 HTTP 请求并调用对应服务层。"""
+
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
@@ -38,6 +40,7 @@ def _enforce_turnstile(
     task_type: str,
     owner_user_id: int | None = None,
 ):
+    # 所有建任务接口都可以复用这段校验逻辑，避免机器人高频刷任务。
     if not is_turnstile_configured():
         return
     client_ip = request.client.host if request.client else None
@@ -76,6 +79,7 @@ def create_task(
     guest_key: str | None = Header(default=None, alias="X-Guest-Key"),
     turnstile_token: str | None = Header(default=None, alias="X-Turnstile-Token"),
 ):
+    # 词分析是前端最先触发的任务类型，也是后续算法任务的数据入口。
     owner_user_id = int(current_user["id"]) if current_user else None
     _enforce_turnstile(request, turnstile_token, task_type="word-analysis", owner_user_id=owner_user_id)
     selected_variants = [v.strip().lower() for v in str(variants or "").split(",") if v.strip()]
@@ -149,29 +153,46 @@ def list_tasks(
 @router.post("/api/tasks/bulk-delete")
 def bulk_delete_tasks(
     body: BulkDeleteTasksBody,
+    force: bool = False,
     current_user=Depends(get_optional_user),
     guest_key: str | None = Header(default=None, alias="X-Guest-Key"),
 ):
     safe_ids = [str(task_id).strip() for task_id in (body.task_ids or []) if str(task_id).strip()]
-    result = bulk_delete_task_payload(safe_ids, current_user=current_user, guest_key=guest_key)
+    result = bulk_delete_task_payload(safe_ids, current_user=current_user, guest_key=guest_key, allow_active=bool(force))
     insert_audit_log(
         action="TASK_BULK_DELETE",
         actor_user_id=int(current_user["id"]) if current_user else None,
         target_type="task",
-        meta={"requested": len(safe_ids), "deleted": result.get("deleted"), "skipped": result.get("skipped")},
+        meta={
+            "requested": len(safe_ids),
+            "force": bool(force),
+            "deleted": result.get("deleted"),
+            "skipped": result.get("skipped"),
+        },
     )
     return result
 
 
 @router.delete("/api/tasks/{task_id}")
-def delete_task(task_id: str, current_user=Depends(get_optional_user), guest_key: str | None = Header(default=None, alias="X-Guest-Key")):
-    result = delete_task_payload(task_id, current_user=current_user, guest_key=guest_key)
+def delete_task(
+    task_id: str,
+    force: bool = False,
+    current_user=Depends(get_optional_user),
+    guest_key: str | None = Header(default=None, alias="X-Guest-Key"),
+):
+    result = delete_task_payload(task_id, current_user=current_user, guest_key=guest_key, allow_active=bool(force))
     insert_audit_log(
         action="TASK_DELETE",
         actor_user_id=int(current_user["id"]) if current_user else None,
         target_type="task",
         target_id=task_id,
-        meta={"deleted": bool(result.get("deleted")), "reason": result.get("reason")},
+        meta={
+            "force": bool(force),
+            "deleted": bool(result.get("deleted")),
+            "reason": result.get("reason"),
+            "paused": bool(result.get("paused")),
+            "revoked": bool(result.get("revoked")),
+        },
     )
     return result
 
@@ -202,6 +223,7 @@ def create_sim_task(
     guest_key: str | None = Header(default=None, alias="X-Guest-Key"),
     turnstile_token: str | None = Header(default=None, alias="X-Turnstile-Token"),
 ):
+    # 仿真接口把表单字段整理成统一参数对象，再交给任务服务和 Celery 处理。
     owner_user_id = int(current_user["id"]) if current_user else None
     _enforce_turnstile(request, turnstile_token, task_type="simulation-run", owner_user_id=owner_user_id)
     selected_variants = [v.strip().lower() for v in str(variants or "").split(",") if v.strip()]

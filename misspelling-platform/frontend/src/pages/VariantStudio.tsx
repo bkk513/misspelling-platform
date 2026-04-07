@@ -1,3 +1,5 @@
+/* 文件说明：变体工作台页面，负责查看与编辑词项变体及其辅助信息。 */
+
 import {
   CheckCircleOutlined,
   EditOutlined,
@@ -499,7 +501,7 @@ export function VariantStudioPage() {
                 locale={{
                   emptyText: cacheEnabled
                     ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No cached variants for this word." />
-                    : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Login to access personal cache." />,
+                    : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="登录后可访问个人缓存。" />,
                 }}
                 pagination={{ pageSize: 9, showSizeChanger: false }}
                 columns={[

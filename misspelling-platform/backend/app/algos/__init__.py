@@ -1,3 +1,5 @@
+"""文件说明：算法包初始化文件，负责暴露算法模块并标记该目录为 Python 包。"""
+
 from .dataset_builder import build_algorithm_dataset
 from .deltat_adapter import run_delta_t, to_event_rows
 from .mrnmr_adapter import run_mrnmr, to_metric_rows

@@ -1,3 +1,5 @@
+"""文件说明：Turnstile 校验服务模块，负责调用 Cloudflare Turnstile 完成人机校验。"""
+
 import os
 
 import requests

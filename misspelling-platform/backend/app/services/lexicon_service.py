@@ -1,4 +1,6 @@
-﻿from pathlib import Path
+"""文件说明：词库服务模块，负责词项导入、变体维护与词源年份等辅助数据管理。"""
+
+from pathlib import Path
 from typing import Any
 
 from ..db.audit_logs_repo import insert_audit_log

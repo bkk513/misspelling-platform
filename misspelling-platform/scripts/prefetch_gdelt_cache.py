@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+"""文件说明：历史运维脚本，负责预拉取 GDELT 缓存数据，当前更多用于兼容旧流程排查。"""
+
 from __future__ import annotations
 
 import argparse

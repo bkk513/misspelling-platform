@@ -1,3 +1,5 @@
+"""文件说明：时序接口路由模块，负责接收 HTTP 请求并调用对应服务层。"""
+
 from fastapi import APIRouter, Depends, Header
 from pydantic import BaseModel
 

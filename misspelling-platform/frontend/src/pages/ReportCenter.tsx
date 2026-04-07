@@ -1,3 +1,5 @@
+/* 文件说明：报告中心页面，负责展示可导出的分析报告与汇总结果。 */
+
 import { FileTextOutlined, ReloadOutlined } from "@ant-design/icons";
 import { Button, Card, DatePicker, Select, Space, Table, Tag, Typography, message } from "antd";
 import dayjs from "dayjs";

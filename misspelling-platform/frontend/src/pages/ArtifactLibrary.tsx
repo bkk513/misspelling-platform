@@ -1,3 +1,5 @@
+/* 文件说明：产物库页面，负责查看并下载算法生成的图表、表格和报告文件。 */
+
 import { EyeOutlined, ReloadOutlined } from "@ant-design/icons";
 import { Button, Card, DatePicker, Image, Select, Space, Table, Tag, Typography, message } from "antd";
 import dayjs from "dayjs";
@@ -214,7 +216,7 @@ export function ArtifactLibraryPage() {
           <div className="enterprise-section-title">
             <EyeOutlined />
             <div className="enterprise-section-copy">
-              <strong>Preview</strong>
+              <strong>预览</strong>
               <span>优先展示当前任务的 `preview.png`。</span>
             </div>
           </div>

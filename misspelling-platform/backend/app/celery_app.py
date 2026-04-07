@@ -1,3 +1,5 @@
+"""文件说明：Celery 应用入口，负责定义异步任务队列与 Worker 连接配置。"""
+
 import os
 from celery import Celery
 

@@ -1,3 +1,5 @@
+"""文件说明：PCMCI 因果网络算法适配模块，负责构建变量序列并输出因果边与显著性结果。"""
+
 from __future__ import annotations
 
 import math

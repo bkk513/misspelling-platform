@@ -1,3 +1,5 @@
+"""文件说明：任务响应模型模块，负责定义任务接口使用的结构化返回类型。"""
+
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel

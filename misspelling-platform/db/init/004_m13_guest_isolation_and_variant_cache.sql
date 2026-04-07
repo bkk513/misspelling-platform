@@ -1,3 +1,5 @@
+-- 文件说明：数据库迁移脚本，负责补充访客隔离和变体缓存相关结构。
+
 -- M13: guest task isolation + user variant cache
 SET NAMES utf8mb4;
 SET time_zone = '+00:00';

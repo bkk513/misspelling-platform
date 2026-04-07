@@ -1,3 +1,5 @@
+/* 文件说明：折线图组件，负责渲染简单时序折线可视化。 */
+
 import { useMemo, useState } from "react";
 
 type Point = { time: string; value: number };

@@ -1,3 +1,5 @@
+/* 文件说明：前端全局样式文件，负责定义页面通用排版、布局与基础元素样式。 */
+
 :root {
   color: var(--mp-ink-950);
   background: #edf3fb;

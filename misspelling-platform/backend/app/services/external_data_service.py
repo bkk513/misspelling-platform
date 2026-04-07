@@ -1,11 +1,12 @@
+"""文件说明：外部数据服务模块，负责组织平台对外部词频数据源的调用与标准化返回。"""
+
 from __future__ import annotations
 
 from typing import Any
 
 from .gbnc_data_service import pull_gbnc_series_payload, pull_gbnc_snapshot_payload
-from .gdelt_data_service import pull_gdelt_series_payload
 
-SUPPORTED_DATA_SOURCES = {"gbnc", "gdelt"}
+SUPPORTED_DATA_SOURCES = {"gbnc"}
 
 
 def normalize_data_source(value: Any) -> str:
@@ -14,12 +15,13 @@ def normalize_data_source(value: Any) -> str:
 
 
 def data_source_label(value: Any) -> str:
-    source = normalize_data_source(value)
-    return "GDELT" if source == "gdelt" else "GBNC"
+    _ = normalize_data_source(value)
+    return "GBNC"
 
 
 def data_source_uses_corpus(value: Any) -> bool:
-    return normalize_data_source(value) == "gbnc"
+    _ = normalize_data_source(value)
+    return True
 
 
 def pull_external_series_payload(
@@ -33,15 +35,7 @@ def pull_external_series_payload(
     current_user: dict | None = None,
     data_source: str = "gbnc",
 ):
-    source = normalize_data_source(data_source)
-    if source == "gdelt":
-        return pull_gdelt_series_payload(
-            word=word,
-            variants=variants,
-            start_year=start_year,
-            end_year=end_year,
-            current_user=current_user,
-        )
+    _ = normalize_data_source(data_source)
     return pull_gbnc_series_payload(
         word=word,
         variants=variants,
@@ -64,15 +58,7 @@ def pull_external_snapshot_payload(
     current_user: dict | None = None,
     data_source: str = "gbnc",
 ):
-    source = normalize_data_source(data_source)
-    if source == "gdelt":
-        return pull_gdelt_series_payload(
-            word=word,
-            variants=variants,
-            start_year=start_year,
-            end_year=end_year,
-            current_user=current_user,
-        )
+    _ = normalize_data_source(data_source)
     return pull_gbnc_snapshot_payload(
         word=word,
         variants=variants,

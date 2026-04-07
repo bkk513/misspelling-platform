@@ -1,3 +1,5 @@
+"""文件说明：数据接口路由模块，负责接收 HTTP 请求并调用对应服务层。"""
+
 from fastapi import APIRouter, Depends, Header, HTTPException
 from fastapi.responses import FileResponse
 
@@ -22,7 +24,6 @@ def pull_gbnc(
     corpus: str = "eng_2019",
     smoothing: int = 3,
     variants: str | None = None,
-    data_source: str = "gbnc",
     current_user=Depends(get_optional_user),
 ):
     raw_variants = [v.strip().lower() for v in str(variants or "").split(",") if v.strip()]
@@ -36,7 +37,7 @@ def pull_gbnc(
         corpus=corpus,
         smoothing=int(smoothing),
         current_user=current_user,
-        data_source=data_source,
+        data_source="gbnc",
     )
     return {
         **result,

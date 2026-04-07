@@ -1,3 +1,5 @@
+/* 文件说明：算法工作台共享逻辑模块，负责复用词项与结果展示相关的前端辅助函数。 */
+
 import { api } from "../lib/api";
 
 export function asObject(value: unknown): Record<string, unknown> | null {

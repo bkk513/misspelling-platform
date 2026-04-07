@@ -1,3 +1,5 @@
+/* 文件说明：DeltaT 偏差页面，负责提交偏差分析任务并展示突变窗口与偏差指标。 */
+
 import {
   ApartmentOutlined,
   LinkOutlined,
@@ -318,7 +320,7 @@ export function DeltaTBiasPage() {
                   Run DeltaT
                 </Button>
                 <Button loading={busy} onClick={() => void loadPreview()}>
-                  Refresh Current Preview
+                  刷新当前预览
                 </Button>
                 <Button icon={<LinkOutlined />} disabled={!latestTaskId} onClick={() => latestTaskId && goToTask(latestTaskId)}>
                   Open Task Detail

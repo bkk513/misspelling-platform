@@ -1,3 +1,5 @@
+"""文件说明：任务事件数据访问模块，负责对应表或实体的查询与写入。"""
+
 from sqlalchemy import text
 
 from .core import engine

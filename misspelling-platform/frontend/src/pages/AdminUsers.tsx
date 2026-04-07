@@ -1,3 +1,5 @@
+/* 文件说明：管理员用户页面，负责查看用户列表、角色与启用状态。 */
+
 import { PlusOutlined, SyncOutlined } from "@ant-design/icons";
 import { Button, Card, Form, Input, Modal, Select, Space, Switch, Table, Tag, message } from "antd";
 import { useEffect, useState } from "react";
@@ -32,7 +34,7 @@ export function AdminUsersPage() {
     try {
       const values = await createForm.validateFields();
       await api.adminCreateUser(values.username, values.password, values.role);
-      message.success("User created");
+      message.success("用户已创建");
       setCreateOpen(false);
       createForm.resetFields();
       await refresh();
@@ -42,7 +44,7 @@ export function AdminUsersPage() {
   };
 
   return (
-    <Card title="User Management" extra={<Space><Button icon={<SyncOutlined />} onClick={() => void refresh()} loading={loading}>Refresh</Button><Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>Create User</Button></Space>}>
+    <Card title="用户管理" extra={<Space><Button icon={<SyncOutlined />} onClick={() => void refresh()} loading={loading}>刷新</Button><Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>新建用户</Button></Space>}>
       <Table
         rowKey="id"
         size="small"
@@ -50,10 +52,10 @@ export function AdminUsersPage() {
         pagination={{ pageSize: 10 }}
         columns={[
           { title: "ID", dataIndex: "id", width: 70 },
-          { title: "Username", dataIndex: "username" },
-          { title: "Roles", dataIndex: "roles", render: (roles: string[]) => <>{roles.map((r) => <Tag key={r}>{r}</Tag>)}</> },
+          { title: "用户名", dataIndex: "username" },
+          { title: "角色", dataIndex: "roles", render: (roles: string[]) => <>{roles.map((r) => <Tag key={r}>{r}</Tag>)}</> },
           {
-            title: "Active",
+            title: "启用",
             dataIndex: "is_active",
             render: (v: boolean, row: { id: number }) => (
               <Switch
@@ -61,7 +63,7 @@ export function AdminUsersPage() {
                 onChange={async (checked) => {
                   try {
                     await api.adminUpdateUserActive(row.id, checked);
-                    message.success("User status updated");
+                    message.success("用户状态已更新");
                     await refresh();
                   } catch (e) {
                     message.error(describeApiError(e));
@@ -71,7 +73,7 @@ export function AdminUsersPage() {
             )
           },
           {
-            title: "Action",
+            title: "操作",
             render: (_: unknown, row: { id: number }) => (
               <Button
                 size="small"
@@ -80,30 +82,30 @@ export function AdminUsersPage() {
                   setResetModalOpen(true);
                 }}
               >
-                Reset Password
+                重置密码
               </Button>
             )
           }
         ]}
       />
 
-      <Modal title="Create User" open={createOpen} onOk={() => void createUser()} onCancel={() => setCreateOpen(false)}>
+      <Modal title="新建用户" open={createOpen} onOk={() => void createUser()} onCancel={() => setCreateOpen(false)}>
         <Form layout="vertical" form={createForm} initialValues={{ role: "user" }}>
-          <Form.Item label="Username" name="username" rules={[{ required: true }]}><Input /></Form.Item>
-          <Form.Item label="Password" name="password" rules={[{ required: true }]}><Input.Password /></Form.Item>
-          <Form.Item label="Role" name="role"><Select options={[{ value: "user", label: "user" }, { value: "admin", label: "admin" }]} /></Form.Item>
+          <Form.Item label="用户名" name="username" rules={[{ required: true }]}><Input /></Form.Item>
+          <Form.Item label="密码" name="password" rules={[{ required: true }]}><Input.Password /></Form.Item>
+          <Form.Item label="角色" name="role"><Select options={[{ value: "user", label: "user" }, { value: "admin", label: "admin" }]} /></Form.Item>
         </Form>
       </Modal>
 
       <Modal
-        title="Reset User Password"
+        title="重置用户密码"
         open={resetModalOpen}
         onOk={async () => {
           try {
             const values = await resetForm.validateFields();
             if (resetUserId === null) return;
             await api.adminResetPassword(resetUserId, values.password);
-            message.success('Password reset successful');
+            message.success("密码重置成功");
             setResetModalOpen(false);
             resetForm.resetFields();
             setResetUserId(null);
@@ -119,36 +121,36 @@ export function AdminUsersPage() {
       >
         <Form form={resetForm} layout="vertical">
           <Form.Item
-            label="New Password"
+            label="新密码"
             name="password"
             rules={[
-              { required: true, message: 'Please input password' },
-              { min: 8, message: 'Password must be at least 8 characters' },
+              { required: true, message: "请输入密码" },
+              { min: 8, message: "密码至少 8 位" },
               {
                 pattern: /^(?=.*[A-Za-z])(?=.*\d)/,
-                message: 'Password must contain both letters and numbers',
+                message: "密码需同时包含字母和数字",
               },
             ]}
           >
-            <Input.Password placeholder="Enter new password" />
+            <Input.Password placeholder="输入新密码" />
           </Form.Item>
           <Form.Item
-            label="Confirm Password"
+            label="确认密码"
             name="confirmPassword"
             dependencies={['password']}
             rules={[
-              { required: true, message: 'Please confirm password' },
+              { required: true, message: "请确认密码" },
               ({ getFieldValue }) => ({
                 validator(_, value) {
                   if (!value || getFieldValue('password') === value) {
                     return Promise.resolve();
                   }
-                  return Promise.reject(new Error('Passwords do not match'));
+                  return Promise.reject(new Error("两次输入密码不一致"));
                 },
               }),
             ]}
           >
-            <Input.Password placeholder="Confirm new password" />
+            <Input.Password placeholder="再次输入新密码" />
           </Form.Item>
         </Form>
       </Modal>

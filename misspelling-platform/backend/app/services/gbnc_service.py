@@ -1,4 +1,6 @@
-﻿import hashlib
+"""文件说明：GBNC 领域服务模块，负责面向业务层封装 GBNC 数据拉取与响应结构。"""
+
+import hashlib
 import random
 from typing import Any
 

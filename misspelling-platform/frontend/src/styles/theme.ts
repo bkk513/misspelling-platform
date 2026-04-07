@@ -1,3 +1,5 @@
+/* 文件说明：前端主题配置模块，负责整理组件主题所需的配色与样式参数。 */
+
 import type { ThemeConfig } from "antd";
 import { theme } from "antd";
 

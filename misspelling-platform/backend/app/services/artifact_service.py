@@ -1,3 +1,5 @@
+"""文件说明：任务产物服务模块，负责将算法结果导出为图表、CSV、JSON 等可下载文件。"""
+
 import json
 import csv
 import os
@@ -583,13 +585,6 @@ def write_simulation_animation_gif(
         repeat=True,
     )
     animation.save(out_gif, writer=PillowWriter(fps=int(fps)), dpi=110)
-    plt.close(fig)
-    fig, ax = plt.subplots(figsize=(10, 5.6))
-    ax.text(0.5, 0.6, title, ha="center", va="center", fontsize=12, fontweight="bold")
-    ax.text(0.5, 0.45, message, ha="center", va="center", fontsize=10)
-    ax.set_axis_off()
-    fig.tight_layout()
-    fig.savefig(out_png, format="png", dpi=180)
     plt.close(fig)
 
 

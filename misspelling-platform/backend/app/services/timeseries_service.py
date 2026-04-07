@@ -1,3 +1,5 @@
+"""文件说明：时序数据服务模块，负责把外部词频数据落库并供算法与页面复用。"""
+
 import hashlib
 import math
 import random
@@ -292,7 +294,7 @@ def persist_word_analysis_external_series(
     smoothing: int | None = None,
 ):
     owner_user_id = get_task_owner(task_id)
-    source_name = "GBNC" if str(payload.get("source", "")).upper() == "GBNC" else "stub_local"
+    source_name = "GBNC"
     source_id = ensure_data_source(name=source_name, granularity="year")
     canonical = (word or "word").strip().lower()
     term_id = ensure_term(canonical=canonical, category="custom", language="en", owner_user_id=owner_user_id)

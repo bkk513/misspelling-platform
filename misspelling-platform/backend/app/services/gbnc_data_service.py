@@ -1,3 +1,5 @@
+"""文件说明：GBNC 数据服务模块，负责词频快照拉取、缓存复用、权限隔离与预览数据整理。"""
+
 import json
 from datetime import date, datetime, timezone
 from typing import Any
@@ -24,6 +26,13 @@ def _is_admin(current_user: dict | None) -> bool:
 
 def _normalize_guest_key(guest_key: str | None) -> str:
     return str(guest_key or "").strip()[:64]
+
+
+def _normalize_task_id(value: Any) -> str:
+    task_id = str(value or "").strip()
+    if task_id.lower() in {"", "null", "none"}:
+        return ""
+    return task_id
 
 
 def _is_today_utc(value: Any) -> bool:
@@ -94,7 +103,11 @@ def _series_rows_for_signature(
                       AND ts.granularity='year'
                       AND ts.window_start=:window_start
                       AND ts.window_end=:window_end
-                      AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(ts.meta_json, '$.task_id')), '') = ''
+                      AND COALESCE(
+                            NULLIF(LOWER(JSON_UNQUOTE(JSON_EXTRACT(ts.meta_json, '$.task_id'))), 'null'),
+                            NULLIF(LOWER(JSON_UNQUOTE(JSON_EXTRACT(ts.meta_json, '$.task_id'))), 'none'),
+                            ''
+                          ) = ''
                       AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(ts.meta_json, '$.corpus')), '')=:corpus
                       AND COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(ts.meta_json, '$.smoothing')) AS SIGNED), -1)=:smoothing
                       AND ({where_owner})
@@ -159,6 +172,7 @@ def pull_gbnc_series_payload(
     corpus: str,
     smoothing: int,
     current_user: dict | None = None,
+    guest_key: str | None = None,
 ):
     canonical = str(word or "").strip().lower()
     if not canonical:
@@ -233,7 +247,6 @@ def pull_gbnc_series_payload(
             window_end=date(end_year, 1, 1),
             units=str(pulled.get("unit") or "relative_frequency"),
             meta={
-                "task_id": None,
                 "source": pulled.get("source"),
                 "variant": variant,
                 "corpus": corpus,
@@ -294,6 +307,7 @@ def pull_gbnc_snapshot_payload(
     corpus: str,
     smoothing: int,
     current_user: dict | None = None,
+    guest_key: str | None = None,
 ):
     pulled = pull_gbnc_series_payload(
         word=word,
@@ -303,10 +317,12 @@ def pull_gbnc_snapshot_payload(
         corpus=corpus,
         smoothing=smoothing,
         current_user=current_user,
+        guest_key=guest_key,
     )
     hydrated = _hydrate_gbnc_payload_from_series_ids(
         [int(series_id) for series_id in (pulled.get("series_ids") or []) if int(series_id) > 0],
         current_user=current_user,
+        guest_key=guest_key,
     )
     hydrated["cache_hit"] = bool(pulled.get("cache_hit"))
     return hydrated
@@ -411,7 +427,7 @@ def _ensure_series_access(series_row, current_user: dict | None, guest_key: str 
         return
     owner_user_id = series_row.get("owner_user_id")
     uid = _owner_id(current_user)
-    task_id = str(series_row.get("task_id") or "").strip()
+    task_id = _normalize_task_id(series_row.get("task_id"))
     if owner_user_id is None and not task_id:
         return
     if uid is not None and owner_user_id == uid:
@@ -432,7 +448,7 @@ def get_gbnc_series_payload(series_id: int, current_user: dict | None = None, gu
     row = _get_series_row(series_id)
     _ensure_series_access(row, current_user, guest_key=guest_key)
     meta = _parse_meta(row.get("meta_json"))
-    task_id = str(row.get("task_id") or "").strip()
+    task_id = _normalize_task_id(row.get("task_id"))
     owner_user_id = row.get("owner_user_id")
 
     with get_engine().begin() as conn:

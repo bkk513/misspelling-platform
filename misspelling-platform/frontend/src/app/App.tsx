@@ -1,3 +1,5 @@
+/* 文件说明：前端应用根组件，负责会话恢复、路由分发、布局切换与全局错误兜底。 */
+
 import { Alert, Button, Card, ConfigProvider } from "antd";
 import { useEffect, useMemo, useState } from "react";
 import { AdminLayout } from "../layouts/AdminLayout";
@@ -12,7 +14,6 @@ import { AdminUsersPage } from "../pages/AdminUsers";
 import { HomePage } from "../pages/Home";
 import { LoginPage } from "../pages/Login";
 import { PlaceholderPage } from "../pages/Placeholder";
-import { ProjectManagerPage } from "../pages/ProjectManager";
 import { CausalNetworkPage } from "../pages/CausalNetwork";
 import { DeltaTBiasPage } from "../pages/DeltaTBias";
 import { ReportCenterPage } from "../pages/ReportCenter";
@@ -21,7 +22,6 @@ import { SteadyStatePage } from "../pages/SteadyState";
 import { TaskCenterPage } from "../pages/TaskCenter";
 import { TaskDetailPage } from "../pages/TaskDetail";
 import { TimeSeriesExplorerPage } from "../pages/TimeSeriesExplorer";
-import { AnalyticsCenterPage } from "../pages/AnalyticsCenter";
 import { VariantStudioPage } from "../pages/VariantStudio";
 import { WordAnalysisWorkbenchPage } from "../pages/WordAnalysisWorkbench";
 import { ArtifactLibraryPage } from "../pages/ArtifactLibrary";
@@ -43,6 +43,7 @@ const SESSION_KEY = "mp-session";
 const GUEST_KEY = "mp-guest-key";
 
 function ensureGuestKey() {
+  // 访客侧所有任务、缓存和时序查询都靠这个 guest key 做隔离。
   const existing = (window.localStorage.getItem(GUEST_KEY) || "").trim();
   if (existing) return existing;
   const generated =
@@ -54,26 +55,25 @@ function ensureGuestKey() {
 }
 
 const researcherNotes: Record<string, string> = {
-  "word-analysis": "GBNC parameter controls and variant selector will be implemented in Commit 3.",
-  variants: "Variant cache and manual editing workflow will be implemented in Commit 3.",
-  projects: "Project manager binds terms/tasks for meso-level analytics and report export.",
-  analytics: "Baseline clustering and summary analytics are persisted to analytics_runs.",
-  simulation: "Run standalone simulation tasks from the Algorithms section.",
-  "causal-network": "Submit and inspect pcmci-causal tasks with top edge preview.",
-  "steady-state": "Submit and inspect mrnmr-steady tasks with MR/NMR metrics preview.",
-  "delta-t-bias": "Submit and inspect deltaT-null tasks with observed/null event summary.",
-  "time-series": "Series grid and chart interactions will be implemented in Commit 4.",
-  artifacts: "Artifact list, preview and download shortcuts will be implemented in Commit 4.",
-  reports: "Report draft flow will be implemented in Commit 6.",
-  settings: "Guest mode policy and owner-binding roadmap will be documented here."
+  // 这里是页面说明文案映射，切换路由时顶部提示会直接读取这个表。
+  "word-analysis": "词分析页面：配置参数、管理变体并提交任务。",
+  variants: "变体管理页面：维护词项及其变体。",
+  simulation: "传播仿真任务页面。",
+  "causal-network": "PCMCI 因果网络任务页面。",
+  "steady-state": "MRNMR 稳态分析任务页面。",
+  "delta-t-bias": "DeltaT 偏差任务页面。",
+  "time-series": "时序数据查询页面。",
+  artifacts: "任务产物查看与下载页面。",
+  reports: "报告导出页面。",
+  settings: "用户设置页面。"
 };
 
 const adminNotes: Record<AdminRouteKey, string> = {
-  dashboard: "System metrics and queue overview will be implemented in Commit 5.",
-  users: "Enterprise user table and reset password modal will be implemented in Commit 5.",
-  "audit-logs": "Paged audit log table with drawer detail will be implemented in Commit 5.",
-  "data-sources": "GBNC/LLM data source operations will be implemented in Commit 5.",
-  settings: "Readonly settings and feature flags shell will be implemented in Commit 6."
+  dashboard: "系统概览。",
+  users: "用户管理。",
+  "audit-logs": "审计日志。",
+  "data-sources": "数据源配置。",
+  settings: "系统设置。"
 };
 
 function loadSession(): Session {
@@ -96,6 +96,7 @@ function loadSession(): Session {
 }
 
 export function App() {
+  // App 组件负责把“当前路由 + 当前会话 + 后端健康状态”三件事统一管理起来。
   const [route, setRoute] = useState<Route>(() => parseRoute(window.location.pathname));
   const [session, setSession] = useState<Session>(() => loadSession());
   const [dbOk, setDbOk] = useState(false);
@@ -110,6 +111,7 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    // 会话变化后同步更新 localStorage 和请求头，让页面刷新后仍能保持登录态或访客态。
     window.localStorage.setItem(SESSION_KEY, JSON.stringify(session));
     setAccessToken(session.token || "");
     if (session.role === "guest") {
@@ -140,9 +142,11 @@ export function App() {
   }, [route.scope]);
 
   const onLogin = async (username: string, password: string, turnstileToken?: string) => {
-    if (!username || !password) throw new Error("Username and password are required");
+    if (!username || !password) throw new Error("用户名和密码不能为空");
     const resp = await api.login(username, password, turnstileToken);
     const role: Session["role"] = resp.user.roles.includes("admin") ? "admin" : "user";
+    setAccessToken(resp.access_token);
+    setGuestKey("");
     setSession({ username: resp.user.username, role, token: resp.access_token });
     role === "admin" ? goToAdmin("dashboard") : goToApp("dashboard");
   };
@@ -152,18 +156,12 @@ export function App() {
     goToApp("dashboard");
   };
 
-  const onRegisterWithCaptcha = async (
-    username: string,
-    password: string,
-    displayName?: string,
-    email?: string,
-    captchaId?: string,
-    captchaCode?: string
-  ) => {
-    if (!username || !password) throw new Error("Username and password are required");
-    if (!captchaId || !captchaCode) throw new Error("Captcha is required");
-    const resp = await api.register(username, password, displayName, email, captchaId, captchaCode);
+  const onRegister = async (username: string, password: string, displayName?: string, email?: string) => {
+    if (!username || !password) throw new Error("用户名和密码不能为空");
+    const resp = await api.register(username, password, displayName, email);
     const role: Session["role"] = resp.user.roles.includes("admin") ? "admin" : "user";
+    setAccessToken(resp.access_token);
+    setGuestKey("");
     setSession({ username: resp.user.username, role, token: resp.access_token });
     role === "admin" ? goToAdmin("dashboard") : goToApp("dashboard");
   };
@@ -175,9 +173,9 @@ export function App() {
 
   const breadcrumbs = useMemo(() => {
     if (route.scope === "app") {
-      return ["Researcher", route.key === "task-detail" ? `Task ${route.taskId || "-"}` : route.key];
+      return ["研究工作台", route.key === "task-detail" ? `任务 ${route.taskId || "-"}` : route.key];
     }
-    if (route.scope === "admin") return ["Admin", route.key];
+    if (route.scope === "admin") return ["管理后台", route.key];
     return [route.scope];
   }, [route]);
 
@@ -186,8 +184,7 @@ export function App() {
       <ConfigProvider>
         <LoginPage
           onLogin={onLogin}
-          onRegister={onRegisterWithCaptcha}
-          onFetchCaptcha={api.getCaptcha}
+          onRegister={onRegister}
           onGuest={onGuest}
         />
       </ConfigProvider>
@@ -202,9 +199,9 @@ export function App() {
           <Alert
             type="error"
             showIcon
-            message="401 Unauthorized"
-            description="Admin routes require admin login."
-            action={<Button onClick={goToLogin}>Go Login</Button>}
+            message="401 无权限"
+            description="管理员路由仅允许管理员登录后访问。"
+            action={<Button onClick={goToLogin}>前往登录</Button>}
           />
         </Card>
       ) : (
@@ -220,7 +217,7 @@ export function App() {
             route.key !== "data-sources" &&
             route.key !== "settings" && (
             <PlaceholderPage
-              title={route.key === "dashboard" ? "Admin Dashboard" : route.key}
+              title={route.key === "dashboard" ? "管理仪表盘" : route.key}
               description={adminNotes[route.key]}
             />
           )}
@@ -252,22 +249,20 @@ export function App() {
           <Alert
             type="error"
             showIcon
-            message="404 route not found"
-            action={<Button onClick={goHome}>Go Dashboard</Button>}
+            message="404 路由不存在"
+            action={<Button onClick={goHome}>返回仪表盘</Button>}
           />
         </Card>
       </ConfigProvider>
     );
   }
 
-  let content = <PlaceholderPage title={route.key} description={researcherNotes[route.key] ?? "Module scaffolding ready."} />;
+  let content = <PlaceholderPage title={route.key} description={researcherNotes[route.key] ?? "模块已就绪"} />;
   if (route.key === "dashboard") content = <HomePage />;
   if (route.key === "tasks") content = <TaskCenterPage />;
   if (route.key === "task-detail" && route.taskId) content = <TaskDetailPage taskId={route.taskId} />;
   if (route.key === "word-analysis") content = <WordAnalysisWorkbenchPage />;
   if (route.key === "variants") content = <VariantStudioPage />;
-  if (route.key === "projects") content = <ProjectManagerPage sessionRole={session.role} />;
-  if (route.key === "analytics") content = <AnalyticsCenterPage sessionRole={session.role} />;
   if (route.key === "simulation") content = <SimulationRunPage />;
   if (route.key === "causal-network") content = <CausalNetworkPage />;
   if (route.key === "steady-state") content = <SteadyStatePage />;

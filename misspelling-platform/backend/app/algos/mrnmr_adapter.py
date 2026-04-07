@@ -1,3 +1,5 @@
+"""文件说明：MRNMR 稳态分析算法适配模块，负责评估词项演化过程中的稳态与突变信号。"""
+
 from __future__ import annotations
 
 from typing import Any

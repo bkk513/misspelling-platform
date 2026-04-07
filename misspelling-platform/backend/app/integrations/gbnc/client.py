@@ -1,3 +1,5 @@
+"""文件说明：GBNC 数据源客户端，负责请求并获取 Google Books Ngram Corpus 数据。"""
+
 import os
 import re
 import time

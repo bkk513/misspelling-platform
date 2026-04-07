@@ -1,3 +1,5 @@
+/* 文件说明：管理员布局组件，负责管理员端侧边栏、页头与内容区域的整体框架。 */
+
 import {
   DashboardOutlined,
   SafetyCertificateOutlined,
@@ -15,21 +17,21 @@ const { Header, Sider, Content } = Layout;
 const menuItems: MenuProps['items'] = [
   {
     key: 'admin-main',
-    label: 'Administration',
+    label: '管理',
     icon: <DashboardOutlined />,
     children: [
-      { key: 'dashboard', label: 'Dashboard' },
-      { key: 'users', label: 'User Management' },
-      { key: 'audit-logs', label: 'Audit Logs' },
+      { key: 'dashboard', label: '总览' },
+      { key: 'users', label: '用户管理' },
+      { key: 'audit-logs', label: '审计日志' },
     ],
   },
   {
     key: 'admin-system',
-    label: 'System',
+    label: '系统',
     icon: <SettingOutlined />,
     children: [
-      { key: 'data-sources', label: 'Data Sources' },
-      { key: 'settings', label: 'System Settings' },
+      { key: 'data-sources', label: '数据源' },
+      { key: 'settings', label: '系统设置' },
     ],
   },
 ];
@@ -58,8 +60,8 @@ export function AdminLayout({
       <Sider width={250} className="enterprise-sider" theme="dark">
         <div className="enterprise-logo admin-logo">
           <div className="enterprise-logo-inner">
-            <span>Misspelling Research OS</span>
-            <small>Admin Console</small>
+            <span>错拼研究平台</span>
+            <small>管理员控制台</small>
           </div>
         </div>
         <Menu
@@ -76,27 +78,27 @@ export function AdminLayout({
           <div className="enterprise-header-left">
             <Space size={8} wrap>
               <Tag color="volcano" icon={<SafetyCertificateOutlined />}>
-                Privileged Zone
+                管理区
               </Tag>
               <Typography.Text type="secondary">
-                Admin operations are audited.
+                管理操作会被审计记录。
               </Typography.Text>
             </Space>
           </div>
           <div className="enterprise-header-right">
-            <Badge status="processing" text={`role: ${role}`} />
+            <Badge status="processing" text={`角色: ${role}`} />
             <Typography.Text>{username}</Typography.Text>
-            <Tooltip title={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}>
+            <Tooltip title={`切换到${theme === 'light' ? '深色' : '浅色'}模式`}>
               <Button
                 size="small"
                 icon={theme === 'light' ? <BulbOutlined /> : <BulbFilled />}
                 onClick={toggleTheme}
               >
-                {theme === 'light' ? 'Dark' : 'Light'}
+                {theme === 'light' ? '深色' : '浅色'}
               </Button>
             </Tooltip>
             <Button size="small" onClick={onLogout}>
-              Logout
+              退出登录
             </Button>
           </div>
         </Header>

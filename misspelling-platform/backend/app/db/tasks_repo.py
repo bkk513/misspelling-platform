@@ -1,3 +1,5 @@
+"""文件说明：任务数据访问模块，负责对应表或实体的查询与写入。"""
+
 from sqlalchemy import text
 
 from .core import engine
@@ -34,6 +36,21 @@ def get_task_owner(task_id: str):
     if not row:
         return None
     return row["owner_user_id"]
+
+
+def get_task_guest_key(task_id: str):
+    with engine.begin() as conn:
+        row = (
+            conn.execute(
+                text("SELECT guest_key FROM tasks WHERE task_id=:task_id LIMIT 1"),
+                {"task_id": task_id},
+            )
+            .mappings()
+            .first()
+        )
+    if not row:
+        return None
+    return row.get("guest_key")
 
 
 def get_task(task_id: str):
@@ -76,7 +93,14 @@ def list_tasks(limit: int):
 def set_task_running(task_id: str) -> None:
     with engine.begin() as conn:
         conn.execute(
-            text("UPDATE tasks SET status='RUNNING' WHERE task_id=:task_id"),
+            text(
+                """
+                UPDATE tasks
+                SET status='RUNNING'
+                WHERE task_id=:task_id
+                  AND status NOT IN ('DELETED', 'REVOKED')
+                """
+            ),
             {"task_id": task_id},
         )
 
@@ -89,6 +113,7 @@ def set_task_success(task_id: str, result_json: str) -> None:
                 UPDATE tasks
                 SET status='SUCCESS', result_json=:result_json, error_text=NULL
                 WHERE task_id=:task_id
+                  AND status NOT IN ('DELETED', 'REVOKED')
                 """
             ),
             {"task_id": task_id, "result_json": result_json},
@@ -103,6 +128,7 @@ def set_task_failure(task_id: str, error_text: str) -> None:
                 UPDATE tasks
                 SET status='FAILURE', error_text=:error_text
                 WHERE task_id=:task_id
+                  AND status NOT IN ('DELETED', 'REVOKED')
                 """
             ),
             {"task_id": task_id, "error_text": error_text},

@@ -1,3 +1,5 @@
+/* 文件说明：时序探索页面，负责按任务和变体查看已落库的词频时间序列。 */
+
 import { DeleteOutlined, ReloadOutlined } from "@ant-design/icons";
 import { Button, Card, DatePicker, Popconfirm, Select, Space, Table, Tag, Typography, message } from "antd";
 import dayjs from "dayjs";

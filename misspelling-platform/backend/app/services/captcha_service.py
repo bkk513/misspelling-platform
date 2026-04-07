@@ -1,4 +1,6 @@
-﻿import hashlib
+"""文件说明：验证码服务模块，负责生成和校验注册登录等场景使用的验证码。"""
+
+import hashlib
 import os
 import random
 import uuid

@@ -1,3 +1,5 @@
+/* 文件说明：算法词项构建组件，负责管理词、变体、年份等算法输入参数。 */
+
 import {
   CalendarOutlined,
   DatabaseOutlined,
@@ -230,7 +232,7 @@ export function AlgorithmTermBuilder({
         </div>
 
         <div className="algo-field algo-span-8">
-          <span className="algo-field-label">Selected Misspellings</span>
+          <span className="algo-field-label">已选错拼词</span>
           <div className="algo-token-box">
             {selectedSet.size > 0 ? (
               Array.from(selectedSet).map((variant) => (

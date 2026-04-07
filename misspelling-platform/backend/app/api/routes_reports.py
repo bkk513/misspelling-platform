@@ -1,3 +1,5 @@
+"""文件说明：报告接口路由模块，负责接收 HTTP 请求并调用对应服务层。"""
+
 from fastapi import APIRouter, Depends, Header
 
 from .auth_deps import get_optional_user

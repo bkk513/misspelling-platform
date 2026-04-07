@@ -1,3 +1,5 @@
+"""文件说明：报告服务模块，负责把任务结果和说明信息整理成可展示或导出的报告。"""
+
 import json
 from datetime import datetime, timezone
 from pathlib import Path

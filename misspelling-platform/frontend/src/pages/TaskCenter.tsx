@@ -1,4 +1,13 @@
-import { CopyOutlined, DeleteOutlined, EyeOutlined, ReloadOutlined, RocketOutlined, SearchOutlined } from "@ant-design/icons";
+/* 文件说明：任务中心页面，负责查看、筛选、暂停和删除平台中的任务。 */
+
+import {
+  CopyOutlined,
+  DeleteOutlined,
+  EyeOutlined,
+  PauseCircleOutlined,
+  ReloadOutlined,
+  SearchOutlined,
+} from "@ant-design/icons";
 import { Button, Card, DatePicker, Input, Popconfirm, Select, Space, Table, Tag, Typography, message } from "antd";
 import dayjs from "dayjs";
 import { useEffect, useMemo, useState } from "react";
@@ -9,9 +18,15 @@ function color(status: string) {
   const v = status.toUpperCase();
   if (v === "SUCCESS") return "green";
   if (v === "FAILURE") return "red";
-  if (v === "RUNNING" || v === "PROGRESS") return "processing";
+  if (v === "RUNNING" || v === "PROGRESS" || v === "QUEUED") return "processing";
+  if (v === "REVOKED") return "orange";
   if (v === "DELETED") return "default";
   return "blue";
+}
+
+function isActive(status: string) {
+  const v = status.toUpperCase();
+  return v === "RUNNING" || v === "PROGRESS" || v === "QUEUED";
 }
 
 function parseTaskParams(paramsJson: unknown): Record<string, unknown> {
@@ -46,7 +61,7 @@ export function TaskCenterPage() {
   const refresh = async () => {
     setLoading(true);
     try {
-      const list = await api.listTasks(160);
+      const list = await api.listTasks(200);
       setItems(list.items ?? []);
     } catch (e) {
       message.error(describeApiError(e));
@@ -79,116 +94,119 @@ export function TaskCenterPage() {
   const types = Array.from(new Set(items.map((x) => x.task_type)));
   const statuses = Array.from(new Set(items.map((x) => x.status)));
 
+  const doBulkDelete = async (force: boolean) => {
+    if (selectedRowKeys.length === 0) return;
+    try {
+      const resp = await api.bulkDeleteTasks(selectedRowKeys.map((v) => String(v)), { force });
+      if (resp.deleted.length > 0) message.success(`已删除 ${resp.deleted.length} 个任务`);
+      if (resp.skipped.length > 0) message.warning(`跳过 ${resp.skipped.length} 个任务`);
+      setSelectedRowKeys([]);
+      await refresh();
+    } catch (e) {
+      message.error(describeApiError(e));
+    }
+  };
+
   return (
     <div className="enterprise-page-shell">
       <Card bordered={false} className="enterprise-hero-card">
         <div className="enterprise-hero-grid">
           <div>
             <div className="enterprise-kicker">
-              <RocketOutlined />
-              Task Operations
+              <SearchOutlined />
+              任务管理
             </div>
             <Typography.Title level={2} className="enterprise-hero-title">
               Task Center
             </Typography.Title>
             <Typography.Paragraph className="enterprise-hero-desc">
-              这里不改任务管理逻辑，只把筛选、批量操作和列表展示统一到和算法页一致的控制台风格。顶部看全局规模，下面做检索、进入详情或清理历史任务。
+              统一查看任务状态、筛选历史、进入详情，并支持运行中任务的“暂停并删除”。
             </Typography.Paragraph>
           </div>
           <div className="enterprise-hero-meta">
             <div className="enterprise-meta-card">
-              <span className="enterprise-meta-label">Visible Tasks</span>
+              <span className="enterprise-meta-label">当前结果</span>
               <div className="enterprise-meta-value">{filtered.length}</div>
-              <div className="enterprise-meta-copy">当前筛选条件下的任务数量。</div>
+              <div className="enterprise-meta-copy">筛选后可见任务数。</div>
             </div>
             <div className="enterprise-meta-card">
-              <span className="enterprise-meta-label">Selected Rows</span>
+              <span className="enterprise-meta-label">已选任务</span>
               <div className="enterprise-meta-value">{selectedRowKeys.length}</div>
-              <div className="enterprise-meta-copy">可用于批量删除的已选任务数。</div>
+              <div className="enterprise-meta-copy">用于批量操作。</div>
             </div>
-          </div>
-        </div>
-
-        <div className="enterprise-stat-grid">
-          <div className="enterprise-stat-card">
-            <div className="enterprise-stat-label">Algorithms</div>
-            <div className="enterprise-stat-value">{types.length}</div>
-            <div className="enterprise-stat-copy">当前任务列表中涉及的算法类型数。</div>
-          </div>
-          <div className="enterprise-stat-card">
-            <div className="enterprise-stat-label">Statuses</div>
-            <div className="enterprise-stat-value">{statuses.length}</div>
-            <div className="enterprise-stat-copy">当前列表中的状态类别数。</div>
-          </div>
-          <div className="enterprise-stat-card">
-            <div className="enterprise-stat-label">Search</div>
-            <div className="enterprise-stat-value">{q ? "ACTIVE" : "IDLE"}</div>
-            <div className="enterprise-stat-copy">按 `word / task_id` 检索历史任务。</div>
-          </div>
-          <div className="enterprise-stat-card">
-            <div className="enterprise-stat-label">Refresh</div>
-            <div className="enterprise-stat-value">{loading ? "RUNNING" : "READY"}</div>
-            <div className="enterprise-stat-copy">任务列表拉取状态。</div>
           </div>
         </div>
       </Card>
 
       <Card
         className="enterprise-section-card"
-        title={
-          <div className="enterprise-section-title">
-            <SearchOutlined />
-            <div className="enterprise-section-copy">
-              <strong>Filters</strong>
-              <span>按任务类型、状态、时间范围和关键字筛选。</span>
-            </div>
-          </div>
+        title="筛选条件"
+        extra={
+          <Button icon={<ReloadOutlined />} loading={loading} onClick={() => void refresh()}>
+            刷新
+          </Button>
         }
-        extra={<Button icon={<ReloadOutlined />} loading={loading} onClick={() => void refresh()}>Refresh Now</Button>}
       >
         <Space wrap>
-          <Input placeholder="Search word/task_id" value={q} onChange={(e) => setQ(e.target.value)} style={{ width: 240 }} />
-          <Select value={type} onChange={setType} style={{ width: 200 }} options={[{ value: "all", label: "All Algorithms" }, ...types.map((v) => ({ value: v, label: v }))]} />
-          <Select value={status} onChange={setStatus} style={{ width: 180 }} options={[{ value: "all", label: "All Status" }, ...statuses.map((v) => ({ value: v, label: v }))]} />
-          <DatePicker.RangePicker onChange={(v) => setRange(v ? [v[0]!.format("YYYY-MM-DD"), v[1]!.format("YYYY-MM-DD")] : null)} />
-          <Button onClick={() => { setQ(""); setType("all"); setStatus("all"); setRange(null); }}>
-            Clear Filters
+          <Input
+            placeholder="按 word / task_id 检索"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            style={{ width: 260 }}
+          />
+          <Select
+            value={type}
+            onChange={setType}
+            style={{ width: 210 }}
+            options={[{ value: "all", label: "全部类型" }, ...types.map((v) => ({ value: v, label: v }))]}
+          />
+          <Select
+            value={status}
+            onChange={setStatus}
+            style={{ width: 190 }}
+            options={[{ value: "all", label: "全部状态" }, ...statuses.map((v) => ({ value: v, label: v }))]}
+          />
+          <DatePicker.RangePicker
+            onChange={(v) => setRange(v ? [v[0]!.format("YYYY-MM-DD"), v[1]!.format("YYYY-MM-DD")] : null)}
+          />
+          <Button
+            onClick={() => {
+              setQ("");
+              setType("all");
+              setStatus("all");
+              setRange(null);
+            }}
+          >
+            清空筛选
           </Button>
         </Space>
       </Card>
 
       <Card
         className="enterprise-section-card"
-        title={
-          <div className="enterprise-section-title">
-            <RocketOutlined />
-            <div className="enterprise-section-copy">
-              <strong>Task Ledger</strong>
-              <span>查看详情、复制任务号或清理历史记录。</span>
-            </div>
-          </div>
-        }
+        title="任务列表"
         extra={
           <Space>
-            <Typography.Text type="secondary">Selected: {selectedRowKeys.length}</Typography.Text>
+            <Typography.Text type="secondary">已选: {selectedRowKeys.length}</Typography.Text>
             <Popconfirm
-              title="Delete selected tasks"
-              description="Only accessible tasks will be deleted."
+              title="批量删除"
+              description="仅删除可访问且非运行中的任务。"
               disabled={selectedRowKeys.length === 0}
-              onConfirm={async () => {
-                if (selectedRowKeys.length === 0) return;
-                try {
-                  const resp = await api.bulkDeleteTasks(selectedRowKeys.map((v) => String(v)));
-                  if (resp.deleted.length > 0) message.success(`Deleted ${resp.deleted.length} task(s)`);
-                  if (resp.skipped.length > 0) message.warning(`Skipped ${resp.skipped.length} task(s)`);
-                  setSelectedRowKeys([]);
-                  await refresh();
-                } catch (e) {
-                  message.error(describeApiError(e));
-                }
-              }}
+              onConfirm={() => void doBulkDelete(false)}
             >
-              <Button danger disabled={selectedRowKeys.length === 0}>Delete Selected</Button>
+              <Button danger disabled={selectedRowKeys.length === 0}>
+                删除已选
+              </Button>
+            </Popconfirm>
+            <Popconfirm
+              title="批量暂停并删除"
+              description="运行中任务会先暂停（revoke）再删除。"
+              disabled={selectedRowKeys.length === 0}
+              onConfirm={() => void doBulkDelete(true)}
+            >
+              <Button icon={<PauseCircleOutlined />} disabled={selectedRowKeys.length === 0}>
+                暂停并删除已选
+              </Button>
             </Popconfirm>
           </Space>
         }
@@ -199,52 +217,103 @@ export function TaskCenterPage() {
           loading={loading}
           rowSelection={{
             selectedRowKeys,
-            onChange: (keys) => setSelectedRowKeys(keys.map((v) => String(v)))
+            onChange: (keys) => setSelectedRowKeys(keys.map((v) => String(v))),
           }}
           pagination={{ pageSize: 10, showSizeChanger: true }}
           columns={[
             {
-              title: "Task",
-              width: 320,
+              title: "任务",
+              width: 340,
               render: (_: unknown, row: TaskListItem) => (
                 <Space direction="vertical" size={0}>
                   <Typography.Text strong>{taskWord(row)}</Typography.Text>
-                  <Typography.Text code style={{ fontSize: 12 }}>{row.task_id}</Typography.Text>
+                  <Typography.Text code style={{ fontSize: 12 }}>
+                    {row.task_id}
+                  </Typography.Text>
                 </Space>
-              )
+              ),
             },
-            { title: "Algorithm", dataIndex: "task_type", width: 190 },
-            { title: "Status", dataIndex: "status", width: 130, render: (v: string) => <Tag color={color(v)}>{v}</Tag> },
-            { title: "Created", dataIndex: "created_at", width: 190, sorter: (a: TaskListItem, b: TaskListItem) => String(a.created_at || "").localeCompare(String(b.created_at || "")) },
+            { title: "类型", dataIndex: "task_type", width: 190 },
             {
-              title: "Action",
-              width: 280,
+              title: "状态",
+              dataIndex: "status",
+              width: 130,
+              render: (v: string) => <Tag color={color(v)}>{v}</Tag>,
+            },
+            {
+              title: "创建时间",
+              dataIndex: "created_at",
+              width: 190,
+              sorter: (a: TaskListItem, b: TaskListItem) =>
+                String(a.created_at || "").localeCompare(String(b.created_at || "")),
+            },
+            {
+              title: "操作",
+              width: 420,
               render: (_: unknown, row: TaskListItem) => (
-                <Space>
-                  <Button size="small" icon={<EyeOutlined />} onClick={() => goToTask(row.task_id)}>Detail</Button>
-                  <Button size="small" icon={<CopyOutlined />} onClick={() => navigator.clipboard?.writeText(row.task_id).then(() => message.success("Task ID copied"))}>Copy</Button>
+                <Space wrap>
+                  <Button size="small" icon={<EyeOutlined />} onClick={() => goToTask(row.task_id)}>
+                    详情
+                  </Button>
+                  <Button
+                    size="small"
+                    icon={<CopyOutlined />}
+                    onClick={() =>
+                      navigator.clipboard
+                        ?.writeText(row.task_id)
+                        .then(() => message.success("已复制 Task ID"))
+                        .catch(() => {})
+                    }
+                  >
+                    复制 ID
+                  </Button>
                   <Popconfirm
-                    title="Delete task"
-                    description="The task will be soft-deleted and removed from active lists."
+                    title="删除任务"
+                    description="运行中的任务不会被删除。"
                     onConfirm={async () => {
                       try {
                         const resp = await api.deleteTask(row.task_id);
                         if (!resp.deleted) {
-                          message.warning(resp.reason || "Delete rejected");
+                          message.warning(resp.reason || "删除被拒绝");
                           return;
                         }
-                        message.success("Task deleted");
+                        message.success("删除成功");
                         await refresh();
                       } catch (e) {
                         message.error(describeApiError(e));
                       }
                     }}
                   >
-                    <Button size="small" icon={<DeleteOutlined />} danger>Delete</Button>
+                    <Button size="small" icon={<DeleteOutlined />} danger>
+                      删除
+                    </Button>
                   </Popconfirm>
+                  {isActive(row.status) && (
+                    <Popconfirm
+                      title="暂停并删除运行中任务"
+                      description="会先尝试 revoke，再清理任务与关联数据。"
+                      onConfirm={async () => {
+                        try {
+                          const resp = await api.deleteTask(row.task_id, { force: true });
+                          if (!resp.deleted) {
+                            message.warning(resp.reason || "操作失败");
+                            return;
+                          }
+                          message.success("已暂停并删除任务");
+                          await refresh();
+                        } catch (e) {
+                          message.error(describeApiError(e));
+                        }
+                      }}
+                    >
+                      <Button size="small" icon={<PauseCircleOutlined />}>
+                        暂停并删除
+                      </Button>
+                    </Popconfirm>
+                  )}
                 </Space>
-              )
-            }
+              ),
+            },
           ]}
         />
       </Card>

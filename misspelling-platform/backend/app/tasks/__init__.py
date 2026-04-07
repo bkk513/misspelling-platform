@@ -1,4 +1,6 @@
-﻿import json
+"""文件说明：异步任务定义模块，负责执行词分析、仿真、因果网络等后台计算任务。"""
+
+import json
 import os
 import time
 from typing import Any, Callable
@@ -121,6 +123,7 @@ def _unique_variants(word: str, values: Any) -> list[str]:
 
 
 def _algo_params(payload: dict[str, Any] | Any) -> dict[str, Any]:
+    # 三类微观算法共享这一套标准参数清洗逻辑，避免前端页面之间出现字段解释不一致。
     data = payload if isinstance(payload, dict) else {"word": str(payload or "demo")}
     word = str(data.get("word") or "demo").strip().lower() or "demo"
     return {
@@ -146,6 +149,7 @@ def _algo_params(payload: dict[str, Any] | Any) -> dict[str, Any]:
 
 
 def _simulation_params(payload: dict[str, Any] | Any) -> dict[str, Any]:
+    # 仿真参数在通用算法参数基础上继续扩展网络拓扑和拟合配置。
     data = payload if isinstance(payload, dict) else {}
     base = _algo_params(data)
     topology = str(data.get("topology") or "watts_strogatz").strip().lower() or "watts_strogatz"
@@ -203,6 +207,7 @@ def _build_algo_provenance(
     source_repo: str | None = None,
     source_repo_commit: str | None = None,
 ) -> dict[str, Any]:
+    # provenance 会落到结果里，验收时可直接说明“这个结果来自哪份实现、哪套参数和哪种数据源”。
     return {
         "task_id": task_id,
         "task_type": task_type,
@@ -376,6 +381,7 @@ def demo_analysis(self, payload: str | dict):
             time.sleep(1)
             self.update_state(state="PROGRESS", meta={"step": i + 1, "total": 3})
 
+        # 词分析任务本质上是“拉数据 + 落库 + 生成可下载 CSV”，供后续算法复用。
         pulled = pull_gbnc_with_fallback(
             term=params["word"],
             variants=params["variants"],
@@ -449,6 +455,7 @@ def simulation_run(self, payload: dict[str, Any] | None = None):
     record_task_running(task_id, "simulation-run")
     params = _simulation_params(payload or {})
     try:
+        # 仿真任务先复用统一数据集，再运行 ABM，最后输出表格、预览图和动画。
         dataset = build_algorithm_dataset(
             task_id=task_id,
             task_type="simulation-run",
@@ -545,6 +552,7 @@ def pcmci_causal(self, payload: dict[str, Any]):
     record_task_running(task_id, "pcmci-causal")
     params = _algo_params(payload)
     try:
+        # _execute_algo_task 封装了“跑算法 -> 产出 CSV/JSON/PNG -> 记录 provenance”的通用流程。
         return _execute_algo_task(
             task_id=task_id,
             task_type="pcmci-causal",

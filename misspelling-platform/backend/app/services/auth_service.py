@@ -1,3 +1,5 @@
+"""文件说明：认证服务模块，负责密码散列、Token 生成解析、注册登录与管理员初始化。"""
+
 import base64
 import hashlib
 import hmac
@@ -24,6 +26,7 @@ def _token_secret() -> bytes:
 
 
 def hash_password(password: str) -> str:
+    # 新密码统一转成 PBKDF2 格式，便于兼容已有账号并逐步淘汰旧散列方案。
     salt = secrets.token_bytes(16)
     digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, 120000)
     return "pbkdf2_sha256$120000$%s$%s" % (
@@ -34,6 +37,7 @@ def hash_password(password: str) -> str:
 
 def verify_password(password: str, encoded: str) -> bool:
     encoded = str(encoded or "")
+    # 兼容旧 bcrypt 密码，保证历史账号登录后仍可继续使用。
     if encoded.startswith("$2a$") or encoded.startswith("$2b$") or encoded.startswith("$2y$"):
         try:
             return bcrypt.checkpw(password.encode("utf-8"), encoded.encode("utf-8"))
@@ -62,6 +66,7 @@ def _b64decode(value: str) -> bytes:
 
 
 def issue_access_token(user_id: int, username: str, roles: list[str], ttl_seconds: int = 8 * 3600) -> str:
+    # 这里没有引入完整 JWT 库，而是用 HMAC 对精简 payload 做签名，便于当前项目轻量部署。
     payload = {
         "uid": user_id,
         "sub": username,
@@ -75,6 +80,7 @@ def issue_access_token(user_id: int, username: str, roles: list[str], ttl_second
 
 def decode_access_token(token: str):
     try:
+        # 先验签，再验过期时间，最后才把 payload 暴露给接口层。
         raw_part, sig_part = token.split(".", 1)
         raw = _b64decode(raw_part)
         sig = _b64decode(sig_part)
@@ -132,6 +138,7 @@ def register_user(
     display_name: str | None = None,
     email: str | None = None,
 ):
+    # 注册流程先做用户名唯一性和密码强度校验，再真正写入数据库。
     username = (username or "").strip()
     if not username:
         raise ValueError("username is required")
@@ -169,6 +176,7 @@ def get_me_from_payload(payload: dict):
 
 
 def ensure_init_admin_from_env() -> None:
+    # 允许通过环境变量在容器启动时自动补一个管理员，适合演示环境和首次部署。
     username = (os.getenv("INIT_ADMIN_USERNAME") or "").strip()
     password = (os.getenv("INIT_ADMIN_PASSWORD") or "").strip()
     if not username or not password:

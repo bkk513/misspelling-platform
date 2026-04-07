@@ -1,3 +1,5 @@
+-- 文件说明：数据库迁移脚本，负责补充项目队列与高级分析相关结构。
+
 -- M14: project cohorts + term memberships for advanced analytics workflows
 SET NAMES utf8mb4;
 SET time_zone = '+00:00';

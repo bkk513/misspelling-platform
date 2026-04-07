@@ -1,3 +1,5 @@
+/* 文件说明：词分析工作台页面，负责配置词项、拉取词频并发起各类算法任务。 */
+
 import { PlusOutlined, ThunderboltOutlined, HistoryOutlined } from "@ant-design/icons";
 import {
   Alert,
@@ -59,32 +61,32 @@ interface ParameterTemplate {
 
 const templates: ParameterTemplate[] = [
   {
-    name: "Quick Analysis",
-    description: "Fast analysis with default settings (1800-2019, smoothing=3)",
+    name: "快速分析",
+    description: "默认参数快速运行（1800-2019, smoothing=3）",
     icon: "⚡",
     params: { startYear: 1800, endYear: 2019, smoothing: 3, corpus: "eng_2019" }
   },
   {
-    name: "High Precision",
-    description: "Detailed analysis with minimal smoothing (1800-2019, smoothing=0)",
+    name: "高精度",
+    description: "低平滑细粒度分析（1800-2019, smoothing=0）",
     icon: "🎯",
     params: { startYear: 1800, endYear: 2019, smoothing: 0, corpus: "eng_2019" }
   },
   {
-    name: "Recent Trends",
-    description: "Focus on modern usage (2000-2019, smoothing=2)",
+    name: "近年趋势",
+    description: "聚焦近年变化（2000-2019, smoothing=2）",
     icon: "📈",
     params: { startYear: 2000, endYear: 2019, smoothing: 2, corpus: "eng_2019" }
   },
   {
-    name: "Historical Deep Dive",
-    description: "Long-term historical analysis (1500-2019, smoothing=5)",
+    name: "历史深挖",
+    description: "长时间范围分析（1500-2019, smoothing=5）",
     icon: "📚",
     params: { startYear: 1500, endYear: 2019, smoothing: 5, corpus: "eng_2019" }
   },
   {
-    name: "US English Focus",
-    description: "US English corpus with standard settings (1800-2019)",
+    name: "美式英语",
+    description: "使用 eng_us_2019 语料",
     icon: "🇺🇸",
     params: { startYear: 1800, endYear: 2019, smoothing: 3, corpus: "eng_us_2019" }
   }
@@ -98,7 +100,6 @@ export function WordAnalysisWorkbenchPage() {
   const [corpus, setCorpus] = useState("eng_2019");
   const [manual, setManual] = useState("");
   const [busy, setBusy] = useState(false);
-  const [gbncInfo, setGbncInfo] = useState("");
   const [variants, setVariants] = useState<SuggestedVariant[]>([]);
   const [turnstileToken, setTurnstileToken] = useState("");
   const [turnstileNonce, setTurnstileNonce] = useState(0);
@@ -232,38 +233,6 @@ export function WordAnalysisWorkbenchPage() {
     }
   };
 
-  const gbncPull = async () => {
-    if (!word.trim()) {
-      message.warning("Please input word first.");
-      return;
-    }
-    setBusy(true);
-    try {
-      const resp = await api.pullGbnc(word, {
-        startYear,
-        endYear,
-        smoothing,
-        corpus,
-        variants: selected
-      });
-      const warn = (resp.warnings || []).join(", ");
-      setGbncInfo(
-        `source=${resp.source} cache_hit=${resp.cache_hit} points=${resp.point_count || 0}` +
-          `${resp.error_reason ? ` error=${resp.error_reason}` : ""}` +
-          `${warn ? ` warnings=${warn}` : ""}`
-      );
-      if (resp.source === "STUB") {
-        message.warning("GBNC pull degraded to STUB source.");
-      } else {
-        message.success("GBNC pull completed.");
-      }
-    } catch (e) {
-      message.error(describeApiError(e));
-    } finally {
-      setBusy(false);
-    }
-  };
-
   const addManual = async () => {
     const text = manual.trim();
     if (!text) return;
@@ -314,7 +283,7 @@ export function WordAnalysisWorkbenchPage() {
           <Alert
             type="info"
             showIcon
-            message="Guest mode"
+            message="访客模式"
             description="Guest 不保存变体缓存；登录用户会将变体写入个人缓存。"
           />
         )}
@@ -385,8 +354,8 @@ export function WordAnalysisWorkbenchPage() {
         >
           <div className="algo-origin-note" style={{ marginBottom: 16 }}>
             <div className="algo-origin-head">
-              <Typography.Text strong>Parameter Templates</Typography.Text>
-              <Tooltip title="Load last used parameters for this word">
+              <Typography.Text strong>参数模板</Typography.Text>
+              <Tooltip title="读取这个词上次使用的参数">
                 <Button
                   size="small"
                   icon={<HistoryOutlined />}
@@ -400,19 +369,19 @@ export function WordAnalysisWorkbenchPage() {
                           setEndYear(parsed.endYear);
                           setSmoothing(parsed.smoothing);
                           setCorpus(parsed.corpus);
-                          message.success("Loaded last used parameters");
+                          message.success("已加载上次参数");
                         } else {
-                          message.info("No saved parameters for this word");
+                          message.info("这个词暂无历史参数");
                         }
                       } catch {
-                        message.error("Failed to load saved parameters");
+                        message.error("读取历史参数失败");
                       }
                     } else {
-                      message.info("No saved parameters found");
+                      message.info("暂无历史参数");
                     }
                   }}
                 >
-                  Load Last Used
+                  加载上次参数
                 </Button>
               </Tooltip>
             </div>
@@ -474,10 +443,7 @@ export function WordAnalysisWorkbenchPage() {
 
           <div className="algo-console-actions">
             <Button loading={busy} onClick={() => void suggest()}>
-              Suggest Variants
-            </Button>
-            <Button loading={busy} onClick={() => void gbncPull()}>
-              Pull GBNC Preview
+              推荐变体
             </Button>
             <Button
               type="primary"
@@ -486,17 +452,13 @@ export function WordAnalysisWorkbenchPage() {
               onClick={() => void run()}
               disabled={(turnstileEnabled && !turnstileToken) || !word.trim() || startYear >= endYear || selected.length === 0}
             >
-              Run Word Analysis
+              运行 Word Analysis
             </Button>
           </div>
 
           <div style={{ marginTop: 16 }}>
             <TurnstileWidget siteKey={turnstileSiteKey} refreshKey={turnstileNonce} onTokenChange={setTurnstileToken} />
           </div>
-          <Typography.Paragraph className="algo-origin-copy" style={{ marginTop: 12 }}>
-            Pull GBNC Preview 会预先请求并缓存当前参数下的 GBNC 时序数据，返回数据来源、命中状态、点数与降级告警，便于运行前确认数据链路。
-          </Typography.Paragraph>
-          {gbncInfo && <Alert style={{ marginTop: 12 }} type="info" showIcon message={gbncInfo} />}
         </Card>
 
         <Card
@@ -512,9 +474,9 @@ export function WordAnalysisWorkbenchPage() {
           }
         >
           <Space.Compact style={{ width: "100%", marginBottom: 14 }}>
-            <Input value={manual} onChange={(e) => setManual(e.target.value)} onPressEnter={() => void addManual()} placeholder="add manual variant" />
+            <Input value={manual} onChange={(e) => setManual(e.target.value)} onPressEnter={() => void addManual()} placeholder="手动添加变体" />
             <Button icon={<PlusOutlined />} onClick={() => void addManual()} loading={busy}>
-              Add
+              添加
             </Button>
           </Space.Compact>
 

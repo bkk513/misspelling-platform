@@ -1,3 +1,5 @@
+/* 文件说明：主题上下文模块，负责管理前端主题状态并向组件树提供主题能力。 */
+
 import { ConfigProvider, theme as antdTheme } from 'antd';
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import { lightTheme, darkTheme } from '../styles/theme';

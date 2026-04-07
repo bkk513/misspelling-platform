@@ -1,3 +1,5 @@
+"""文件说明：时序序列数据访问模块，负责对应表或实体的查询与写入。"""
+
 import json
 from datetime import date
 

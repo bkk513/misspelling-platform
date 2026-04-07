@@ -1,3 +1,5 @@
+"""文件说明：DeltaT 偏差分析算法适配模块，负责估计词项突变窗口、偏差强度与反事实趋势。"""
+
 from __future__ import annotations
 
 from typing import Any
@@ -39,6 +41,7 @@ def _exponential_smoothing(values: list[float], alpha: float) -> list[float]:
 
 
 def _build_signals(dataset: AlgorithmDataset) -> tuple[np.ndarray, np.ndarray]:
+    # DeltaT 把“正确拼写”与“总使用量”拆开建模，后续再比较真实轨迹和反事实轨迹之间的偏差。
     correct = np.asarray(dataset.series[0].values, dtype=float)
     if len(dataset.series) > 1:
         miss = np.sum(np.asarray([row.values for row in dataset.series[1:]], dtype=float), axis=0)
@@ -70,6 +73,7 @@ def _detect_peak_window(
         }
 
     safe_origin = max(0, min(int(origin_index), len(series) - 1))
+    # 通过平滑、求导和零交叉寻找“首次峰值”和“后续谷值/峰值”，得到老师常问的突变时间窗。
     working = np.asarray(series[safe_origin:], dtype=float)
     smoothed = pd.Series(working).rolling(int(window_size)).mean().to_numpy()
     diff = np.diff(smoothed)
@@ -138,6 +142,7 @@ def _bayesian_bootstrap_case(
 
     clf = KNN()
     clf.fit(data.reshape(-1, 1))
+    # 先用异常检测给窗口内的样本赋权，再做贝叶斯 bootstrap，强调“波动异常”的年份。
     scores = np.asarray(clf.decision_scores_, dtype=float)
     if np.max(scores) - np.min(scores) <= 1e-12:
         weights = np.ones_like(scores, dtype=float)
@@ -199,6 +204,7 @@ def _predict_counterfactual(
     np.random.seed(int(random_seed))
 
     train_length = max(4, min(len(correct_signal), int(actual_mutation_year) - int(base_year)))
+    # CfC 只用突变前的正确拼写信号训练，再对全序列做预测，得到“不发生偏差时”的反事实总量。
     fc_wiring = wirings.FullyConnected(8, 1)
     model = keras.models.Sequential(
         [

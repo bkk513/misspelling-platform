@@ -1,6 +1,8 @@
+"""文件说明：算法数据集构建模块，负责把词分析任务数据整理成各算法统一使用的数据结构。"""
+
 from typing import Any
 
-from ..db.tasks_repo import get_task_owner
+from ..db.tasks_repo import get_task_guest_key, get_task_owner
 from ..db.time_series_repo import get_series_points_for_task, list_series_by_task
 from ..services.gbnc_data_service import pull_gbnc_snapshot_payload
 from ..services.timeseries_service import persist_word_analysis_external_series
@@ -22,6 +24,7 @@ def _normalize_points(rows: list[dict[str, Any]]) -> dict[int, float]:
 
 
 def _load_dataset_from_task(task_id: str) -> tuple[list[str], list[int], list[AlgorithmSeries], str]:
+    # 算法层不直接查散乱的点数据，而是先把一个任务下的各变体序列整理成统一矩阵结构。
     rows = list_series_by_task(task_id, include_all=True)
     if not rows:
         return [], [], [], "STUB"
@@ -55,7 +58,9 @@ def build_algorithm_dataset(
     corpus: str,
     smoothing: int,
 ) -> AlgorithmDataset:
+    # 算法运行前总会先复用或补拉一次 GBNC 数据，再把结果持久化到时序表，后续多个算法共用同一份输入。
     owner_user_id = get_task_owner(task_id)
+    task_guest_key = get_task_guest_key(task_id)
     current_user = {"id": int(owner_user_id), "roles": []} if owner_user_id is not None else None
     pulled = pull_gbnc_snapshot_payload(
         word=word,
@@ -65,6 +70,7 @@ def build_algorithm_dataset(
         corpus=corpus,
         smoothing=smoothing,
         current_user=current_user,
+        guest_key=task_guest_key,
     )
     persist_word_analysis_external_series(
         task_id,

@@ -1,4 +1,6 @@
-﻿import csv
+"""文件说明：词典服务模块，负责加载本地词典种子并提供基础词典查询能力。"""
+
+import csv
 from pathlib import Path
 from threading import Lock
 

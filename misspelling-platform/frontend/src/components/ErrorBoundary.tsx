@@ -1,4 +1,6 @@
-﻿import { Alert, Button, Card } from "antd";
+/* 文件说明：错误边界组件，负责在前端运行时报错时提供统一的容错展示。 */
+
+import { Alert, Button, Card } from "antd";
 import React from "react";
 
 type Props = {

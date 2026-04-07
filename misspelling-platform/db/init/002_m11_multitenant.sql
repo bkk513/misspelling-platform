@@ -1,3 +1,5 @@
+-- 文件说明：数据库迁移脚本，负责补齐多租户与权限相关结构。
+
 -- M11 multi-tenant owner columns + indexes (idempotent for MySQL 8.0)
 SET NAMES utf8mb4;
 SET time_zone = '+00:00';

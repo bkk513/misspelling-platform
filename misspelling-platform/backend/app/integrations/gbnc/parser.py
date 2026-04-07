@@ -1,4 +1,6 @@
-﻿from .types import GbncFetchResult, SeriesPoint, VariantSeries
+"""文件说明：GBNC 数据解析模块，负责把原始返回内容整理成平台可用的时序结构。"""
+
+from .types import GbncFetchResult, SeriesPoint, VariantSeries
 
 
 def _safe_float(v) -> float:

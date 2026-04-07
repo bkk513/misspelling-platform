@@ -1,4 +1,6 @@
-﻿services:
+# 文件说明：项目容器编排配置，负责定义 API、Worker、MySQL、Redis 等服务的启动关系。
+
+services:
   mysql:
     image: mysql:8.0
     environment:
@@ -9,7 +11,7 @@
     volumes:
       - mysql_data:/var/lib/mysql
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-proot"]
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -p$$MYSQL_ROOT_PASSWORD"]
       interval: 5s
       timeout: 3s
       retries: 20
@@ -25,7 +27,7 @@
       mysql:
         condition: service_healthy
     environment:
-      MYSQL_PWD: root
+      MYSQL_PWD: ${MYSQL_ROOT_PASSWORD:-root}
     command: >
       sh -c "for f in /schema/*.sql; do echo Running $$f; mysql -hmysql -uroot -D misspell < $$f; done"
     volumes:

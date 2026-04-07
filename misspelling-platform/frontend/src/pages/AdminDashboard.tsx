@@ -1,3 +1,5 @@
+/* 文件说明：管理员总览页面，负责展示系统运行状态与核心指标。 */
+
 import { Button, Card, Col, Row, Space, Statistic, Table, Tag, message } from "antd";
 import { useEffect, useState } from "react";
 import { api, describeApiError } from "../lib/api";
@@ -29,11 +31,11 @@ export function AdminDashboardPage() {
   return (
     <Space direction="vertical" size={16} style={{ width: "100%" }}>
       <Row gutter={16}>
-        <Col xs={24} md={8}><Card><Statistic title="User Accounts" value={users} /></Card></Col>
-        <Col xs={24} md={8}><Card><Statistic title="Audit Events (recent)" value={logs.length} /></Card></Col>
-        <Col xs={24} md={8}><Card><Statistic title="Data Sources" value={sources} /></Card></Col>
+        <Col xs={24} md={8}><Card><Statistic title="用户数" value={users} /></Card></Col>
+        <Col xs={24} md={8}><Card><Statistic title="近期审计事件" value={logs.length} /></Card></Col>
+        <Col xs={24} md={8}><Card><Statistic title="数据源数" value={sources} /></Card></Col>
       </Row>
-      <Card title="Recent Audit Events" extra={<Button onClick={() => void refresh()} loading={loading}>Refresh</Button>}>
+      <Card title="近期审计事件" extra={<Button onClick={() => void refresh()} loading={loading}>刷新</Button>}>
         <Table
           size="small"
           rowKey="id"
@@ -41,8 +43,8 @@ export function AdminDashboardPage() {
           pagination={{ pageSize: 8 }}
           columns={[
             { title: "ID", dataIndex: "id", width: 80 },
-            { title: "Action", dataIndex: "action", render: (v: string) => <Tag color="blue">{v}</Tag> },
-            { title: "Created", dataIndex: "created_at" }
+            { title: "动作", dataIndex: "action", render: (v: string) => <Tag color="blue">{v}</Tag> },
+            { title: "时间", dataIndex: "created_at" }
           ]}
         />
       </Card>

@@ -1,3 +1,5 @@
+/* 文件说明：状态徽标组件，负责用统一样式呈现任务或系统状态。 */
+
 import { Tag } from 'antd';
 import type { TagProps } from 'antd';
 

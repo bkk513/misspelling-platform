@@ -1,3 +1,5 @@
+"""文件说明：数据库结构自检模块，负责在服务启动时补齐项目分析相关表结构。"""
+
 from __future__ import annotations
 
 from sqlalchemy import text

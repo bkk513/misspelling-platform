@@ -1,3 +1,5 @@
+"""文件说明：仿真解释服务模块，负责把传播仿真结果转换为更易读的文本化解释。"""
+
 from __future__ import annotations
 
 from typing import Any

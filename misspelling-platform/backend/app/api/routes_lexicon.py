@@ -1,4 +1,6 @@
-﻿from fastapi import APIRouter, Depends
+"""文件说明：词库接口路由模块，负责接收 HTTP 请求并调用对应服务层。"""
+
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
 from .auth_deps import get_current_user, get_optional_user

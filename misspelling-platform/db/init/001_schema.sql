@@ -1,3 +1,5 @@
+-- 文件说明：数据库基础建表脚本，负责创建系统运行所需的核心表结构。
+
 -- v1 official schema (M2), idempotent for MySQL 8.0
 SET NAMES utf8mb4;
 SET time_zone = '+00:00';

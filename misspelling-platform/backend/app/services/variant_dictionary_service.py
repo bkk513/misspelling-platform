@@ -1,3 +1,5 @@
+"""文件说明：变体词典服务模块，负责读取本地词典与为变体建议提供基础词典能力。"""
+
 import json
 import os
 from pathlib import Path

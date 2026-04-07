@@ -1,3 +1,5 @@
+/* 文件说明：研究者布局组件，负责普通用户端的导航、页头与内容区框架。 */
+
 import {
   BarChartOutlined,
   DashboardOutlined,
@@ -17,51 +19,49 @@ const { Header, Sider, Content } = Layout;
 const menuItems: MenuProps['items'] = [
   {
     key: 'overview',
-    label: 'Overview',
+    label: '总览',
     icon: <DashboardOutlined />,
     children: [
-      { key: 'dashboard', label: 'Dashboard' },
+      { key: 'dashboard', label: '仪表盘' },
     ],
   },
   {
     key: 'workspace',
-    label: 'Workspace',
+    label: '工作区',
     icon: <FileSearchOutlined />,
     children: [
-      { key: 'word-analysis', label: 'Word Analysis' },
-      { key: 'variants', label: 'Variant Studio' },
-      { key: 'projects', label: 'Project Manager' },
+      { key: 'word-analysis', label: '词分析' },
+      { key: 'variants', label: '变体管理' },
     ],
   },
   {
     key: 'algorithms',
-    label: 'Algorithms',
+    label: '算法',
     icon: <FunctionOutlined />,
     children: [
-      { key: 'simulation', label: 'Simulation' },
-      { key: 'causal-network', label: 'Causal Network' },
-      { key: 'steady-state', label: 'Steady State' },
-      { key: 'delta-t-bias', label: 'DeltaT Bias' },
+      { key: 'simulation', label: '传播仿真' },
+      { key: 'causal-network', label: '因果网络' },
+      { key: 'steady-state', label: '稳态分析' },
+      { key: 'delta-t-bias', label: 'DeltaT 偏差' },
     ],
   },
   {
     key: 'data',
-    label: 'Data & Results',
+    label: '数据与结果',
     icon: <BarChartOutlined />,
     children: [
-      { key: 'tasks', label: 'Task Center' },
-      { key: 'time-series', label: 'Time Series' },
-      { key: 'artifacts', label: 'Artifact Library' },
-      { key: 'analytics', label: 'Analytics Center' },
-      { key: 'reports', label: 'Report Center' },
+      { key: 'tasks', label: '任务中心' },
+      { key: 'time-series', label: '时序数据' },
+      { key: 'artifacts', label: '产物库' },
+      { key: 'reports', label: '报告中心' },
     ],
   },
   {
     key: 'system',
-    label: 'System',
+    label: '系统',
     icon: <SettingOutlined />,
     children: [
-      { key: 'settings', label: 'Settings' },
+      { key: 'settings', label: '设置' },
     ],
   },
 ];
@@ -96,8 +96,8 @@ export function ResearcherLayout({
       <Sider width={250} className="enterprise-sider" theme="dark">
         <div className="enterprise-logo">
           <div className="enterprise-logo-inner">
-            <span>Misspelling Research OS</span>
-            <small>Researcher Console</small>
+            <span>错拼研究平台</span>
+            <small>研究控制台</small>
           </div>
         </div>
         <Menu
@@ -113,25 +113,25 @@ export function ResearcherLayout({
         <Header className="enterprise-header">
           <div className="enterprise-header-left">
             <Space size={8} wrap>
-              <Tag color={dbOk ? "green" : "red"}>DB {dbOk ? "OK" : "DOWN"}</Tag>
-              <Tag color={llmEnabled ? "blue" : "default"}>LLM {llmEnabled ? "ON" : "OFF"}</Tag>
-              <Tag color={gbncEnabled ? "geekblue" : "default"}>GBNC {gbncEnabled ? "ON" : "OFF"}</Tag>
+              <Tag color={dbOk ? "green" : "red"}>DB {dbOk ? "正常" : "异常"}</Tag>
+              <Tag color={llmEnabled ? "blue" : "default"}>LLM {llmEnabled ? "开启" : "关闭"}</Tag>
+              <Tag color={gbncEnabled ? "geekblue" : "default"}>GBNC {gbncEnabled ? "开启" : "关闭"}</Tag>
             </Space>
           </div>
           <div className="enterprise-header-right">
-            <Badge status={role === "admin" ? "processing" : "default"} text={`role: ${role}`} />
+            <Badge status={role === "admin" ? "processing" : "default"} text={`角色: ${role}`} />
             <Typography.Text>{username}</Typography.Text>
-            <Tooltip title={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}>
+            <Tooltip title={`切换到${theme === 'light' ? '深色' : '浅色'}模式`}>
               <Button
                 size="small"
                 icon={theme === 'light' ? <BulbOutlined /> : <BulbFilled />}
                 onClick={toggleTheme}
               >
-                {theme === 'light' ? 'Dark' : 'Light'}
+                {theme === 'light' ? '深色' : '浅色'}
               </Button>
             </Tooltip>
             <Button size="small" onClick={onLogout}>
-              Logout
+              退出登录
             </Button>
           </div>
         </Header>
