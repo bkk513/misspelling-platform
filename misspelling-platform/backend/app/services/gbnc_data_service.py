@@ -10,6 +10,7 @@ from ..db.core import get_engine
 from ..db.data_sources_repo import ensure_data_source
 from ..db.time_series_repo import create_series, ensure_term, ensure_variant, insert_series_points
 from .gbnc_service import pull_gbnc_with_fallback
+from .variant_review_service import review_misspelling_variants
 
 
 def _owner_id(current_user: dict | None) -> int | None:
@@ -94,7 +95,7 @@ def _series_rows_for_signature(
                       AND ts.granularity='year'
                       AND ts.window_start=:window_start
                       AND ts.window_end=:window_end
-                      AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(ts.meta_json, '$.task_id')), '') = ''
+                      AND COALESCE(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(ts.meta_json, '$.task_id')), 'null'), '') = ''
                       AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(ts.meta_json, '$.corpus')), '')=:corpus
                       AND COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(ts.meta_json, '$.smoothing')) AS SIGNED), -1)=:smoothing
                       AND ({where_owner})
@@ -166,10 +167,13 @@ def pull_gbnc_series_payload(
     if start_year > end_year:
         raise HTTPException(status_code=400, detail="start_year must be <= end_year")
 
+    review = review_misspelling_variants(canonical, variants or [])
+    filtered_variants = [str(v) for v in (review.get("accepted_variants") or [])]
     owner_user_id = _owner_id(current_user)
     include_all = _is_admin(current_user)
     source_id = ensure_data_source(name="GBNC", granularity="year")
-    expected_variants = _normalize_variants(canonical, variants)
+    expected_variants = _normalize_variants(canonical, filtered_variants)
+    expected_variant_set = set(expected_variants)
     existing = _series_rows_for_signature(
         canonical=canonical,
         source_id=source_id,
@@ -181,6 +185,7 @@ def pull_gbnc_series_payload(
         include_all=include_all,
     )
     existing = _dedupe_series_rows(existing)
+    existing = [dict(r) for r in existing if str(r.get("variant") or "").strip().lower() in expected_variant_set]
     existing_by_variant = {str(r["variant"]).lower(): r for r in existing}
     cache_hit = bool(existing) and all(v in existing_by_variant for v in expected_variants)
     if cache_hit:
@@ -203,10 +208,12 @@ def pull_gbnc_series_payload(
             "word": canonical,
             "source": "GBNC",
             "cache_hit": True,
-            "warnings": [],
+            "warnings": [str(item) for item in (review.get("warnings") or [])],
             "series_ids": [int(r["id"]) for r in existing],
             "series_id": int(existing[0]["id"]),
             "point_count": point_count,
+            "rejected_variants": review.get("rejected_variants") or [],
+            "filter_policy": review.get("filter_policy"),
         }
 
     pulled = pull_gbnc_with_fallback(
@@ -243,6 +250,7 @@ def pull_gbnc_series_payload(
                 "pulled_at": datetime.now(timezone.utc).isoformat(),
                 "warnings": pulled.get("warnings") or [],
                 "error_reason": pulled.get("error_reason"),
+                "bundle_variants": expected_variants,
             },
             owner_user_id=owner_user_id,
         )
@@ -266,7 +274,7 @@ def pull_gbnc_series_payload(
             "source": pulled.get("source"),
             "series": len(created_ids),
             "points": total_points,
-            "warnings": pulled.get("warnings") or [],
+            "warnings": [*list(review.get("warnings") or []), *(pulled.get("warnings") or [])],
             "error_reason": pulled.get("error_reason"),
             "corpus": corpus,
             "smoothing": smoothing,
@@ -278,11 +286,13 @@ def pull_gbnc_series_payload(
         "word": canonical,
         "source": pulled.get("source"),
         "cache_hit": False,
-        "warnings": pulled.get("warnings") or [],
+        "warnings": [str(item) for item in [*list(review.get("warnings") or []), *(pulled.get("warnings") or [])] if str(item or "").strip()],
         "error_reason": pulled.get("error_reason"),
         "series_ids": created_ids,
         "series_id": int(created_ids[0]) if created_ids else None,
         "point_count": total_points,
+        "rejected_variants": review.get("rejected_variants") or [],
+        "filter_policy": review.get("filter_policy"),
     }
 
 
@@ -330,7 +340,7 @@ def _get_series_row(series_id: int):
                       ts.window_start,
                       ts.window_end,
                       ts.meta_json,
-                      JSON_UNQUOTE(JSON_EXTRACT(ts.meta_json, '$.task_id')) AS task_id,
+                      NULLIF(JSON_UNQUOTE(JSON_EXTRACT(ts.meta_json, '$.task_id')), 'null') AS task_id,
                       t.guest_key,
                       t.created_at AS task_created_at,
                       t.status AS task_status,
@@ -338,7 +348,7 @@ def _get_series_row(series_id: int):
                     FROM time_series ts
                     JOIN lexicon_terms lt ON lt.id = ts.term_id
                     JOIN data_sources ds ON ds.id = ts.source_id
-                    LEFT JOIN tasks t ON t.task_id = JSON_UNQUOTE(JSON_EXTRACT(ts.meta_json, '$.task_id'))
+                    LEFT JOIN tasks t ON t.task_id = NULLIF(JSON_UNQUOTE(JSON_EXTRACT(ts.meta_json, '$.task_id')), 'null')
                     WHERE ts.id=:series_id
                     LIMIT 1
                     """
@@ -412,6 +422,8 @@ def _ensure_series_access(series_row, current_user: dict | None, guest_key: str 
     owner_user_id = series_row.get("owner_user_id")
     uid = _owner_id(current_user)
     task_id = str(series_row.get("task_id") or "").strip()
+    if task_id.lower() in {"null", "none"}:
+        task_id = ""
     if owner_user_id is None and not task_id:
         return
     if uid is not None and owner_user_id == uid:
@@ -447,7 +459,7 @@ def get_gbnc_series_payload(series_id: int, current_user: dict | None = None, gu
                           (SELECT COUNT(*) FROM time_series_points p WHERE p.series_id = ts.id) AS point_count
                         FROM time_series ts
                         JOIN lexicon_terms lt ON lt.id = ts.term_id
-                        WHERE JSON_UNQUOTE(JSON_EXTRACT(ts.meta_json, '$.task_id')) = :task_id
+                        WHERE NULLIF(JSON_UNQUOTE(JSON_EXTRACT(ts.meta_json, '$.task_id')), 'null') = :task_id
                           AND ts.term_id = :term_id
                           AND ts.source_id = :source_id
                           AND ts.granularity = :granularity
@@ -484,7 +496,7 @@ def get_gbnc_series_payload(series_id: int, current_user: dict | None = None, gu
                           AND ts.granularity=:granularity
                           AND ts.window_start=:window_start
                           AND ts.window_end=:window_end
-                          AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(ts.meta_json, '$.task_id')), '') = ''
+                          AND COALESCE(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(ts.meta_json, '$.task_id')), 'null'), '') = ''
                           AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(ts.meta_json, '$.corpus')), '') = :corpus
                           AND COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(ts.meta_json, '$.smoothing')) AS SIGNED), -1) = :smoothing
                           AND (
@@ -508,6 +520,11 @@ def get_gbnc_series_payload(series_id: int, current_user: dict | None = None, gu
                 .mappings()
                 .all()
             )
+    siblings = _dedupe_series_rows([dict(item) for item in siblings])
+    bundle_variants = [str(item).strip().lower() for item in (meta.get("bundle_variants") or []) if str(item).strip()]
+    if bundle_variants:
+        allowed = set(bundle_variants)
+        siblings = [item for item in siblings if str(item.get("variant") or "").strip().lower() in allowed]
     for sibling in siblings:
         sibling_row = _get_series_row(int(sibling["id"]))
         _ensure_series_access(sibling_row, current_user=current_user, guest_key=guest_key)

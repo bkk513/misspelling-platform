@@ -20,10 +20,14 @@ from ..db.audit_logs_repo import insert_audit_log
 from ..db.core import get_engine
 from ..db.projects_repo import (
     get_project,
+    get_or_create_project_cohort,
     list_project_term_memberships,
     term_stats_for_project,
     term_time_series_for_project,
+    upsert_project_term_memberships,
 )
+
+DEMO_COHORT_COLORS = ["#1164d6", "#0f766e", "#d97706", "#dc2626", "#7c3aed", "#0ea5e9"]
 
 
 def _owner_id(current_user: dict | None) -> int | None:
@@ -277,12 +281,7 @@ def _store_run(owner_user_id: int | None, project_id: int, method: str, params: 
         )
 
 
-def cluster_payload(project_id: int, k: int, current_user: dict | None, method: str = "kmeans_advanced"):
-    project = _ensure_project_access(project_id, current_user)
-    project_owner_user_id = int(project.get("owner_user_id") or 0) or None
-    points = _feature_rows_from_project(project_id, owner_user_id=project_owner_user_id)
-    owner_user_id = _owner_id(current_user)
-
+def _cluster_result_from_points(project_id: int, points: list[dict], k: int, method: str = "kmeans_advanced"):
     if method == "baseline-kmeans":
         clusters = _kmeans_baseline(points, k)
         diagnostics = {"silhouette": None, "pca_explained_variance": []}
@@ -294,7 +293,7 @@ def cluster_payload(project_id: int, k: int, current_user: dict | None, method: 
     else:
         raise HTTPException(status_code=400, detail="unsupported method")
 
-    result = {
+    return {
         "method": method,
         "project_id": project_id,
         "k": max(1, min(int(k), 8)),
@@ -312,11 +311,19 @@ def cluster_payload(project_id: int, k: int, current_user: dict | None, method: 
         "terms": len(points),
     }
 
+
+def cluster_payload(project_id: int, k: int, current_user: dict | None, method: str = "kmeans_advanced"):
+    project = _ensure_project_access(project_id, current_user)
+    project_owner_user_id = int(project.get("owner_user_id") or 0) or None
+    points = _feature_rows_from_project(project_id, owner_user_id=project_owner_user_id)
+    owner_user_id = _owner_id(current_user)
+    result = _cluster_result_from_points(project_id=project_id, points=points, k=k, method=method)
+
     _store_run(
         owner_user_id=owner_user_id,
         project_id=project_id,
-        method=method,
-        params={"k": k, "method": method},
+        method=str(result["method"]),
+        params={"k": k, "method": result["method"]},
         result=result,
     )
     insert_audit_log(
@@ -324,7 +331,111 @@ def cluster_payload(project_id: int, k: int, current_user: dict | None, method: 
         actor_user_id=owner_user_id,
         target_type="project",
         target_id=str(project_id),
-        meta={"k": k, "terms": len(points), "method": method},
+        meta={"k": k, "terms": len(points), "method": result["method"]},
+    )
+    return result
+
+
+def bootstrap_demo_cohorts_payload(project_id: int, k: int, current_user: dict | None, method: str = "kmeans_advanced"):
+    project = _ensure_project_access(project_id, current_user)
+    project_owner_user_id = int(project.get("owner_user_id") or 0) or None
+    points = _feature_rows_from_project(project_id, owner_user_id=project_owner_user_id)
+    owner_user_id = _owner_id(current_user)
+    if len(points) < 2:
+        raise HTTPException(status_code=400, detail="at least two terms are required for demo cohort bootstrap")
+
+    cluster_result = _cluster_result_from_points(project_id=project_id, points=points, k=max(2, k), method=method)
+    clusters = list(cluster_result.get("clusters") or [])
+    if len(clusters) < 2:
+        raise HTTPException(status_code=400, detail="demo cohort bootstrap requires at least two clusters")
+
+    with get_engine().begin() as conn:
+        conn.execute(
+            text(
+                """
+                DELETE FROM project_cohorts
+                WHERE project_id = :project_id
+                  AND name LIKE 'demo_cluster_%'
+                """
+            ),
+            {"project_id": project_id},
+        )
+
+    silhouette = cluster_result.get("diagnostics", {}).get("silhouette")
+    confidence = 0.72
+    if isinstance(silhouette, (int, float)) and math.isfinite(float(silhouette)):
+        confidence = max(0.60, min(0.92, 0.72 + 0.20 * float(silhouette)))
+
+    created_cohorts: list[dict] = []
+    assignments: list[dict] = []
+    for index, group in enumerate(clusters, start=1):
+        cohort = get_or_create_project_cohort(
+            project_id=project_id,
+            name=f"demo_cluster_{index}",
+            description=f"Auto-bootstrapped from {cluster_result['method']} cluster {group['cluster_id']}",
+            color=DEMO_COHORT_COLORS[(index - 1) % len(DEMO_COHORT_COLORS)],
+            sort_order=20 + index,
+        )
+        if not cohort:
+            continue
+        created_cohorts.append(
+            {
+                "cohort_id": int(cohort["id"]),
+                "name": str(cohort["name"]),
+                "color": cohort.get("color"),
+                "cluster_id": int(group["cluster_id"]),
+                "size": int(group["size"]),
+            }
+        )
+        for item in group.get("items") or []:
+            assignments.append(
+                {
+                    "term_id": int(item["term_id"]),
+                    "cohort_id": int(cohort["id"]),
+                    "membership_weight": 1.10,
+                    "source": "cluster-bootstrap",
+                    "confidence": max(confidence, 0.96),
+                    "note": f"Auto-generated from {cluster_result['method']} cluster {group['cluster_id']}",
+                }
+            )
+
+    assigned = upsert_project_term_memberships(project_id, assignments)
+    created_cohorts = sorted(created_cohorts, key=lambda item: (-int(item["size"]), str(item["name"])))
+    recommended_pair = [item["name"] for item in created_cohorts[:2]]
+    target_cohort = recommended_pair[0] if recommended_pair else (created_cohorts[0]["name"] if created_cohorts else None)
+
+    result = {
+        "method": "cluster-demo-cohort-bootstrap",
+        "project_id": project_id,
+        "source_cluster_method": cluster_result["method"],
+        "k": int(cluster_result["k"]),
+        "terms": int(cluster_result["terms"]),
+        "assignments": int(assigned),
+        "diagnostics": cluster_result.get("diagnostics") or {},
+        "created_cohorts": created_cohorts,
+        "recommended_pair": recommended_pair,
+        "target_cohort": target_cohort,
+        "warnings": [],
+    }
+
+    _store_run(
+        owner_user_id=owner_user_id,
+        project_id=project_id,
+        method="cluster-demo-cohort-bootstrap",
+        params={"k": k, "method": cluster_result["method"]},
+        result=result,
+    )
+    insert_audit_log(
+        action="ANALYTICS_BOOTSTRAP_DEMO_COHORTS",
+        actor_user_id=owner_user_id,
+        target_type="project",
+        target_id=str(project_id),
+        meta={
+            "k": cluster_result["k"],
+            "terms": len(points),
+            "created_cohorts": len(created_cohorts),
+            "method": cluster_result["method"],
+        },
     )
     return result
 

@@ -1,5 +1,5 @@
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict
 from uuid import uuid4
@@ -7,9 +7,12 @@ from uuid import uuid4
 from sqlalchemy import bindparam, text
 
 from ..db.core import get_engine
-from .task_event_service import record_task_failure, record_task_queued
+from ..celery_app import celery_app
+from .task_event_service import record_task_event, record_task_failure, record_task_queued
 
 OUTPUT_ROOT = Path("/app/outputs")
+ACTIVE_TASK_STATES = {"QUEUED", "RUNNING", "PROGRESS"}
+PENDING_STALE_TIMEOUT_MINUTES = 30
 
 
 def build_output_path(task_id: str, filename: str) -> Path:
@@ -148,7 +151,7 @@ def _cleanup_old_guest_tasks() -> None:
                 """
                 DELETE p FROM time_series_points p
                 JOIN time_series s ON s.id = p.series_id
-                WHERE JSON_UNQUOTE(JSON_EXTRACT(s.meta_json, '$.task_id')) IN :task_ids
+                WHERE NULLIF(JSON_UNQUOTE(JSON_EXTRACT(s.meta_json, '$.task_id')), 'null') IN :task_ids
                 """
             ).bindparams(bindparam("task_ids", expanding=True)),
             {"task_ids": task_ids},
@@ -157,7 +160,7 @@ def _cleanup_old_guest_tasks() -> None:
             text(
                 """
                 DELETE FROM time_series
-                WHERE JSON_UNQUOTE(JSON_EXTRACT(meta_json, '$.task_id')) IN :task_ids
+                WHERE NULLIF(JSON_UNQUOTE(JSON_EXTRACT(meta_json, '$.task_id')), 'null') IN :task_ids
                 """
             ).bindparams(bindparam("task_ids", expanding=True)),
             {"task_ids": task_ids},
@@ -315,6 +318,26 @@ def create_delta_t_null_task(
     return {"task_id": task_id}
 
 
+def create_meso_analysis_task(
+    params: dict[str, Any],
+    celery_task,
+    owner_user_id: int | None = None,
+    guest_key: str | None = None,
+) -> dict:
+    if owner_user_id is None:
+        _cleanup_old_guest_tasks()
+    task_id = str(uuid4())
+    safe_params = dict(params)
+    _insert_queued_task(task_id, "meso-analysis", safe_params, owner_user_id, guest_key)
+    record_task_queued(task_id, "meso-analysis", safe_params)
+    try:
+        celery_task.apply_async(args=[safe_params], task_id=task_id)
+    except Exception as exc:
+        _mark_task_enqueue_failure(task_id, "meso-analysis", str(exc))
+        raise
+    return {"task_id": task_id}
+
+
 def retry_task_payload(
     task_id: str,
     celery_task_map: dict[str, Any],
@@ -409,6 +432,16 @@ def retry_task_payload(
             owner_user_id=row.get("owner_user_id"),
             guest_key=row.get("guest_key"),
         )
+    elif task_type == "meso-analysis":
+        task = celery_task_map.get("meso-analysis")
+        if task is None:
+            return {"ok": False, "reason": "TASK_TYPE_UNSUPPORTED", "task_id": task_id}
+        created = create_meso_analysis_task(
+            params,
+            task,
+            owner_user_id=row.get("owner_user_id"),
+            guest_key=row.get("guest_key"),
+        )
     else:
         return {"ok": False, "reason": "TASK_TYPE_UNSUPPORTED", "task_id": task_id}
 
@@ -450,6 +483,175 @@ def _normalize_jsonish(value: Any) -> Any:
     return str(value)
 
 
+def _task_state(value: Any) -> str:
+    return str(value or "").strip().upper()
+
+
+def _serialize_json_for_db(value: Any) -> str:
+    normalized = _normalize_jsonish(value)
+    try:
+        return json.dumps(normalized, ensure_ascii=False)
+    except Exception:
+        return json.dumps(str(normalized), ensure_ascii=False)
+
+
+def _extract_celery_error_text(result: Any, default: str) -> str:
+    try:
+        info = result.info
+    except Exception:
+        info = None
+    if isinstance(info, BaseException):
+        msg = str(info).strip()
+        return msg or default
+    if isinstance(info, dict):
+        for key in ("error", "message", "exc_message", "reason"):
+            raw = info.get(key)
+            msg = str(raw or "").strip()
+            if msg:
+                return msg
+    msg = str(info or "").strip()
+    return msg or default
+
+
+def _is_stale_pending(created_at: Any, updated_at: Any, timeout_minutes: int = PENDING_STALE_TIMEOUT_MINUTES) -> bool:
+    reference = updated_at or created_at
+    if reference is None:
+        return False
+    if isinstance(reference, datetime):
+        ref_dt = reference
+    else:
+        text_value = str(reference)
+        try:
+            ref_dt = datetime.fromisoformat(text_value.replace("Z", "+00:00"))
+        except Exception:
+            return False
+    if ref_dt.tzinfo is None:
+        ref_dt = ref_dt.replace(tzinfo=timezone.utc)
+    return datetime.now(timezone.utc) - ref_dt >= timedelta(minutes=int(timeout_minutes))
+
+
+def _persist_terminal_state_from_celery(task_id: str, state: str, result: Any) -> dict[str, Any]:
+    celery_state = _task_state(state)
+    if celery_state == "SUCCESS":
+        normalized_result = _normalize_jsonish(getattr(result, "result", None))
+        result_json = _serialize_json_for_db(normalized_result)
+        with get_engine().begin() as conn:
+            conn.execute(
+                text(
+                    """
+                    UPDATE tasks
+                    SET status='SUCCESS',
+                        result_json=COALESCE(:result_json, result_json),
+                        error_text=NULL,
+                        updated_at=CURRENT_TIMESTAMP
+                    WHERE task_id=:task_id AND status IN ('QUEUED', 'RUNNING', 'PROGRESS')
+                    """
+                ),
+                {"task_id": task_id, "result_json": result_json},
+            )
+        return {"state": "SUCCESS", "result": normalized_result, "error": None}
+
+    if celery_state in {"FAILURE", "REVOKED"}:
+        error_text = _extract_celery_error_text(
+            result,
+            default="Task failed in worker." if celery_state == "FAILURE" else "Task was revoked in worker.",
+        )
+        mapped_state = "FAILURE" if celery_state == "FAILURE" else "REVOKED"
+        with get_engine().begin() as conn:
+            conn.execute(
+                text(
+                    """
+                    UPDATE tasks
+                    SET status=:status,
+                        error_text=:error_text,
+                        updated_at=CURRENT_TIMESTAMP
+                    WHERE task_id=:task_id AND status IN ('QUEUED', 'RUNNING', 'PROGRESS')
+                    """
+                ),
+                {"task_id": task_id, "status": mapped_state, "error_text": error_text},
+            )
+        return {"state": mapped_state, "error": error_text}
+
+    return {"state": celery_state}
+
+
+def _promote_running_state(task_id: str) -> None:
+    with get_engine().begin() as conn:
+        conn.execute(
+            text(
+                """
+                UPDATE tasks
+                SET status='RUNNING', updated_at=CURRENT_TIMESTAMP
+                WHERE task_id=:task_id AND status='QUEUED'
+                """
+            ),
+            {"task_id": task_id},
+        )
+
+
+def _mark_stale_pending_failure(task_id: str) -> str:
+    message = (
+        "Task stayed in pending state for too long and likely stalled; "
+        "please retry this task."
+    )
+    with get_engine().begin() as conn:
+        conn.execute(
+            text(
+                """
+                UPDATE tasks
+                SET status='FAILURE',
+                    error_text=:error_text,
+                    updated_at=CURRENT_TIMESTAMP
+                WHERE task_id=:task_id AND status IN ('QUEUED', 'RUNNING', 'PROGRESS')
+                """
+            ),
+            {"task_id": task_id, "error_text": message},
+        )
+    return message
+
+
+def _reconcile_task_state(
+    task_id: str,
+    db_state: Any,
+    created_at: Any,
+    updated_at: Any,
+    async_result_factory,
+) -> dict[str, Any]:
+    current_state = _task_state(db_state)
+    if async_result_factory is None or current_state not in ACTIVE_TASK_STATES:
+        return {"state": current_state}
+
+    try:
+        result = async_result_factory(task_id)
+    except Exception:
+        return {"state": current_state}
+
+    try:
+        info = result.info
+    except Exception:
+        info = None
+    payload: dict[str, Any] = {"state": current_state}
+    if info is not None:
+        payload["progress"] = _normalize_jsonish(info)
+
+    celery_state = _task_state(getattr(result, "state", ""))
+    if celery_state in {"SUCCESS", "FAILURE", "REVOKED"}:
+        payload.update(_persist_terminal_state_from_celery(task_id, celery_state, result))
+        return payload
+
+    if celery_state in {"STARTED", "RETRY"} and current_state == "QUEUED":
+        _promote_running_state(task_id)
+        payload["state"] = "RUNNING"
+        return payload
+
+    if celery_state == "PENDING" and _is_stale_pending(created_at, updated_at):
+        payload["state"] = "FAILURE"
+        payload["error"] = _mark_stale_pending_failure(task_id)
+        return payload
+
+    return payload
+
+
 def _task_display_name(task_type: str, params: Any) -> str:
     if task_type == "word-analysis" and isinstance(params, dict):
         word = str(params.get("word", "")).strip() or "word"
@@ -467,6 +669,9 @@ def _task_display_name(task_type: str, params: Any) -> str:
     if task_type == "deltaT-null" and isinstance(params, dict):
         word = str(params.get("word", "")).strip() or "word"
         return f"deltaT-null: {word}"
+    if task_type == "meso-analysis" and isinstance(params, dict):
+        project_id = int(params.get("project_id") or 0)
+        return f"meso-analysis: project#{project_id or '?'}"
     return task_type
 
 
@@ -512,7 +717,7 @@ def get_task_payload(
                 text(
                     """
                     SELECT task_id, status, params_json, result_json, error_text, owner_user_id,
-                           parent_task_id, guest_key, created_at
+                           parent_task_id, guest_key, created_at, updated_at
                     FROM tasks
                     WHERE task_id=:task_id
                     """
@@ -543,19 +748,27 @@ def get_task_payload(
 
     payload: Dict[str, Any] = {
         "task_id": row["task_id"],
-        "state": row["status"],
+        "state": _task_state(row["status"]),
         "params": _normalize_jsonish(row["params_json"]),
         "result": _normalize_jsonish(row["result_json"]),
         "error": _normalize_jsonish(row["error_text"]),
         "parent_task_id": row.get("parent_task_id"),
     }
-    if async_result_factory is not None and row["status"] in ("QUEUED", "RUNNING"):
-        res = async_result_factory(task_id)
-        try:
-            if res.info is not None:
-                payload["progress"] = _normalize_jsonish(res.info)
-        except Exception:
-            pass
+
+    reconciled = _reconcile_task_state(
+        task_id=task_id,
+        db_state=row.get("status"),
+        created_at=row.get("created_at"),
+        updated_at=row.get("updated_at"),
+        async_result_factory=async_result_factory,
+    )
+    payload["state"] = reconciled.get("state", payload["state"])
+    if "progress" in reconciled:
+        payload["progress"] = reconciled["progress"]
+    if "result" in reconciled:
+        payload["result"] = reconciled["result"]
+    if "error" in reconciled:
+        payload["error"] = reconciled["error"]
     return payload
 
 
@@ -564,6 +777,7 @@ def list_task_payload(
     current_user: dict | None = None,
     scope: str | None = None,
     guest_key: str | None = None,
+    async_result_factory=None,
 ) -> Dict[str, Any]:
     limit = max(1, min(int(limit), 200))
     if _owner_id(current_user) is None:
@@ -587,22 +801,31 @@ def list_task_payload(
             .mappings()
             .all()
         )
-    return {
-        "items": [
-            {
-                "task_id": r["task_id"],
-                "task_type": r["task_type"],
-                "status": r["status"],
-                "display_name": _task_display_name(r["task_type"], _normalize_jsonish(r["params_json"])),
-                "params_json": _normalize_jsonish(r["params_json"]),
-                "created_at": r["created_at"],
-                "updated_at": r["updated_at"],
-                "owner_user_id": r.get("owner_user_id"),
-                "parent_task_id": r.get("parent_task_id"),
-            }
-            for r in rows
-        ]
-    }
+    resolver = async_result_factory or celery_app.AsyncResult
+    items: list[dict[str, Any]] = []
+    for r in rows:
+        reconciled = _reconcile_task_state(
+            task_id=str(r["task_id"]),
+            db_state=r.get("status"),
+            created_at=r.get("created_at"),
+            updated_at=r.get("updated_at"),
+            async_result_factory=resolver,
+        )
+        item = {
+            "task_id": r["task_id"],
+            "task_type": r["task_type"],
+            "status": reconciled.get("state", _task_state(r.get("status"))),
+            "display_name": _task_display_name(r["task_type"], _normalize_jsonish(r["params_json"])),
+            "params_json": _normalize_jsonish(r["params_json"]),
+            "created_at": r["created_at"],
+            "updated_at": r["updated_at"],
+            "owner_user_id": r.get("owner_user_id"),
+            "parent_task_id": r.get("parent_task_id"),
+        }
+        if "progress" in reconciled:
+            item["progress"] = reconciled["progress"]
+        items.append(item)
+    return {"items": items}
 
 
 def _delete_task_with_relations(task_id: str) -> None:
@@ -625,13 +848,13 @@ def _delete_task_with_relations(task_id: str) -> None:
                 """
                 DELETE p FROM time_series_points p
                 JOIN time_series s ON s.id = p.series_id
-                WHERE JSON_UNQUOTE(JSON_EXTRACT(s.meta_json, '$.task_id')) = :task_id
+                WHERE NULLIF(JSON_UNQUOTE(JSON_EXTRACT(s.meta_json, '$.task_id')), 'null') = :task_id
                 """
             ),
             {"task_id": task_id},
         )
         conn.execute(
-            text("DELETE FROM time_series WHERE JSON_UNQUOTE(JSON_EXTRACT(meta_json, '$.task_id')) = :task_id"),
+            text("DELETE FROM time_series WHERE NULLIF(JSON_UNQUOTE(JSON_EXTRACT(meta_json, '$.task_id')), 'null') = :task_id"),
             {"task_id": task_id},
         )
 
@@ -668,6 +891,65 @@ def delete_task_payload(task_id: str, current_user: dict | None = None, guest_ke
 
     _delete_task_with_relations(task_id)
     return {"task_id": task_id, "deleted": True}
+
+
+def pause_task_payload(task_id: str, current_user: dict | None = None, guest_key: str | None = None) -> Dict[str, Any]:
+    with get_engine().begin() as conn:
+        row = (
+            conn.execute(
+                text(
+                    """
+                    SELECT task_id, task_type, status, owner_user_id, guest_key, created_at
+                    FROM tasks
+                    WHERE task_id=:task_id
+                    LIMIT 1
+                    """
+                ),
+                {"task_id": task_id},
+            )
+            .mappings()
+            .first()
+        )
+    if not row:
+        return {"task_id": task_id, "paused": False, "reason": "NOT_FOUND"}
+    if not _can_access_row(
+        row.get("owner_user_id"),
+        row.get("guest_key"),
+        row.get("created_at"),
+        current_user,
+        guest_key,
+    ):
+        return {"task_id": task_id, "paused": False, "reason": "FORBIDDEN"}
+
+    status = str(row.get("status") or "").upper()
+    if status in {"SUCCESS", "FAILURE", "DELETED"}:
+        return {"task_id": task_id, "paused": False, "reason": "TASK_TERMINAL", "state": status}
+    if status in {"PAUSED", "REVOKED"}:
+        return {"task_id": task_id, "paused": True, "reason": "ALREADY_PAUSED", "state": status}
+
+    try:
+        celery_app.control.revoke(task_id, terminate=True, signal="SIGTERM")
+    except Exception:
+        pass
+
+    with get_engine().begin() as conn:
+        conn.execute(
+            text(
+                """
+                UPDATE tasks
+                SET status='PAUSED', updated_at=CURRENT_TIMESTAMP
+                WHERE task_id=:task_id
+                """
+            ),
+            {"task_id": task_id},
+        )
+    record_task_event(
+        task_id,
+        "PAUSED",
+        f"{row.get('task_type') or 'task'} paused",
+        {"task_type": row.get("task_type"), "previous_status": status},
+    )
+    return {"task_id": task_id, "paused": True, "state": "PAUSED", "previous_status": status}
 
 
 def bulk_delete_task_payload(

@@ -7,6 +7,7 @@ from ..db.core import check_db
 from ..db.audit_logs_repo import insert_audit_log
 from ..services.auth_service import decode_access_token, get_me_from_payload
 from ..services.diagnostics_service import get_extended_health_payload
+from ..services.variant_review_service import review_misspelling_variants
 from ..services.task_service import (
     build_output_path,
     bulk_delete_task_payload,
@@ -18,18 +19,30 @@ from ..services.task_service import (
     delete_task_payload,
     get_task_payload,
     list_task_payload,
+    pause_task_payload,
     retry_task_payload,
 )
 from ..services.artifact_service import list_task_artifacts_payload
 from ..services.task_event_service import list_task_events_payload
 from ..services.turnstile_service import is_turnstile_configured, verify_turnstile_token
-from ..tasks import deltat_null, demo_analysis, mrnmr_steady, pcmci_causal, simulation_run
+from ..tasks import deltat_null, demo_analysis, meso_analysis_run, mrnmr_steady, pcmci_causal, simulation_run
 
 router = APIRouter()
 
 
 class BulkDeleteTasksBody(BaseModel):
     task_ids: list[str]
+
+
+def _selected_misspelling_variants(word: str, variants: str | None) -> list[str]:
+    raw = [v.strip().lower() for v in str(variants or "").split(",") if v.strip()]
+    review = review_misspelling_variants(word, raw)
+    return [str(v) for v in (review.get("accepted_variants") or [])]
+
+
+def _variant_review_payload(word: str, variants: str | None) -> dict:
+    raw = [v.strip().lower() for v in str(variants or "").split(",") if v.strip()]
+    return review_misspelling_variants(word, raw)
 
 
 def _enforce_turnstile(
@@ -72,13 +85,15 @@ def create_task(
     smoothing: int = 3,
     corpus: str = "eng_2019",
     variants: str | None = None,
+    data_source: str = "gbnc",
     current_user=Depends(get_optional_user),
     guest_key: str | None = Header(default=None, alias="X-Guest-Key"),
     turnstile_token: str | None = Header(default=None, alias="X-Turnstile-Token"),
 ):
     owner_user_id = int(current_user["id"]) if current_user else None
     _enforce_turnstile(request, turnstile_token, task_type="word-analysis", owner_user_id=owner_user_id)
-    selected_variants = [v.strip().lower() for v in str(variants or "").split(",") if v.strip()]
+    review = _variant_review_payload(word, variants)
+    selected_variants = [str(v) for v in (review.get("accepted_variants") or [])]
     result = create_word_analysis_task(
         word,
         demo_analysis,
@@ -90,6 +105,7 @@ def create_task(
             "smoothing": int(smoothing),
             "corpus": corpus,
             "variants": selected_variants,
+            "data_source": str(data_source or "gbnc"),
         },
     )
     insert_audit_log(
@@ -104,10 +120,18 @@ def create_task(
             "end_year": end_year,
             "smoothing": smoothing,
             "corpus": corpus,
+            "data_source": str(data_source or "gbnc"),
             "variants_count": len(selected_variants),
+            "rejected_variants": review.get("rejected_variants") or [],
         },
     )
-    return result
+    return {
+        **result,
+        "accepted_variants": selected_variants,
+        "rejected_variants": review.get("rejected_variants") or [],
+        "filter_policy": review.get("filter_policy"),
+        "warnings": review.get("warnings") or [],
+    }
 
 
 @router.get("/api/tasks/{task_id}")
@@ -176,6 +200,19 @@ def delete_task(task_id: str, current_user=Depends(get_optional_user), guest_key
     return result
 
 
+@router.post("/api/tasks/{task_id}/pause")
+def pause_task(task_id: str, current_user=Depends(get_optional_user), guest_key: str | None = Header(default=None, alias="X-Guest-Key")):
+    result = pause_task_payload(task_id, current_user=current_user, guest_key=guest_key)
+    insert_audit_log(
+        action="TASK_PAUSE",
+        actor_user_id=int(current_user["id"]) if current_user else None,
+        target_type="task",
+        target_id=task_id,
+        meta=result,
+    )
+    return result
+
+
 @router.post("/api/tasks/simulation-run")
 def create_sim_task(
     request: Request,
@@ -185,7 +222,8 @@ def create_sim_task(
     smoothing: int = 3,
     corpus: str = "eng_2019",
     variants: str | None = None,
-    topology: str = "watts_strogatz",
+    data_source: str = "gbnc",
+    topology: str = "auto",
     n_agents: int | None = None,
     search_rounds: int | None = None,
     repeats: int = 3,
@@ -196,6 +234,7 @@ def create_sim_task(
     ba_m: int = 4,
     random_seed: int = 42,
     intervention_year: int | None = None,
+    variant_scope: str = "typo_only",
     n: int | None = None,
     steps: int | None = None,
     current_user=Depends(get_optional_user),
@@ -204,7 +243,8 @@ def create_sim_task(
 ):
     owner_user_id = int(current_user["id"]) if current_user else None
     _enforce_turnstile(request, turnstile_token, task_type="simulation-run", owner_user_id=owner_user_id)
-    selected_variants = [v.strip().lower() for v in str(variants or "").split(",") if v.strip()]
+    review = _variant_review_payload(word, variants)
+    selected_variants = [str(v) for v in (review.get("accepted_variants") or [])]
     params = {
         "word": str(word or "internet").strip().lower() or "internet",
         "start_year": int(start_year),
@@ -212,7 +252,8 @@ def create_sim_task(
         "smoothing": int(smoothing),
         "corpus": str(corpus or "eng_2019"),
         "variants": selected_variants,
-        "topology": str(topology or "watts_strogatz"),
+        "data_source": str(data_source or "gbnc"),
+        "topology": str(topology or "auto"),
         "n_agents": int(n_agents if n_agents is not None else (n if n is not None else 720)),
         "search_rounds": int(search_rounds if search_rounds is not None else (steps if steps is not None else 36)),
         "repeats": int(repeats),
@@ -223,6 +264,7 @@ def create_sim_task(
         "ba_m": int(ba_m),
         "random_seed": int(random_seed),
         "intervention_year": int(intervention_year) if intervention_year is not None else None,
+        "variant_scope": str(variant_scope or "typo_only").strip().lower() or "typo_only",
         "n": int(n) if n is not None else None,
         "steps": int(steps) if steps is not None else None,
     }
@@ -236,12 +278,20 @@ def create_sim_task(
             "task_type": "simulation-run",
             "word": params["word"],
             "topology": params["topology"],
+            "data_source": params["data_source"],
             "n_agents": params["n_agents"],
             "search_rounds": params["search_rounds"],
             "fit_profile": params["fit_profile"],
+            "rejected_variants": review.get("rejected_variants") or [],
         },
     )
-    return result
+    return {
+        **result,
+        "accepted_variants": selected_variants,
+        "rejected_variants": review.get("rejected_variants") or [],
+        "filter_policy": review.get("filter_policy"),
+        "warnings": review.get("warnings") or [],
+    }
 
 
 @router.post("/api/tasks/pcmci-causal")
@@ -253,6 +303,7 @@ def create_pcmci_task(
     smoothing: int = 3,
     corpus: str = "eng_2019",
     variants: str | None = None,
+    data_source: str = "gbnc",
     tau_max: int = 8,
     window_size: int = 0,
     window_step: int = 0,
@@ -264,7 +315,8 @@ def create_pcmci_task(
 ):
     owner_user_id = int(current_user["id"]) if current_user else None
     _enforce_turnstile(request, turnstile_token, task_type="pcmci-causal", owner_user_id=owner_user_id)
-    selected_variants = [v.strip().lower() for v in str(variants or "").split(",") if v.strip()]
+    review = _variant_review_payload(word, variants)
+    selected_variants = [str(v) for v in (review.get("accepted_variants") or [])]
     params = {
         "word": word,
         "start_year": int(start_year),
@@ -272,6 +324,7 @@ def create_pcmci_task(
         "smoothing": int(smoothing),
         "corpus": corpus,
         "variants": selected_variants,
+        "data_source": str(data_source or "gbnc"),
         "tau_max": int(tau_max),
         "window_size": int(window_size),
         "window_step": int(window_step),
@@ -284,9 +337,22 @@ def create_pcmci_task(
         actor_user_id=owner_user_id,
         target_type="task",
         target_id=result["task_id"],
-        meta={"task_type": "pcmci-causal", "word": word, "start_year": start_year, "end_year": end_year},
+        meta={
+            "task_type": "pcmci-causal",
+            "word": word,
+            "start_year": start_year,
+            "end_year": end_year,
+            "data_source": str(data_source or "gbnc"),
+            "rejected_variants": review.get("rejected_variants") or [],
+        },
     )
-    return result
+    return {
+        **result,
+        "accepted_variants": selected_variants,
+        "rejected_variants": review.get("rejected_variants") or [],
+        "filter_policy": review.get("filter_policy"),
+        "warnings": review.get("warnings") or [],
+    }
 
 
 @router.post("/api/tasks/mrnmr-steady")
@@ -298,6 +364,7 @@ def create_mrnmr_task(
     smoothing: int = 3,
     corpus: str = "eng_2019",
     variants: str | None = None,
+    data_source: str = "gbnc",
     origin_year: int | None = None,
     tipping_index: int = 0,
     kde_bandwidth: str = "scott",
@@ -308,7 +375,8 @@ def create_mrnmr_task(
 ):
     owner_user_id = int(current_user["id"]) if current_user else None
     _enforce_turnstile(request, turnstile_token, task_type="mrnmr-steady", owner_user_id=owner_user_id)
-    selected_variants = [v.strip().lower() for v in str(variants or "").split(",") if v.strip()]
+    review = _variant_review_payload(word, variants)
+    selected_variants = [str(v) for v in (review.get("accepted_variants") or [])]
     params = {
         "word": word,
         "start_year": int(start_year),
@@ -316,6 +384,7 @@ def create_mrnmr_task(
         "smoothing": int(smoothing),
         "corpus": corpus,
         "variants": selected_variants,
+        "data_source": str(data_source or "gbnc"),
         "origin_year": int(origin_year) if origin_year not in (None, "") else None,
         "tipping_index": int(tipping_index),
         "kde_bandwidth": kde_bandwidth,
@@ -327,9 +396,22 @@ def create_mrnmr_task(
         actor_user_id=owner_user_id,
         target_type="task",
         target_id=result["task_id"],
-        meta={"task_type": "mrnmr-steady", "word": word, "start_year": start_year, "end_year": end_year},
+        meta={
+            "task_type": "mrnmr-steady",
+            "word": word,
+            "start_year": start_year,
+            "end_year": end_year,
+            "data_source": str(data_source or "gbnc"),
+            "rejected_variants": review.get("rejected_variants") or [],
+        },
     )
-    return result
+    return {
+        **result,
+        "accepted_variants": selected_variants,
+        "rejected_variants": review.get("rejected_variants") or [],
+        "filter_policy": review.get("filter_policy"),
+        "warnings": review.get("warnings") or [],
+    }
 
 
 @router.post("/api/tasks/deltaT-null")
@@ -341,6 +423,7 @@ def create_delta_t_task(
     smoothing: int = 3,
     corpus: str = "eng_2019",
     variants: str | None = None,
+    data_source: str = "gbnc",
     origin_year: int | None = None,
     bootstrap_samples: int = 500,
     event_threshold_quantile: float = 0.9,
@@ -351,7 +434,8 @@ def create_delta_t_task(
 ):
     owner_user_id = int(current_user["id"]) if current_user else None
     _enforce_turnstile(request, turnstile_token, task_type="deltaT-null", owner_user_id=owner_user_id)
-    selected_variants = [v.strip().lower() for v in str(variants or "").split(",") if v.strip()]
+    review = _variant_review_payload(word, variants)
+    selected_variants = [str(v) for v in (review.get("accepted_variants") or [])]
     params = {
         "word": word,
         "start_year": int(start_year),
@@ -359,6 +443,7 @@ def create_delta_t_task(
         "smoothing": int(smoothing),
         "corpus": corpus,
         "variants": selected_variants,
+        "data_source": str(data_source or "gbnc"),
         "origin_year": int(origin_year) if origin_year not in (None, "") else None,
         "bootstrap_samples": int(bootstrap_samples),
         "event_threshold_quantile": float(event_threshold_quantile),
@@ -370,9 +455,22 @@ def create_delta_t_task(
         actor_user_id=owner_user_id,
         target_type="task",
         target_id=result["task_id"],
-        meta={"task_type": "deltaT-null", "word": word, "start_year": start_year, "end_year": end_year},
+        meta={
+            "task_type": "deltaT-null",
+            "word": word,
+            "start_year": start_year,
+            "end_year": end_year,
+            "data_source": str(data_source or "gbnc"),
+            "rejected_variants": review.get("rejected_variants") or [],
+        },
     )
-    return result
+    return {
+        **result,
+        "accepted_variants": selected_variants,
+        "rejected_variants": review.get("rejected_variants") or [],
+        "filter_policy": review.get("filter_policy"),
+        "warnings": review.get("warnings") or [],
+    }
 
 
 @router.post("/api/tasks/{task_id}/retry")
@@ -385,6 +483,7 @@ def retry_task(task_id: str, current_user=Depends(get_optional_user), guest_key:
             "pcmci-causal": pcmci_causal,
             "mrnmr-steady": mrnmr_steady,
             "deltaT-null": deltat_null,
+            "meso-analysis": meso_analysis_run,
         },
         current_user=current_user,
         guest_key=guest_key,

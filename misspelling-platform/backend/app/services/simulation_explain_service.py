@@ -8,7 +8,7 @@ PARAMETER_GLOSSARY: dict[str, dict[str, Any]] = {
     "p_self_error": {
         "label": "Self Error Pressure",
         "role": "作者在没有明显社会模仿时，也会自行写错的基础概率。",
-        "range": [0.001, 0.080],
+        "range": [0.0002, 0.080],
         "low": "自发错拼较弱，错误扩散主要依赖网络传播。",
         "mid": "既有自发错拼，也需要传播复制才能形成明显扩散。",
         "high": "单个作者就容易产生日常拼写偏差，错误可在早期自行冒头。",
@@ -16,7 +16,7 @@ PARAMETER_GLOSSARY: dict[str, dict[str, Any]] = {
     "p_copy_error": {
         "label": "Error Copy Pressure",
         "role": "个体受邻居错拼影响而继续复制错拼的强度。",
-        "range": [0.020, 0.700],
+        "range": [0.005, 0.700],
         "low": "错误主要停留在局部，扩散链条短。",
         "mid": "错误会被复制，但仍受到规范拼写约束。",
         "high": "错拼具有较强社会传播性，一旦形成热点就容易持续扩散。",
@@ -40,7 +40,7 @@ PARAMETER_GLOSSARY: dict[str, dict[str, Any]] = {
     "p_forget": {
         "label": "Forgetting Pressure",
         "role": "原本掌握正确拼写的节点重新回到不确定状态的概率。",
-        "range": [0.001, 0.150],
+        "range": [0.0002, 0.150],
         "low": "一旦形成规范写法记忆，后续较稳定。",
         "mid": "词项注意力下降时，部分人会重新变得模糊。",
         "high": "正确拼写保持性差，长期规范化基础不稳。",
@@ -80,7 +80,7 @@ PARAMETER_GLOSSARY: dict[str, dict[str, Any]] = {
     "seed_error_frac": {
         "label": "Initial Error Seeds",
         "role": "初始状态中带有错拼的种子节点比例。",
-        "range": [0.003, 0.060],
+        "range": [0.0, 0.060],
         "low": "模型假设错误从很小的先发群体开始扩散。",
         "mid": "错误在传播早期就有一定基础盘。",
         "high": "错误一开始就拥有较大的早期可见群体。",
@@ -140,13 +140,24 @@ def _fallback_chart_guide(summary: dict[str, Any]) -> list[dict[str, str]]:
 
 
 def _fit_assessment(summary: dict[str, Any], metrics: dict[str, Any]) -> list[str]:
+    fit_regime = str(summary.get("fit_regime") or "").strip().lower()
+    fit_regime_label = str(summary.get("fit_regime_label") or "Standard Regime")
     right_r2 = float(((metrics.get("right") or {}).get("r2")) or 0.0)
     error_r2 = float(((metrics.get("error") or {}).get("r2")) or 0.0)
     share_r2 = float(((metrics.get("error_share") or {}).get("r2")) or 0.0)
     error_rmse = float(summary.get("error_rmse") or 0.0)
     share_rmse = float(summary.get("share_rmse") or 0.0)
+    error_nrmse = float(summary.get("error_nrmse_peak") or 0.0)
+    share_nrmse = float(summary.get("share_nrmse_peak") or 0.0)
+    peak_gap = summary.get("error_peak_year_gap")
+    if fit_regime == "sparse_signal":
+        return [
+            f"当前属于 {fit_regime_label}：等级主要看 Right R²={right_r2:.3f}、Error NRMSE={error_nrmse:.3f}、Share NRMSE={share_nrmse:.3f} 与峰值年份差 {peak_gap}。",
+            "由于观测错拼信号远弱于规范拼写，error/share 的原始 R² 在这一口径下容易因低方差而失真，所以只作为参考，不单独决定等级。",
+            f"参考性的原始指标仍然保留：error R²={error_r2:.3f}、share R²={share_r2:.3f}、error RMSE={error_rmse:.3e}、share RMSE={share_rmse:.3e}。",
+        ]
     notes = [
-        f"正确拼写轨迹的 R² 为 {right_r2:.3f}，用于衡量模型是否抓住了主传播骨架。",
+        f"当前属于 {fit_regime_label}：正确拼写轨迹的 R² 为 {right_r2:.3f}，用于衡量模型是否抓住主传播骨架。",
         f"错误拼写轨迹的 R² 为 {error_r2:.3f}，RMSE 为 {error_rmse:.3e}，用于衡量错拼量级与峰值位置是否合理。",
         f"错误占比轨迹的 R² 为 {share_r2:.3f}，RMSE 为 {share_rmse:.3e}，用于判断模型是否正确描述了错拼在总传播中的竞争份额。",
     ]
@@ -202,19 +213,32 @@ def explain_simulation_fit(
     actor_user_id: int | None = None,
 ) -> dict[str, Any]:
     fallback_rows = _fallback_parameter_rows(best_params)
+    scope_label = str(summary.get("variant_scope_label") or "Selected Variant Cluster")
+    scope_reason = str(summary.get("variant_scope_reason") or "").strip()
+    excluded_count = int(summary.get("excluded_variant_count") or 0)
+    excluded_variants = [str(item) for item in (summary.get("excluded_variants") or []) if str(item).strip()]
+    scope_sentence = (
+        f"本次采用 {scope_label} 口径，自动剔除了 {excluded_count} 个更像正字法竞争项而非稀疏错拼的变体：{', '.join(excluded_variants[:6])}。"
+        if excluded_count > 0 and excluded_variants
+        else f"本次采用 {scope_label} 口径。"
+    )
+    if scope_reason:
+        scope_sentence = f"{scope_sentence}{scope_reason}"
     fallback = {
         "source": "heuristic",
         "overview": (
             f"{word} 的仿真把正确拼写与由多个错拼变体聚合得到的非规范拼写簇，"
-            "放到同一个网络扩散框架里拟合，用来解释这个词在群体传播中何时进入机制切换，以及非规范拼写为何会持续存在。"
+            f"放到同一个带活动权重与阶段切换的网络扩散框架里拟合，用来解释这个词在群体传播中何时进入机制切换，以及非规范拼写为何会持续存在。{scope_sentence}"
         ),
         "fit_assessment": _fit_assessment(summary, metrics),
         "chart_guide": _fallback_chart_guide(summary),
         "parameter_notes": fallback_rows,
         "takeaways": [
+            "如果本次采用 typo cluster 口径，说明系统先把强竞争正字法变体剥离，再拟合真正的错拼扩散过程。",
             "如果 p_copy_error 和 gamma_hub 较高，说明错拼更依赖社会复制与中心节点放大，而不是单纯的随机笔误。",
             "如果 p_proofread 与 p_norm 较低，说明仅靠自然规范优势不足以消化已经扩散开的错拼，需要更明确的纠偏机制。",
             "phase break 之后干预曲线分化越明显，说明传播后期的治理策略选择会显著改变最终错误残留量。",
+            "如果当前属于 sparse-signal regime，就应把注意力放在峰值误差、尾部误差和峰值年份，而不是只盯着 raw R²。",
         ],
         "llm_error": None,
         "warnings": [],
@@ -230,9 +254,10 @@ def explain_simulation_fit(
         "\"takeaways\":[\"...\",\"...\"]}。"
         "请用中文解释一个错误拼写传播仿真结果，语言要专业、克制、可答辩。"
         f"单词：{word}。"
-        f"摘要指标：best_score={summary.get('best_score')}, right_r2={summary.get('right_r2')}, error_r2={summary.get('error_r2')}, share_r2={summary.get('share_r2')}, phase_break_year={summary.get('phase_break_year')}, best_scenario={summary.get('best_scenario')}。"
-        f"模型口径：unit_of_analysis={summary.get('unit_of_analysis')}, competition_scope={summary.get('competition_scope')}, state_space={summary.get('state_space')}, observed_variant_count={summary.get('observed_variant_count')}, network_semantics={summary.get('network_semantics')}。"
-        f"网络摘要：avg_degree={network_summary.get('avg_degree')}, clustering={network_summary.get('clustering')}, density={network_summary.get('density')}。"
+        f"摘要指标：best_score={summary.get('best_score')}, fit_grade={summary.get('fit_grade')}, fit_regime={summary.get('fit_regime_label')}, fit_protocol={summary.get('fit_protocol')}, right_r2={summary.get('right_r2')}, error_r2={summary.get('error_r2')}, share_r2={summary.get('share_r2')}, error_nrmse_peak={summary.get('error_nrmse_peak')}, share_nrmse_peak={summary.get('share_nrmse_peak')}, phase_break_year={summary.get('phase_break_year')}, best_scenario={summary.get('best_scenario')}。"
+        f"信号强度：signal_strength_label={summary.get('signal_strength_label')}, signal_strength_reason={summary.get('signal_strength_reason')}。"
+        f"模型口径：unit_of_analysis={summary.get('unit_of_analysis')}, competition_scope={summary.get('competition_scope')}, state_space={summary.get('state_space')}, observed_variant_count={summary.get('observed_variant_count')}, requested_variant_count={summary.get('requested_variant_count')}, excluded_variant_count={summary.get('excluded_variant_count')}, excluded_variants={summary.get('excluded_variants')}, variant_scope_label={summary.get('variant_scope_label')}, variant_scope_reason={summary.get('variant_scope_reason')}, network_semantics={summary.get('network_semantics')}, requested_topology={summary.get('requested_topology')}, selected_topology={summary.get('selected_topology')}, requested_n_agents={summary.get('requested_n_agents')}, effective_n_agents={summary.get('n_agents')}, sparse_agent_floor={summary.get('sparse_agent_floor')}, activity_weight_scheme={summary.get('activity_weight_scheme')}, precision_strategy={summary.get('precision_strategy')}, model_complexity={summary.get('model_complexity')}, parameter_count={summary.get('parameter_count')}。"
+        f"网络摘要：avg_degree={network_summary.get('avg_degree')}, clustering={network_summary.get('clustering')}, density={network_summary.get('density')}, activity_gini={network_summary.get('activity_gini')}。"
         f"参数列表：{best_params}。"
         f"高频错拼摘要：{variant_breakdown or []}。"
         "要求："
@@ -242,6 +267,9 @@ def explain_simulation_fit(
         "4. parameter_notes 必须覆盖所有参数名，并解释该参数在本次结果中的含义。"
         "5. takeaways 给出 2 到 4 条可解释性结论。"
         "6. 不要把当前模型误写成“每个错误变体都被单独仿真”；当前模型仿真的错误侧是聚合后的非规范拼写簇。"
+        "6a. 如果 excluded_variant_count 大于 0，要说明系统为什么先剥离强竞争正字法变体，再拟合 typo cluster。"
+        "7. 如果 selected_topology 不等于 requested_topology，请说明自动拓扑筛选的意义。"
+        "8. 如果 fit_regime 是 sparse-signal，请明确说明为什么 raw R² 只能作为参考，而不能单独决定等级。"
     )
     llm = strict_json_completion(
         prompt,

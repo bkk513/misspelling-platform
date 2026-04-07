@@ -16,7 +16,7 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import { goToTask } from "../app/router";
 import { TurnstileWidget } from "../components/TurnstileWidget";
-import { api, describeApiError } from "../lib/api";
+import { api, describeApiError, type DataSourceKey } from "../lib/api";
 import "./algorithmStudio.css";
 
 type SuggestedVariant = {
@@ -25,12 +25,6 @@ type SuggestedVariant = {
   selected: boolean;
   cacheId?: number;
 };
-
-function heuristicSuggest(word: string) {
-  const base = word.trim().toLowerCase();
-  if (!base) return [];
-  return [`${base}-ai`, `${base}e`, `${base}${base.slice(-1) || "x"}`, base.replace(/e/g, "") || `${base}x`];
-}
 
 function mergeVariants(existing: SuggestedVariant[], values: string[], source: SuggestedVariant["source"]) {
   const byValue = new Map(existing.map((v) => [v.value.toLowerCase(), v]));
@@ -43,6 +37,12 @@ function mergeVariants(existing: SuggestedVariant[], values: string[], source: S
     }
   }
   return Array.from(byValue.values());
+}
+
+function rejectedSummary(items: Array<{ variant: string }> | undefined, limit = 6) {
+  const values = (items || []).map((item) => String(item.variant || "").trim().toLowerCase()).filter(Boolean);
+  if (values.length === 0) return "";
+  return values.slice(0, limit).join(", ");
 }
 
 interface ParameterTemplate {
@@ -92,6 +92,7 @@ const templates: ParameterTemplate[] = [
 
 export function WordAnalysisWorkbenchPage() {
   const [word, setWord] = useState("demo");
+  const [dataSource, setDataSource] = useState<DataSourceKey>("gbnc");
   const [startYear, setStartYear] = useState(1900);
   const [endYear, setEndYear] = useState(2019);
   const [smoothing, setSmoothing] = useState(3);
@@ -150,6 +151,7 @@ export function WordAnalysisWorkbenchPage() {
           setEndYear(parsed.endYear ?? 2019);
           setSmoothing(parsed.smoothing ?? 3);
           setCorpus(parsed.corpus || "eng_2019");
+          setDataSource((parsed.dataSource || "gbnc") as DataSourceKey);
         }
       } catch {
         // ignore parse errors
@@ -170,6 +172,7 @@ export function WordAnalysisWorkbenchPage() {
   const saveCurrentParams = () => {
     const params = {
       word,
+      dataSource,
       startYear,
       endYear,
       smoothing,
@@ -193,11 +196,13 @@ export function WordAnalysisWorkbenchPage() {
         const merged = mergeVariants(variants, resp.variants || [], (resp.source || "cache") as SuggestedVariant["source"]);
         setVariants(merged);
       }
+      const rejected = rejectedSummary(resp.rejected_variants);
+      if (rejected) {
+        message.info(`Filtered lexical words: ${rejected}`);
+      }
       message.success(`Loaded ${resp.variants?.length || 0} variants from ${resp.source || "cache"}.`);
-    } catch {
-      const merged = mergeVariants(variants, heuristicSuggest(word), "heuristic");
-      setVariants(merged);
-      message.info("Suggest API unavailable, switched to local heuristic variants.");
+    } catch (e) {
+      message.error(describeApiError(e));
     } finally {
       setBusy(false);
     }
@@ -218,6 +223,7 @@ export function WordAnalysisWorkbenchPage() {
           endYear,
           smoothing,
           corpus,
+          dataSource,
           variants: selected
         },
         turnstileToken
@@ -244,6 +250,7 @@ export function WordAnalysisWorkbenchPage() {
         endYear,
         smoothing,
         corpus,
+        dataSource,
         variants: selected
       });
       const warn = (resp.warnings || []).join(", ");
@@ -253,9 +260,9 @@ export function WordAnalysisWorkbenchPage() {
           `${warn ? ` warnings=${warn}` : ""}`
       );
       if (resp.source === "STUB") {
-        message.warning("GBNC pull degraded to STUB source.");
+        message.warning(`${String(dataSource).toUpperCase()} pull degraded to STUB source.`);
       } else {
-        message.success("GBNC pull completed.");
+        message.success(`${String(dataSource).toUpperCase()} pull completed.`);
       }
     } catch (e) {
       message.error(describeApiError(e));
@@ -271,17 +278,39 @@ export function WordAnalysisWorkbenchPage() {
     if (cacheEnabled) {
       setBusy(true);
       try {
-        await api.saveVariantCache(word, [text], "manual");
+        const resp = await api.saveVariantCache(word, [text], "manual");
         await loadCache(word);
-        message.success("Variant saved to your cache.");
+        const rejected = rejectedSummary(resp.rejected_variants);
+        if (resp.saved > 0) {
+          message.success("Variant saved to your cache.");
+        } else if (rejected) {
+          message.warning(`Rejected lexical word: ${rejected}`);
+        }
       } catch (e) {
         message.error(describeApiError(e));
       } finally {
         setBusy(false);
       }
     } else {
-      const merged = mergeVariants(variants, [text], "manual");
-      setVariants(merged);
+      setBusy(true);
+      try {
+        const review = await api.reviewVariants(word, [text]);
+        const accepted = review.accepted_variants || review.variants || [];
+        const rejected = rejectedSummary(review.rejected_variants);
+        if (accepted.length > 0) {
+          const merged = mergeVariants(variants, accepted, "manual");
+          setVariants(merged);
+          if (rejected) {
+            message.warning(`Rejected lexical word: ${rejected}`);
+          }
+        } else if (rejected) {
+          message.warning(`Rejected lexical word: ${rejected}`);
+        }
+      } catch (e) {
+        message.error(describeApiError(e));
+      } finally {
+        setBusy(false);
+      }
     }
 
     setManual("");
@@ -330,7 +359,7 @@ export function WordAnalysisWorkbenchPage() {
                 Word Analysis Workbench
               </Typography.Title>
               <Typography.Paragraph className="algo-hero-desc">
-                这个入口页现在沿用算法模块的展示语言。你在这里完成单词录入、参数模板加载、变体推荐、个人 cache 复用和 GBNC 数据预拉取，然后再提交真正的分析任务。
+                这个入口页现在沿用算法模块的展示语言。你在这里完成单词录入、参数模板加载、变体推荐、个人 cache 复用和数据预拉取，然后再提交真正的分析任务。
               </Typography.Paragraph>
             </div>
             <div className="algo-hero-side">
@@ -359,9 +388,14 @@ export function WordAnalysisWorkbenchPage() {
               <div className="algo-score-copy">时序采样的分析时间范围。</div>
             </div>
             <div className="algo-score-card">
+              <div className="algo-score-label">Data Source</div>
+              <div className="algo-score-value">{String(dataSource).toUpperCase()}</div>
+              <div className="algo-score-copy">GBNC 适合历史词频，GDELT 适合近年新闻曝光。</div>
+            </div>
+            <div className="algo-score-card">
               <div className="algo-score-label">Smoothing</div>
               <div className="algo-score-value">{smoothing}</div>
-              <div className="algo-score-copy">GBNC 查询时的平滑参数。</div>
+              <div className="algo-score-copy">仅在 GBNC 模式下生效。</div>
             </div>
             <div className="algo-score-card">
               <div className="algo-score-label">Corpus</div>
@@ -400,6 +434,7 @@ export function WordAnalysisWorkbenchPage() {
                           setEndYear(parsed.endYear);
                           setSmoothing(parsed.smoothing);
                           setCorpus(parsed.corpus);
+                          setDataSource((parsed.dataSource || "gbnc") as DataSourceKey);
                           message.success("Loaded last used parameters");
                         } else {
                           message.info("No saved parameters for this word");
@@ -433,6 +468,25 @@ export function WordAnalysisWorkbenchPage() {
               <Input value={word} onChange={(e) => setWord(e.target.value)} status={!word.trim() ? "error" : undefined} />
             </div>
             <div className="algo-field algo-span-2">
+              <span className="algo-field-label">Data Source</span>
+              <Select
+                value={dataSource}
+                onChange={(value) => {
+                  const next = value as DataSourceKey;
+                  setDataSource(next);
+                  if (next === "gdelt") {
+                    setStartYear((current) => Math.max(current, 2015));
+                    setEndYear((current) => Math.min(Math.max(current, 2015), new Date().getFullYear()));
+                  }
+                }}
+                options={[
+                  { value: "gbnc", label: "GBNC" },
+                  { value: "gdelt", label: "GDELT" },
+                ]}
+                style={{ width: "100%" }}
+              />
+            </div>
+            <div className="algo-field algo-span-2">
               <span className="algo-field-label">Start Year</span>
               <InputNumber
                 min={1500}
@@ -456,7 +510,7 @@ export function WordAnalysisWorkbenchPage() {
             </div>
             <div className="algo-field algo-span-1">
               <span className="algo-field-label">Smoothing</span>
-              <InputNumber min={0} max={50} value={smoothing} onChange={(v) => setSmoothing(v ?? 3)} style={{ width: "100%" }} />
+              <InputNumber min={0} max={50} value={smoothing} onChange={(v) => setSmoothing(v ?? 3)} style={{ width: "100%" }} disabled={dataSource === "gdelt"} />
             </div>
             <div className="algo-field algo-span-2">
               <span className="algo-field-label">Corpus</span>
@@ -468,6 +522,7 @@ export function WordAnalysisWorkbenchPage() {
                   { value: "eng_us_2019", label: "eng_us_2019" },
                 ]}
                 style={{ width: "100%" }}
+                disabled={dataSource === "gdelt"}
               />
             </div>
           </div>
@@ -477,7 +532,7 @@ export function WordAnalysisWorkbenchPage() {
               Suggest Variants
             </Button>
             <Button loading={busy} onClick={() => void gbncPull()}>
-              Pull GBNC Preview
+              Pull {String(dataSource).toUpperCase()} Preview
             </Button>
             <Button
               type="primary"
@@ -494,7 +549,7 @@ export function WordAnalysisWorkbenchPage() {
             <TurnstileWidget siteKey={turnstileSiteKey} refreshKey={turnstileNonce} onTokenChange={setTurnstileToken} />
           </div>
           <Typography.Paragraph className="algo-origin-copy" style={{ marginTop: 12 }}>
-            Pull GBNC Preview 会预先请求并缓存当前参数下的 GBNC 时序数据，返回数据来源、命中状态、点数与降级告警，便于运行前确认数据链路。
+            预拉取会先请求当前数据源的时序数据，返回数据来源、命中状态、点数与降级告警，便于运行前确认数据链路。
           </Typography.Paragraph>
           {gbncInfo && <Alert style={{ marginTop: 12 }} type="info" showIcon message={gbncInfo} />}
         </Card>

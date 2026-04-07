@@ -9,6 +9,7 @@ from ..services.project_service import (
     create_project_cohort_payload,
     delete_project_cohort_payload,
     delete_project_membership_payload,
+    import_project_terms_payload,
     list_project_cohorts_payload,
     list_project_memberships_payload,
     list_project_tasks_payload,
@@ -29,6 +30,12 @@ class CreateProjectBody(BaseModel):
 class AddProjectTermsBody(BaseModel):
     words: list[str]
     category: str | None = Field(default=None, max_length=32)
+
+
+class ImportProjectTermsBody(BaseModel):
+    filename: str = Field(min_length=1, max_length=255)
+    content_base64: str = Field(min_length=1)
+    target_cohort: str | None = Field(default=None, max_length=64)
 
 
 class BindProjectTaskBody(BaseModel):
@@ -88,6 +95,17 @@ def add_terms(project_id: int, body: AddProjectTermsBody, current_user=Depends(g
         project_id=project_id,
         words=body.words or [],
         category=body.category,
+        current_user=current_user,
+    )
+
+
+@router.post("/api/projects/{project_id}/terms/import")
+def import_terms(project_id: int, body: ImportProjectTermsBody, current_user=Depends(get_optional_user)):
+    return import_project_terms_payload(
+        project_id=project_id,
+        filename=body.filename,
+        content_base64=body.content_base64,
+        target_cohort=body.target_cohort,
         current_user=current_user,
     )
 

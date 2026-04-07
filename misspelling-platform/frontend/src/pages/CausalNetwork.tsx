@@ -23,7 +23,7 @@ import { useEffect, useMemo, useState } from "react";
 import { goToTask } from "../app/router";
 import { AlgorithmTermBuilder } from "../components/AlgorithmTermBuilder";
 import { TurnstileWidget } from "../components/TurnstileWidget";
-import { api, describeApiError } from "../lib/api";
+import { api, describeApiError, type DataSourceKey } from "../lib/api";
 import { asObject, fetchArtifactJson, taskStateTone } from "./algorithmStudioShared";
 import "./algorithmStudio.css";
 
@@ -61,6 +61,7 @@ function normalizeEdges(rows: Array<Record<string, unknown>>) {
 export function CausalNetworkPage() {
   const [word, setWord] = useState("internet");
   const [variants, setVariants] = useState<string[]>([]);
+  const [dataSource, setDataSource] = useState<DataSourceKey>("gbnc");
   const [startYear, setStartYear] = useState(1900);
   const [endYear, setEndYear] = useState(2019);
   const [smoothing, setSmoothing] = useState(3);
@@ -205,6 +206,7 @@ export function CausalNetworkPage() {
           startYear,
           endYear,
           smoothing,
+          dataSource,
           variants,
           tauMax,
           windowSize,
@@ -303,11 +305,19 @@ export function CausalNetworkPage() {
               <AlgorithmTermBuilder
                 word={word}
                 variants={variants}
+                dataSource={dataSource}
                 startYear={startYear}
                 endYear={endYear}
                 smoothing={smoothing}
                 onWordChange={setWord}
                 onVariantsChange={setVariants}
+                onDataSourceChange={(value) => {
+                  setDataSource(value);
+                  if (value === "gdelt") {
+                    setStartYear((current) => Math.max(current, 2015));
+                    setEndYear((current) => Math.min(Math.max(current, 2015), new Date().getFullYear()));
+                  }
+                }}
               />
 
               <div className="algo-parameter-grid" style={{ marginTop: 18 }}>
@@ -321,7 +331,7 @@ export function CausalNetworkPage() {
                 </div>
                 <div className="algo-field algo-span-2">
                   <span className="algo-field-label">Smoothing</span>
-                  <InputNumber min={0} max={50} value={smoothing} onChange={(value) => setSmoothing(value ?? 3)} style={{ width: "100%" }} />
+                  <InputNumber min={0} max={50} value={smoothing} onChange={(value) => setSmoothing(value ?? 3)} style={{ width: "100%" }} disabled={dataSource === "gdelt"} />
                 </div>
                 <div className="algo-field algo-span-2">
                   <span className="algo-field-label">Tau Max</span>

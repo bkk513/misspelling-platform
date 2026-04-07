@@ -12,6 +12,7 @@ from ..services.lexicon_service import (
     suggest_origin_year_payload,
     suggest_and_cache_variants,
 )
+from ..services.variant_review_service import review_misspelling_variants
 
 router = APIRouter()
 
@@ -26,6 +27,11 @@ class SaveVariantCacheBody(BaseModel):
     word: str
     variants: list[str]
     source: str = "manual"
+
+
+class ReviewVariantsBody(BaseModel):
+    word: str
+    variants: list[str] = []
 
 
 @router.post("/api/lexicon/variants/suggest")
@@ -45,6 +51,11 @@ def suggest_variants(
     )
 
 
+@router.post("/api/lexicon/variants/review")
+def review_variants(body: ReviewVariantsBody):
+    return review_misspelling_variants(body.word, body.variants or [])
+
+
 @router.post("/api/lexicon/term/enrich")
 def enrich_term(word: str, current_user=Depends(get_optional_user)):
     return enrich_term_payload(word=word, current_user=current_user)
@@ -61,6 +72,7 @@ def suggest_origin_year(
     end_year: int = 2019,
     corpus: str = "eng_2019",
     smoothing: int = 0,
+    data_source: str = "gbnc",
     current_user=Depends(get_optional_user),
 ):
     selected_variants = [v.strip().lower() for v in str(variants or "").split(",") if v.strip()]
@@ -71,6 +83,7 @@ def suggest_origin_year(
         end_year=end_year,
         corpus=corpus,
         smoothing=smoothing,
+        data_source=data_source,
         current_user=current_user,
     )
 

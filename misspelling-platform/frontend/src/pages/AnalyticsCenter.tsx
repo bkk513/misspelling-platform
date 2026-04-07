@@ -1,14 +1,17 @@
 import {
-  BarChartOutlined,
+  BranchesOutlined,
   ClusterOutlined,
-  FundOutlined,
-  RadarChartOutlined,
+  ExperimentOutlined,
+  FolderOpenOutlined,
   ReloadOutlined,
+  ThunderboltOutlined,
 } from "@ant-design/icons";
 import {
+  Alert,
   Button,
   Card,
   Col,
+  Collapse,
   Empty,
   InputNumber,
   Progress,
@@ -16,129 +19,200 @@ import {
   Select,
   Space,
   Statistic,
+  Switch,
   Table,
-  Tabs,
   Tag,
   Typography,
   message,
 } from "antd";
 import { useEffect, useMemo, useState } from "react";
-import { LineChart } from "../components/LineChart";
+import { goToApp } from "../app/router";
 import {
   api,
   describeApiError,
-  type AnalyticsClusterResponse,
-  type AnalyticsCohortCompareResponse,
-  type AnalyticsExplainabilityResponse,
-  type AnalyticsSummaryResponse,
-  type AnalyticsTemporalPatternsResponse,
+  type DataSourceKey,
+  type MesoAnalysisResult,
+  type MesoPrepareResponse,
   type ProjectCohortItem,
   type ProjectItem,
+  type ProjectTermsResponse,
+  type TaskDetailResponse,
+  type TaskListItem,
 } from "../lib/api";
-import "./algorithmStudio.css";
 import "./analyticsCenter.css";
 
-type ClusterMethod = "kmeans_advanced" | "baseline-kmeans";
+type ProjectTermItem = ProjectTermsResponse["items"][number];
 
-const CLUSTER_COLORS = ["#1164d6", "#0f766e", "#d97706", "#dc2626", "#7c3aed", "#0ea5e9", "#16a34a", "#b45309"];
+const CLUSTER_COLORS = ["#1456d9", "#0f766e", "#d97706", "#dc2626", "#7c3aed", "#0891b2"];
+const TERMINAL_STATES = new Set(["SUCCESS", "FAILURE", "PAUSED", "REVOKED", "DELETED"]);
+const REQUIRED_TASKS = ["word-analysis", "pcmci-causal", "mrnmr-steady", "deltaT-null"];
 
-function toPercent(value: number | null | undefined, digits = 2): string {
+function sleep(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function normalizeWord(value: unknown): string {
+  return String(value || "").trim().toLowerCase();
+}
+
+function normalizeMicroTaskType(value: unknown): string {
+  const key = String(value || "").trim().toLowerCase();
+  if (key === "causal-work" || key === "casual-work" || key === "causal_work") return "pcmci-causal";
+  return key;
+}
+
+function extractTaskWord(task: TaskListItem): string {
+  const raw = task.params_json;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return "";
+  return normalizeWord((raw as Record<string, unknown>).word);
+}
+
+function extractTaskDataSource(task: TaskListItem): string {
+  const raw = task.params_json;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return "gbnc";
+  return String((raw as Record<string, unknown>).data_source || "gbnc").trim().toLowerCase();
+}
+
+function metricLabel(key: string): string {
+  const map: Record<string, string> = {
+    avg_misspelling_rate: "平均错拼率",
+    peak_misspelling_rate: "峰值错拼率",
+    steady_lag_years: "稳定耗时",
+    delta_t_years: "delta_t",
+    variant_count: "错误变体数",
+    causal_edge_count: "因果边数",
+    causal_mean_strength: "因果强度",
+    simulation_best_score: "仿真 best_score",
+  };
+  return map[key] || key;
+}
+
+function formatMetric(key: string, value: number | null | undefined): string {
   if (value === null || value === undefined || Number.isNaN(value)) return "-";
-  return `${(value * 100).toFixed(digits)}%`;
+  if (key.includes("rate")) return `${(value * 100).toFixed(2)}%`;
+  if (key.includes("count")) return value.toFixed(0);
+  if (key.includes("score")) return value.toFixed(3);
+  return value.toFixed(2);
 }
 
-function compactTerms(items: Array<{ canonical: string }>, max = 6): string {
-  if (!items.length) return "-";
-  const names = items.slice(0, max).map((item) => item.canonical);
-  if (items.length > max) names.push(`+${items.length - max} more`);
-  return names.join(", ");
+function taskColor(state: string): string {
+  const key = String(state || "").toUpperCase();
+  if (key === "SUCCESS") return "green";
+  if (key === "FAILURE") return "red";
+  if (key === "QUEUED" || key === "RUNNING" || key === "PROGRESS") return "blue";
+  if (key === "PAUSED" || key === "REVOKED") return "orange";
+  if (key === "SKIPPED") return "default";
+  return "default";
 }
 
-function trajectoryShift(series: Array<{ year: number; value: number }>): { delta: number; trend: "up" | "down" | "flat" } {
-  if (series.length < 2) return { delta: 0, trend: "flat" };
-  const delta = Number((series[series.length - 1].value - series[0].value).toFixed(4));
-  if (delta > 0.0001) return { delta, trend: "up" };
-  if (delta < -0.0001) return { delta, trend: "down" };
-  return { delta, trend: "flat" };
-}
-
-function DistributionPanel({
-  title,
-  items,
-}: {
-  title: string;
-  items: Array<{ label: string; value: number }>;
-}) {
-  const maxValue = Math.max(1, ...items.map((item) => item.value));
-  return (
-    <Card size="small" title={title} className="ac-subcard">
-      <div className="ac-bar-list">
-        {items.map((item) => (
-          <div key={item.label} className="ac-bar-row">
-            <div className="ac-bar-head">
-              <span>{item.label}</span>
-              <span>{item.value}</span>
-            </div>
-            <div className="ac-bar-track">
-              <div className="ac-bar-fill" style={{ width: `${(item.value / maxValue) * 100}%` }} />
-            </div>
-          </div>
-        ))}
-        {items.length === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No distribution data" /> : null}
-      </div>
-    </Card>
-  );
-}
-
-function ClusterScatter({ cluster }: { cluster: AnalyticsClusterResponse }) {
-  const points = cluster.clusters.flatMap((group, index) =>
-    group.items.map((item) => ({
-      clusterId: group.cluster_id,
-      clusterIndex: index,
-      label: item.canonical,
-      x: item.embedding?.x ?? 0,
-      y: item.embedding?.y ?? 0,
-    }))
-  );
-
-  if (!points.length) {
-    return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No embedding coordinates available" />;
+function HeatmapBoard({ result }: { result: MesoAnalysisResult }) {
+  if (!result.comparison.heatmap.length) {
+    return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="没有可展示的类别对比数据" />;
   }
 
-  const minX = Math.min(...points.map((point) => point.x));
-  const maxX = Math.max(...points.map((point) => point.x));
-  const minY = Math.min(...points.map((point) => point.y));
-  const maxY = Math.max(...points.map((point) => point.y));
+  return (
+    <div className="meso-heatmap">
+      <div className="meso-heatmap-row meso-heatmap-head">
+        <div className="meso-heatmap-category">类别</div>
+        {result.comparison.metrics.map((metric) => (
+          <div key={metric.key} className="meso-heatmap-cell meso-heatmap-metric">
+            {metricLabel(metric.key)}
+          </div>
+        ))}
+      </div>
+      {result.comparison.heatmap.map((row) => (
+        <div key={row.category} className="meso-heatmap-row">
+          <div className="meso-heatmap-category">{row.category}</div>
+          {row.values.map((cell) => (
+            <div
+              key={`${row.category}-${cell.key}`}
+              className="meso-heatmap-cell"
+              style={{
+                background: cell.score === null
+                  ? "linear-gradient(135deg, rgba(15,23,42,0.05), rgba(15,23,42,0.02))"
+                  : `linear-gradient(135deg, rgba(20,86,217,${0.12 + (cell.score || 0) * 0.6}), rgba(8,145,178,${0.1 + (cell.score || 0) * 0.45}))`,
+              }}
+            >
+              <div className="meso-heatmap-value">{formatMetric(cell.key, cell.mean)}</div>
+            </div>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function DistributionBoard({ result }: { result: MesoAnalysisResult }) {
+  const distributions = result.comparison.distributions.slice(0, 3);
+  if (!distributions.length) {
+    return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="没有分布数据" />;
+  }
+
+  return (
+    <div className="meso-distribution-grid">
+      {distributions.map((metric) => {
+        const groups = metric.groups.map((group) => {
+          const mean = group.values.length ? group.values.reduce((sum, item) => sum + item, 0) / group.values.length : 0;
+          return { ...group, mean };
+        });
+        const maxValue = Math.max(0.0001, ...groups.map((item) => item.mean));
+        return (
+          <Card key={metric.key} className="meso-panel-card" bordered={false}>
+            <div className="meso-panel-title">{metricLabel(metric.key)}</div>
+            <div className="meso-bar-list">
+              {groups.map((group) => (
+                <div key={`${metric.key}-${group.category}`} className="meso-bar-row">
+                  <div className="meso-bar-meta">
+                    <span>{group.category}</span>
+                    <span>{formatMetric(metric.key, group.mean)}</span>
+                  </div>
+                  <div className="meso-bar-track">
+                    <div className="meso-bar-fill" style={{ width: `${(group.mean / maxValue) * 100}%` }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Card>
+        );
+      })}
+    </div>
+  );
+}
+
+function ClusterScatter({ result }: { result: MesoAnalysisResult }) {
+  const points = result.clustering.scatter;
+  if (!points.length) {
+    return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="没有聚类散点" />;
+  }
+
   const width = 860;
   const height = 320;
   const pad = 28;
+  const xs = points.map((point) => point.x);
+  const ys = points.map((point) => point.y);
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const minY = Math.min(...ys);
+  const maxY = Math.max(...ys);
 
-  const scaleX = (value: number) => {
-    if (maxX === minX) return width / 2;
-    return pad + ((value - minX) / (maxX - minX)) * (width - pad * 2);
-  };
-
-  const scaleY = (value: number) => {
-    if (maxY === minY) return height / 2;
-    return height - pad - ((value - minY) / (maxY - minY)) * (height - pad * 2);
-  };
+  const scaleX = (value: number) => (maxX === minX ? width / 2 : pad + ((value - minX) / (maxX - minX)) * (width - pad * 2));
+  const scaleY = (value: number) => (maxY === minY ? height / 2 : height - pad - ((value - minY) / (maxY - minY)) * (height - pad * 2));
 
   return (
-    <div className="ac-scatter-shell">
-      <svg viewBox={`0 0 ${width} ${height}`} className="ac-scatter-svg" role="img" aria-label="cluster scatter">
-        <rect x={0} y={0} width={width} height={height} rx={18} fill="transparent" />
-        <line x1={pad} y1={height / 2} x2={width - pad} y2={height / 2} stroke="#d8e4f4" strokeDasharray="4,4" />
-        <line x1={width / 2} y1={pad} x2={width / 2} y2={height - pad} stroke="#d8e4f4" strokeDasharray="4,4" />
-        {points.map((point, index) => (
-          <g key={`${point.label}-${index}`}>
+    <div className="meso-scatter-shell">
+      <svg viewBox={`0 0 ${width} ${height}`} className="meso-scatter-svg" role="img" aria-label="meso clustering scatter">
+        <line x1={pad} y1={height / 2} x2={width - pad} y2={height / 2} stroke="#d8e3f2" strokeDasharray="4,4" />
+        <line x1={width / 2} y1={pad} x2={width / 2} y2={height - pad} stroke="#d8e3f2" strokeDasharray="4,4" />
+        {points.map((point) => (
+          <g key={`${point.term_id}-${point.cluster_id}`}>
             <circle
               cx={scaleX(point.x)}
               cy={scaleY(point.y)}
               r={6}
-              fill={CLUSTER_COLORS[point.clusterIndex % CLUSTER_COLORS.length]}
-              opacity={0.88}
+              fill={CLUSTER_COLORS[point.cluster_id % CLUSTER_COLORS.length]}
+              opacity={0.9}
             />
-            <title>{`${point.label} · cluster ${point.clusterId}`}</title>
+            <title>{`${point.canonical} · ${point.cluster_label}`}</title>
           </g>
         ))}
       </svg>
@@ -146,134 +220,158 @@ function ClusterScatter({ cluster }: { cluster: AnalyticsClusterResponse }) {
   );
 }
 
-function CompareBoard({ compare }: { compare: AnalyticsCohortCompareResponse }) {
-  const maxAbs = Math.max(0.000001, ...compare.metrics.map((item) => Math.abs(item.diff_mean)));
-  return (
-    <div className="ac-bar-list">
-      {compare.metrics.map((item) => (
-        <div key={item.metric} className="ac-bar-row">
-          <div className="ac-bar-head">
-            <span>{item.metric}</span>
-            <span>{item.diff_mean.toFixed(3)}</span>
-          </div>
-          <div className="ac-bar-track">
-            <div
-              className="ac-bar-fill"
-              style={{
-                width: `${Math.max(8, (Math.abs(item.diff_mean) / maxAbs) * 100)}%`,
-                background: item.diff_mean >= 0 ? "#1164d6" : "#d94841",
-              }}
-            />
-          </div>
-          <div className="ac-inline-copy">
-            d={item.effect_size_d.toFixed(3)} · perm p={item.perm_p_value.toExponential(2)} · q={item.fdr_q_value.toExponential(2)}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function ImportanceBoard({ items }: { items: AnalyticsExplainabilityResponse["feature_importance"] }) {
-  const maxValue = Math.max(0.000001, ...items.map((item) => item.importance_mean));
-  return (
-    <div className="ac-bar-list">
-      {items.map((item) => (
-        <div key={item.feature} className="ac-bar-row">
-          <div className="ac-bar-head">
-            <span>{item.feature}</span>
-            <span>{item.importance_mean.toFixed(5)}</span>
-          </div>
-          <div className="ac-bar-track">
-            <div className="ac-bar-fill" style={{ width: `${(item.importance_mean / maxValue) * 100}%` }} />
-          </div>
-          <div className="ac-inline-copy">std={item.importance_std.toFixed(5)}</div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
 export function AnalyticsCenterPage({ sessionRole }: { sessionRole: "guest" | "user" | "admin" }) {
   const [projects, setProjects] = useState<ProjectItem[]>([]);
   const [projectId, setProjectId] = useState<number | undefined>(undefined);
-  const [cohorts, setCohorts] = useState<ProjectCohortItem[]>([]);
+  const [projectTerms, setProjectTerms] = useState<ProjectTermItem[]>([]);
+  const [projectCohorts, setProjectCohorts] = useState<ProjectCohortItem[]>([]);
+  const [projectTasks, setProjectTasks] = useState<TaskListItem[]>([]);
 
-  const [summary, setSummary] = useState<AnalyticsSummaryResponse | null>(null);
-  const [cluster, setCluster] = useState<AnalyticsClusterResponse | null>(null);
-  const [compare, setCompare] = useState<AnalyticsCohortCompareResponse | null>(null);
-  const [temporal, setTemporal] = useState<AnalyticsTemporalPatternsResponse | null>(null);
-  const [explainability, setExplainability] = useState<AnalyticsExplainabilityResponse | null>(null);
+  const [selectedCohorts, setSelectedCohorts] = useState<string[]>([]);
+  const [selectedTermIds, setSelectedTermIds] = useState<number[]>([]);
+  const [dataSource, setDataSource] = useState<DataSourceKey>("gbnc");
+  const [clusterK, setClusterK] = useState(3);
+  const [includeSimulation, setIncludeSimulation] = useState(false);
 
   const [loadingProjects, setLoadingProjects] = useState(false);
-  const [loadingSummary, setLoadingSummary] = useState(false);
-  const [loadingCluster, setLoadingCluster] = useState(false);
-  const [loadingCompare, setLoadingCompare] = useState(false);
-  const [loadingTemporal, setLoadingTemporal] = useState(false);
-  const [loadingExplainability, setLoadingExplainability] = useState(false);
+  const [loadingContext, setLoadingContext] = useState(false);
+  const [runningPipeline, setRunningPipeline] = useState(false);
+  const [pipelineStep, setPipelineStep] = useState("");
 
-  const [clusterMethod, setClusterMethod] = useState<ClusterMethod>("kmeans_advanced");
-  const [k, setK] = useState(3);
+  const [prepareResult, setPrepareResult] = useState<MesoPrepareResponse | null>(null);
+  const [microTaskStates, setMicroTaskStates] = useState<TaskDetailResponse[]>([]);
+  const [mesoTaskId, setMesoTaskId] = useState<string | null>(null);
+  const [mesoTaskState, setMesoTaskState] = useState<TaskDetailResponse | null>(null);
+  const [mesoResult, setMesoResult] = useState<MesoAnalysisResult | null>(null);
 
-  const [cohortA, setCohortA] = useState<string | undefined>(undefined);
-  const [cohortB, setCohortB] = useState<string | undefined>(undefined);
-  const [permutations, setPermutations] = useState(1000);
-  const [bootstrap, setBootstrap] = useState(1000);
-
-  const [temporalClusters, setTemporalClusters] = useState(3);
-  const [temporalLimit, setTemporalLimit] = useState(160);
-
-  const [targetCohort, setTargetCohort] = useState<string | undefined>(undefined);
+  const activeCohorts = useMemo(
+    () => projectCohorts.filter((item) => Boolean(item.is_active)),
+    [projectCohorts]
+  );
 
   const cohortOptions = useMemo(
-    () =>
-      cohorts
-        .filter((item) => Boolean(item.is_active))
-        .map((item) => ({ value: item.name, label: item.name })),
-    [cohorts]
+    () => activeCohorts.map((item) => ({ value: item.name, label: item.name })),
+    [activeCohorts]
+  );
+
+  const filteredTerms = useMemo(() => {
+    if (!selectedCohorts.length) return projectTerms;
+    const selected = new Set(selectedCohorts);
+    return projectTerms.filter((term) => selected.has(term.primary_cohort || term.category || "custom"));
+  }, [projectTerms, selectedCohorts]);
+
+  const effectiveTerms = useMemo(() => {
+    if (!selectedTermIds.length) return filteredTerms;
+    const selected = new Set(selectedTermIds);
+    return filteredTerms.filter((term) => selected.has(term.term_id));
+  }, [filteredTerms, selectedTermIds]);
+
+  const projectOptions = useMemo(
+    () => projects.map((item) => ({ value: item.id, label: item.name })),
+    [projects]
+  );
+
+  const termOptions = useMemo(
+    () => filteredTerms.map((term) => ({ value: term.term_id, label: `${term.canonical} · ${term.primary_cohort || term.category || "custom"}` })),
+    [filteredTerms]
+  );
+
+  const latestTaskMap = useMemo(() => {
+    const map = new Map<string, TaskListItem>();
+    for (const task of projectTasks) {
+      const word = extractTaskWord(task);
+      if (!word) continue;
+      const key = `${word}::${normalizeMicroTaskType(task.task_type)}::${extractTaskDataSource(task)}`;
+      if (!map.has(key)) map.set(key, task);
+    }
+    return map;
+  }, [projectTasks]);
+
+  const coverageRows = useMemo(() => {
+    return REQUIRED_TASKS.concat(includeSimulation ? ["simulation-run"] : []).map((taskType) => {
+      const readyTerms = effectiveTerms.filter((term) => {
+        const taskKey = `${normalizeWord(term.canonical)}::${taskType}::${dataSource}`;
+        return String(latestTaskMap.get(taskKey)?.status || "").toUpperCase() === "SUCCESS";
+      }).length;
+      return {
+        taskType,
+        readyTerms,
+        ratio: effectiveTerms.length ? readyTerms / effectiveTerms.length : 0,
+      };
+    });
+  }, [dataSource, effectiveTerms, includeSimulation, latestTaskMap]);
+
+  const selectedProject = useMemo(
+    () => projects.find((item) => item.id === projectId) || null,
+    [projects, projectId]
+  );
+
+  const microReadyCount = useMemo(() => {
+    if (!effectiveTerms.length) return 0;
+    return effectiveTerms.filter((term) =>
+      coverageRows.every((item) => {
+        const taskKey = `${normalizeWord(term.canonical)}::${item.taskType}::${dataSource}`;
+        return String(latestTaskMap.get(taskKey)?.status || "").toUpperCase() === "SUCCESS";
+      })
+    ).length;
+  }, [coverageRows, dataSource, effectiveTerms, latestTaskMap]);
+
+  const requestBody = useMemo(
+    () => ({
+      project_id: projectId || 0,
+      cohort_names: selectedCohorts,
+      term_ids: selectedTermIds,
+      cluster_k: clusterK,
+      include_simulation: includeSimulation,
+      data_source: dataSource,
+    }),
+    [clusterK, dataSource, includeSimulation, projectId, selectedCohorts, selectedTermIds]
   );
 
   const refreshProjects = async () => {
     setLoadingProjects(true);
     try {
       const resp = await api.listProjects(150);
-      const next = resp.items || [];
-      setProjects(next);
+      const items = resp.items || [];
+      setProjects(items);
       setProjectId((current) => {
-        if (current && next.some((item) => item.id === current)) return current;
-        return next[0]?.id;
+        if (current && items.some((item) => item.id === current)) return current;
+        return items[0]?.id;
       });
-    } catch (e) {
-      message.error(describeApiError(e));
+    } catch (error) {
+      message.error(describeApiError(error));
     } finally {
       setLoadingProjects(false);
     }
   };
 
   const loadProjectContext = async (id: number) => {
-    setLoadingSummary(true);
+    setLoadingContext(true);
     try {
-      const [summaryResp, cohortsResp] = await Promise.all([api.analyticsSummary(id), api.listProjectCohorts(id)]);
-      setSummary(summaryResp);
-      const nextCohorts = cohortsResp.items || [];
-      setCohorts(nextCohorts);
+      const [termResp, cohortResp, taskResp] = await Promise.all([
+        api.listProjectTerms(id),
+        api.listProjectCohorts(id),
+        api.listProjectTasks(id, 500),
+      ]);
+      const nextTerms = termResp.items || [];
+      const nextCohorts = (cohortResp.items || []).filter((item) => Boolean(item.is_active));
+      setProjectTerms(nextTerms);
+      setProjectCohorts(nextCohorts);
+      setProjectTasks(taskResp.items || []);
 
-      const names = nextCohorts.filter((item) => Boolean(item.is_active)).map((item) => item.name);
-      if (!names.length) {
-        setCohortA(undefined);
-        setCohortB(undefined);
-        setTargetCohort(undefined);
-      } else {
-        setCohortA((current) => (current && names.includes(current) ? current : names[0]));
-        setCohortB((current) => (current && names.includes(current) && current !== names[0] ? current : names[1] || names[0]));
-        setTargetCohort((current) => (current && names.includes(current) ? current : names[0]));
-      }
-    } catch (e) {
-      setSummary(null);
-      setCohorts([]);
-      message.warning(describeApiError(e));
+      const defaultCohorts = nextCohorts.map((item) => item.name);
+      setSelectedCohorts((current) => {
+        const filtered = current.filter((name) => defaultCohorts.includes(name));
+        return filtered.length ? filtered : defaultCohorts;
+      });
+      setSelectedTermIds((current) => current.filter((termId) => nextTerms.some((term) => term.term_id === termId)));
+    } catch (error) {
+      message.error(describeApiError(error));
+      setProjectTerms([]);
+      setProjectCohorts([]);
+      setProjectTasks([]);
     } finally {
-      setLoadingSummary(false);
+      setLoadingContext(false);
     }
   };
 
@@ -283,450 +381,540 @@ export function AnalyticsCenterPage({ sessionRole }: { sessionRole: "guest" | "u
   }, [sessionRole]);
 
   useEffect(() => {
-    setCluster(null);
-    setCompare(null);
-    setTemporal(null);
-    setExplainability(null);
-
-    if (!projectId || sessionRole === "guest") {
-      setSummary(null);
-      setCohorts([]);
-      return;
-    }
+    if (!projectId || sessionRole === "guest") return;
     void loadProjectContext(projectId);
   }, [projectId, sessionRole]);
 
-  const runCluster = async () => {
-    if (!projectId) return;
-    setLoadingCluster(true);
-    try {
-      const resp = await api.analyticsCluster(projectId, k, clusterMethod);
-      setCluster(resp);
-      message.success("Cluster analysis completed");
-    } catch (e) {
-      message.error(describeApiError(e));
-    } finally {
-      setLoadingCluster(false);
+  const waitForTasks = async (taskIds: string[]) => {
+    const uniqueIds = Array.from(new Set(taskIds.filter(Boolean)));
+    if (!uniqueIds.length) return [] as TaskDetailResponse[];
+    let latest: TaskDetailResponse[] = [];
+    for (let round = 0; round < 120; round += 1) {
+      latest = await Promise.all(uniqueIds.map((taskId) => api.getTask(taskId)));
+      setMicroTaskStates(latest);
+      if (latest.every((item) => TERMINAL_STATES.has(String(item.state || "").toUpperCase()))) {
+        return latest;
+      }
+      await sleep(2000);
     }
+    return latest;
   };
 
-  const runCompare = async () => {
-    if (!projectId || !cohortA || !cohortB) {
-      message.warning("Select project and cohort pair first");
+  const waitForSingleTask = async (taskId: string) => {
+    let latest: TaskDetailResponse | null = null;
+    for (let round = 0; round < 120; round += 1) {
+      latest = await api.getTask(taskId);
+      setMesoTaskState(latest);
+      if (TERMINAL_STATES.has(String(latest.state || "").toUpperCase())) {
+        return latest;
+      }
+      await sleep(2000);
+    }
+    return latest;
+  };
+
+  const runAnalyzeOnly = async () => {
+    if (!projectId || !effectiveTerms.length) {
+      message.warning("先选择项目和至少一个词项");
       return;
     }
-    if (cohortA === cohortB) {
-      message.warning("Cohort A and Cohort B must be different");
+    setRunningPipeline(true);
+    setPipelineStep("正在生成中观聚合");
+    setMesoResult(null);
+    try {
+      const created = await api.analyticsMesoAnalyze(requestBody);
+      setMesoTaskId(created.task_id);
+      const detail = await waitForSingleTask(created.task_id);
+      if (!detail || String(detail.state || "").toUpperCase() !== "SUCCESS") {
+        throw new Error("中观聚合任务失败");
+      }
+      setMesoResult(detail.result as MesoAnalysisResult);
+      await loadProjectContext(projectId);
+      message.success("中观结果已生成");
+    } catch (error) {
+      message.error(describeApiError(error));
+    } finally {
+      setRunningPipeline(false);
+      setPipelineStep("");
+    }
+  };
+
+  const runPipeline = async () => {
+    if (!projectId || !effectiveTerms.length) {
+      message.warning("先选择项目和至少一个词项");
       return;
     }
-    setLoadingCompare(true);
+    setRunningPipeline(true);
+    setPrepareResult(null);
+    setMicroTaskStates([]);
+    setMesoTaskState(null);
+    setMesoTaskId(null);
+    setMesoResult(null);
+
     try {
-      const resp = await api.analyticsCohortCompare(projectId, cohortA, cohortB, { permutations, bootstrap });
-      setCompare(resp);
-      message.success("Cohort comparison completed");
-    } catch (e) {
-      message.error(describeApiError(e));
+      setPipelineStep("正在准备微观任务");
+      const prepare = await api.analyticsMesoPrepare(requestBody);
+      setPrepareResult(prepare);
+      await loadProjectContext(projectId);
+
+      if (prepare.watched_task_ids.length) {
+        setPipelineStep("正在等待微观任务完成");
+        const microStates = await waitForTasks(prepare.watched_task_ids);
+        const failedCount = microStates.filter((item) => String(item.state || "").toUpperCase() === "FAILURE").length;
+        if (failedCount > 0) {
+          message.warning(`有 ${failedCount} 个微观任务失败，系统会继续做可用结果聚合`);
+        }
+        await loadProjectContext(projectId);
+      }
+
+      setPipelineStep("正在生成中观聚合");
+      const created = await api.analyticsMesoAnalyze(requestBody);
+      setMesoTaskId(created.task_id);
+      const detail = await waitForSingleTask(created.task_id);
+      if (!detail || String(detail.state || "").toUpperCase() !== "SUCCESS") {
+        throw new Error("中观聚合任务失败");
+      }
+      setMesoResult(detail.result as MesoAnalysisResult);
+      await loadProjectContext(projectId);
+      message.success("中观链路已跑通");
+    } catch (error) {
+      message.error(describeApiError(error));
     } finally {
-      setLoadingCompare(false);
+      setRunningPipeline(false);
+      setPipelineStep("");
     }
   };
 
-  const runTemporal = async () => {
-    if (!projectId) return;
-    setLoadingTemporal(true);
-    try {
-      const resp = await api.analyticsTemporalPatterns(projectId, temporalClusters, temporalLimit);
-      setTemporal(resp);
-      message.success("Temporal pattern analysis completed");
-    } catch (e) {
-      message.error(describeApiError(e));
-    } finally {
-      setLoadingTemporal(false);
-    }
-  };
+  const taskColumns = [
+    {
+      title: "词项",
+      dataIndex: "canonical",
+      key: "canonical",
+    },
+    {
+      title: "类别",
+      dataIndex: "primary_cohort",
+      key: "primary_cohort",
+      render: (value: string) => <Tag>{value}</Tag>,
+    },
+    {
+      title: "微观状态",
+      key: "statuses",
+      render: (_: unknown, row: MesoPrepareResponse["task_matrix"][number]) => (
+        <Space wrap>
+          {row.task_statuses.map((item) => (
+            <Tag key={`${row.term_id}-${item.task_type}`} color={taskColor(item.status)}>
+              {item.task_type}: {item.status}
+            </Tag>
+          ))}
+        </Space>
+      ),
+    },
+  ];
 
-  const runExplainability = async () => {
-    if (!projectId) return;
-    setLoadingExplainability(true);
-    try {
-      const resp = await api.analyticsExplainability(projectId, targetCohort);
-      setExplainability(resp);
-      message.success("Explainability analysis completed");
-    } catch (e) {
-      message.error(describeApiError(e));
-    } finally {
-      setLoadingExplainability(false);
-    }
-  };
-
-  const summaryCategoryRows = useMemo(
-    () => Object.entries(summary?.category_distribution || {}).map(([label, value]) => ({ label, value })),
-    [summary]
-  );
-
-  const summaryCohortRows = useMemo(
-    () => Object.entries(summary?.cohort_distribution || {}).map(([label, value]) => ({ label, value })),
-    [summary]
-  );
-
-  const temporalSeries = useMemo(
-    () =>
-      (temporal?.clusters || []).map((clusterItem, index) => ({
-        name: `cluster-${clusterItem.cluster_id}`,
-        points: clusterItem.mean_trajectory.map((item) => ({ time: String(item.year), value: item.value })),
-        color: CLUSTER_COLORS[index % CLUSTER_COLORS.length],
-      })),
-    [temporal]
-  );
+  const featureColumns = [
+    {
+      title: "词项",
+      dataIndex: "canonical",
+      key: "canonical",
+      fixed: "left" as const,
+      width: 140,
+    },
+    {
+      title: "类别",
+      dataIndex: "primary_cohort",
+      key: "primary_cohort",
+      width: 120,
+      render: (value: string) => <Tag>{value}</Tag>,
+    },
+    {
+      title: "平均错拼率",
+      key: "avg_misspelling_rate",
+      width: 140,
+      render: (_: unknown, row: MesoAnalysisResult["feature_rows"][number]) => formatMetric("avg_misspelling_rate", row.avg_misspelling_rate),
+    },
+    {
+      title: "峰值错拼率",
+      key: "peak_misspelling_rate",
+      width: 140,
+      render: (_: unknown, row: MesoAnalysisResult["feature_rows"][number]) => formatMetric("peak_misspelling_rate", row.peak_misspelling_rate),
+    },
+    {
+      title: "delta_t",
+      key: "delta_t_years",
+      width: 110,
+      render: (_: unknown, row: MesoAnalysisResult["feature_rows"][number]) => formatMetric("delta_t_years", row.delta_t_years),
+    },
+    {
+      title: "稳定耗时",
+      key: "steady_lag_years",
+      width: 120,
+      render: (_: unknown, row: MesoAnalysisResult["feature_rows"][number]) => formatMetric("steady_lag_years", row.steady_lag_years),
+    },
+    {
+      title: "变体数",
+      key: "variant_count",
+      width: 100,
+      render: (_: unknown, row: MesoAnalysisResult["feature_rows"][number]) => formatMetric("variant_count", row.variant_count),
+    },
+    {
+      title: "因果边数",
+      key: "causal_edge_count",
+      width: 110,
+      render: (_: unknown, row: MesoAnalysisResult["feature_rows"][number]) => formatMetric("causal_edge_count", row.causal_edge_count),
+    },
+    {
+      title: "因果强度",
+      key: "causal_mean_strength",
+      width: 120,
+      render: (_: unknown, row: MesoAnalysisResult["feature_rows"][number]) => formatMetric("causal_mean_strength", row.causal_mean_strength),
+    },
+    {
+      title: "微观结果",
+      key: "micro_ready",
+      width: 180,
+      render: (_: unknown, row: MesoAnalysisResult["feature_rows"][number]) =>
+        row.micro_ready ? <Tag color="green">完整</Tag> : <Tag color="orange">缺失: {row.missing_tasks.join(", ")}</Tag>,
+    },
+  ];
 
   if (sessionRole === "guest") {
-    return (
-      <div className="analytics-center-shell">
-        <Card bordered={false} className="algo-guard-card">
-          <Space direction="vertical" size={16} style={{ width: "100%" }}>
-            <Typography.Title level={3} style={{ margin: 0 }}>
-              Analytics Center Requires Login
-            </Typography.Title>
-            <Typography.Paragraph style={{ marginBottom: 0 }}>
-              cohort 级 analytics 会聚合项目定义、membership 结构和任务证据，因此只能对登录用户开放。这样可以保证分析结果始终绑定到真实项目所有者，而不会落入 guest 共享空间。
-            </Typography.Paragraph>
-            <div className="pm-guest-policy">
-              <div className="pm-guest-policy-card">
-                <strong>Why it is restricted</strong>
-                <span>Analytics is project-scoped and ownership-bound. Guest mode only keeps isolated task/time-series views.</span>
-              </div>
-              <div className="pm-guest-policy-card">
-                <strong>Recommended path</strong>
-                <span>Login, create a project, define cohorts in Project Manager, then return here for clustering, cohort comparison and explainability.</span>
-              </div>
-            </div>
-          </Space>
-        </Card>
-      </div>
-    );
+    return <Alert type="warning" message="中观分析需要登录后使用" showIcon />;
   }
 
   return (
-    <div className="analytics-center-shell">
-      <Space direction="vertical" size={16} style={{ width: "100%" }}>
-        <Card
-          bordered={false}
-          className="analytics-center-hero"
-          extra={
-            <Button icon={<ReloadOutlined />} onClick={() => void refreshProjects()} loading={loadingProjects || loadingSummary}>
-              Refresh Workspace
-            </Button>
-          }
-        >
-          <Typography.Title level={3} style={{ marginTop: 0, marginBottom: 6 }}>
-            Analytics Center
+    <div className="meso-page">
+      <div className="meso-hero">
+        <div>
+          <div className="meso-eyebrow">MESO ANALYTICS</div>
+          <Typography.Title level={2} className="meso-title">
+            中观层面分析
           </Typography.Title>
-          <Typography.Paragraph style={{ marginBottom: 18 }}>
-            这里不再只输出一批统计表，而是把 cohort portfolio、聚类散点、置换检验、时序模式和 explainability 组成一个真正的分析驾驶舱。
+          <Typography.Paragraph className="meso-subtitle">
+            用已有微观结果把单词级实验提升为类别级画像、对比和轻量聚类。页面只保留一条可答辩的操作链路。
           </Typography.Paragraph>
-          <Row gutter={[12, 12]}>
-            <Col xs={12} md={6}>
-              <Card bordered={false} className="ac-metric-card">
-                <Statistic title="Terms" value={summary?.total_terms || 0} />
-              </Card>
-            </Col>
-            <Col xs={12} md={6}>
-              <Card bordered={false} className="ac-metric-card">
-                <Statistic title="Data Points" value={summary?.total_points || 0} />
-              </Card>
-            </Col>
-            <Col xs={12} md={6}>
-              <Card bordered={false} className="ac-metric-card">
-                <Statistic title="Cohorts" value={summary?.total_cohorts || 0} />
-              </Card>
-            </Col>
-            <Col xs={12} md={6}>
-              <Card bordered={false} className="ac-metric-card">
-                <Statistic title="Coverage" value={toPercent(summary?.coverage_ratio, 1)} />
-              </Card>
-            </Col>
-          </Row>
-        </Card>
+        </div>
+        <Space wrap>
+          <Button icon={<FolderOpenOutlined />} onClick={() => goToApp("project-manager")}>Project Manager</Button>
+          <Button icon={<ReloadOutlined />} loading={loadingProjects || loadingContext} onClick={() => void (projectId ? loadProjectContext(projectId) : refreshProjects())}>
+            刷新
+          </Button>
+        </Space>
+      </div>
 
-        <Card className="ac-card" title="Analysis Scope" loading={loadingProjects || loadingSummary}>
-          <Space wrap style={{ width: "100%", justifyContent: "space-between" }}>
+      <Card className="meso-control-card" bordered={false}>
+        <Row gutter={[16, 16]}>
+          <Col xs={24} xl={10}>
+            <div className="meso-field-label">项目</div>
             <Select
-              style={{ width: 440 }}
-              showSearch
               value={projectId}
-              placeholder="Select project"
-              onChange={setProjectId}
-              options={projects.map((project) => ({ value: project.id, label: `${project.name} (#${project.id})` }))}
+              options={projectOptions}
+              onChange={(value) => setProjectId(value)}
+              className="meso-full"
+              placeholder="选择项目"
+              loading={loadingProjects}
             />
-            <Space wrap>
-              <Tag icon={<BarChartOutlined />} color="blue">permutation + bootstrap</Tag>
-              <Tag icon={<ClusterOutlined />} color="geekblue">kmeans + pca</Tag>
-              <Tag icon={<FundOutlined />} color="green">dtw agglomerative</Tag>
-              <Tag icon={<RadarChartOutlined />} color="purple">rf importance</Tag>
-            </Space>
-          </Space>
-        </Card>
+          </Col>
+          <Col xs={12} xl={4}>
+            <div className="meso-field-label">数据源</div>
+            <Select
+              value={dataSource}
+              onChange={(value) => setDataSource(value as DataSourceKey)}
+              options={[
+                { value: "gbnc", label: "GBNC" },
+                { value: "gdelt", label: "GDELT" },
+              ]}
+              className="meso-full"
+            />
+          </Col>
+          <Col xs={24} xl={10}>
+            <div className="meso-action-row">
+              <Button type="primary" size="large" icon={<ThunderboltOutlined />} onClick={() => void runPipeline()} loading={runningPipeline}>
+                一键准备并生成中观分析
+              </Button>
+              <Button size="large" icon={<ExperimentOutlined />} onClick={() => void runAnalyzeOnly()} disabled={runningPipeline || !effectiveTerms.length}>
+                仅刷新聚合
+              </Button>
+            </div>
+          </Col>
+          <Col xs={24}>
+            <Typography.Text type="secondary">
+              默认最简流程：只选项目和数据源即可运行。系统会自动使用项目内所有 active 类别与词项。
+            </Typography.Text>
+          </Col>
+        </Row>
 
-        <Tabs
-          className="ac-tabs"
+        <Collapse
+          ghost
+          className="meso-advanced-collapse"
           items={[
             {
-              key: "summary",
-              label: "Portfolio",
+              key: "advanced",
+              label: "高级筛选与参数（可选）",
               children: (
-                <Card className="ac-card" loading={loadingSummary}>
-                  {!summary ? (
-                    <Empty description="No summary data" />
-                  ) : (
-                    <Space direction="vertical" size={16} style={{ width: "100%" }}>
-                      <Row gutter={[12, 12]}>
-                        <Col xs={24} lg={8}>
-                          <Card size="small" className="ac-subcard">
-                            <Space direction="vertical" style={{ width: "100%" }}>
-                              <Typography.Text strong>Project Coverage</Typography.Text>
-                              <Progress percent={Number(((summary.coverage_ratio || 0) * 100).toFixed(1))} strokeColor="#1164d6" />
-                              <Typography.Text type="secondary">
-                                {summary.terms_with_points} / {summary.total_terms} terms already have time-series evidence.
-                              </Typography.Text>
-                            </Space>
-                          </Card>
-                        </Col>
-                        <Col xs={12} lg={4}>
-                          <Card size="small" className="ac-subcard"><Statistic title="Avg Variants" value={summary.avg_variants} precision={3} /></Card>
-                        </Col>
-                        <Col xs={12} lg={4}>
-                          <Card size="small" className="ac-subcard"><Statistic title="Terms with Points" value={summary.terms_with_points} /></Card>
-                        </Col>
-                        <Col xs={12} lg={4}>
-                          <Card size="small" className="ac-subcard"><Statistic title="Membership / Term" value={summary.avg_memberships_per_term} precision={3} /></Card>
-                        </Col>
-                        <Col xs={12} lg={4}>
-                          <Card size="small" className="ac-subcard"><Statistic title="Total Points" value={summary.total_points} /></Card>
-                        </Col>
-                      </Row>
-
-                      <Row gutter={[16, 16]}>
-                        <Col xs={24} lg={12}>
-                          <DistributionPanel title="Category Distribution" items={summaryCategoryRows} />
-                        </Col>
-                        <Col xs={24} lg={12}>
-                          <DistributionPanel title="Cohort Distribution" items={summaryCohortRows} />
-                        </Col>
-                      </Row>
-                    </Space>
-                  )}
-                </Card>
-              ),
-            },
-            {
-              key: "cluster",
-              label: "Clustering",
-              children: (
-                <Card className="ac-card">
-                  <Space wrap style={{ marginBottom: 16 }}>
-                    <Select<ClusterMethod>
-                      style={{ width: 220 }}
-                      value={clusterMethod}
-                      onChange={setClusterMethod}
-                      options={[
-                        { value: "kmeans_advanced", label: "kmeans_advanced" },
-                        { value: "baseline-kmeans", label: "baseline-kmeans" },
-                      ]}
-                    />
-                    <InputNumber min={1} max={8} value={k} onChange={(value) => setK(value || 3)} addonBefore="k" />
-                    <Button type="primary" onClick={() => void runCluster()} loading={loadingCluster} disabled={!projectId}>
-                      Run Cluster
-                    </Button>
-                    {cluster?.diagnostics ? (
-                      <>
-                        <Tag color="blue">silhouette={cluster.diagnostics.silhouette?.toFixed(4) ?? "-"}</Tag>
-                        <Tag color="geekblue">
-                          pca={cluster.diagnostics.pca_explained_variance.map((value) => toPercent(value, 1)).join(" / ") || "-"}
-                        </Tag>
-                      </>
-                    ) : null}
-                  </Space>
-
-                  {!cluster ? (
-                    <Empty description="Run clustering to see results" />
-                  ) : (
-                    <Space direction="vertical" size={16} style={{ width: "100%" }}>
-                      <Card size="small" className="ac-subcard" title="Embedding Scatter">
-                        <ClusterScatter cluster={cluster} />
-                      </Card>
-                      <Table
-                        rowKey="cluster_id"
-                        size="small"
-                        dataSource={cluster.clusters}
-                        pagination={false}
-                        columns={[
-                          { title: "Cluster", dataIndex: "cluster_id", width: 90 },
-                          { title: "Size", dataIndex: "size", width: 90 },
-                          {
-                            title: "Top Terms",
-                            render: (_: unknown, row: AnalyticsClusterResponse["clusters"][number]) => compactTerms(row.items),
-                          },
-                        ]}
-                      />
-                    </Space>
-                  )}
-                </Card>
-              ),
-            },
-            {
-              key: "compare",
-              label: "Cohort Compare",
-              children: (
-                <Card className="ac-card">
-                  <Space wrap style={{ marginBottom: 16 }}>
-                    <Select style={{ width: 220 }} value={cohortA} placeholder="Cohort A" options={cohortOptions} onChange={setCohortA} />
-                    <Select style={{ width: 220 }} value={cohortB} placeholder="Cohort B" options={cohortOptions} onChange={setCohortB} />
-                    <InputNumber min={100} max={8000} step={100} value={permutations} onChange={(value) => setPermutations(value || 1000)} addonBefore="perm" />
-                    <InputNumber min={100} max={5000} step={100} value={bootstrap} onChange={(value) => setBootstrap(value || 1000)} addonBefore="boot" />
-                    <Button type="primary" onClick={() => void runCompare()} loading={loadingCompare} disabled={!projectId}>
-                      Run Compare
-                    </Button>
-                  </Space>
-
-                  {!compare ? (
-                    <Empty description="Run cohort comparison to see statistical outputs" />
-                  ) : (
-                    <Space direction="vertical" size={16} style={{ width: "100%" }}>
-                      <Card size="small" className="ac-subcard" title={`${compare.cohort_a} vs ${compare.cohort_b}`}>
-                        <CompareBoard compare={compare} />
-                      </Card>
-                      <Table
-                        rowKey="metric"
-                        size="small"
-                        pagination={false}
-                        dataSource={compare.metrics}
-                        columns={[
-                          { title: "Metric", dataIndex: "metric", width: 160 },
-                          { title: "A Mean", dataIndex: "mean_a", width: 110, render: (value: number) => value.toFixed(3) },
-                          { title: "B Mean", dataIndex: "mean_b", width: 110, render: (value: number) => value.toFixed(3) },
-                          { title: "Diff", dataIndex: "diff_mean", width: 110, render: (value: number) => value.toFixed(3) },
-                          { title: "Effect d", dataIndex: "effect_size_d", width: 110, render: (value: number) => value.toFixed(3) },
-                          { title: "FDR q", dataIndex: "fdr_q_value", width: 110, render: (value: number) => value.toExponential(2) },
-                          {
-                            title: "Sig",
-                            width: 90,
-                            render: (_: unknown, row: AnalyticsCohortCompareResponse["metrics"][number]) =>
-                              row.is_significant ? <Tag color="green">yes</Tag> : <Tag>no</Tag>,
-                          },
-                        ]}
-                      />
-                    </Space>
-                  )}
-                </Card>
-              ),
-            },
-            {
-              key: "temporal",
-              label: "Temporal",
-              children: (
-                <Card className="ac-card">
-                  <Space wrap style={{ marginBottom: 16 }}>
-                    <InputNumber min={2} max={12} value={temporalClusters} onChange={(value) => setTemporalClusters(value || 3)} addonBefore="clusters" />
-                    <InputNumber min={20} max={400} step={20} value={temporalLimit} onChange={(value) => setTemporalLimit(value || 160)} addonBefore="limit" />
-                    <Button type="primary" onClick={() => void runTemporal()} loading={loadingTemporal} disabled={!projectId}>
-                      Run Temporal
-                    </Button>
-                    {temporal?.year_range?.length ? (
-                      <Tag color="blue">
-                        years {temporal.year_range[0]} - {temporal.year_range[temporal.year_range.length - 1]}
-                      </Tag>
-                    ) : null}
-                  </Space>
-
-                  {!temporal ? (
-                    <Empty description="Run temporal analysis to see DTW clusters" />
-                  ) : (
-                    <Space direction="vertical" size={16} style={{ width: "100%" }}>
-                      <Card size="small" className="ac-subcard" title="Mean Trajectories">
-                        {temporalSeries.length > 0 ? (
-                          <LineChart title="Cluster Mean Trajectories" series={temporalSeries} />
-                        ) : (
-                          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No temporal trajectories" />
-                        )}
-                      </Card>
-                      <Table
-                        rowKey="cluster_id"
-                        size="small"
-                        pagination={false}
-                        dataSource={temporal.clusters}
-                        columns={[
-                          { title: "Cluster", dataIndex: "cluster_id", width: 90 },
-                          { title: "Size", dataIndex: "size", width: 90 },
-                          { title: "Medoid", dataIndex: "medoid_canonical", width: 180 },
-                          {
-                            title: "Trend",
-                            width: 120,
-                            render: (_: unknown, row: AnalyticsTemporalPatternsResponse["clusters"][number]) => {
-                              const shift = trajectoryShift(row.mean_trajectory);
-                              if (shift.trend === "up") return <Tag color="green">up {shift.delta.toFixed(3)}</Tag>;
-                              if (shift.trend === "down") return <Tag color="red">down {shift.delta.toFixed(3)}</Tag>;
-                              return <Tag>flat</Tag>;
-                            },
-                          },
-                          {
-                            title: "Terms",
-                            render: (_: unknown, row: AnalyticsTemporalPatternsResponse["clusters"][number]) => compactTerms(row.terms),
-                          },
-                        ]}
-                      />
-                    </Space>
-                  )}
-                </Card>
-              ),
-            },
-            {
-              key: "explainability",
-              label: "Explainability",
-              children: (
-                <Card className="ac-card">
-                  <Space wrap style={{ marginBottom: 16 }}>
+                <Row gutter={[16, 16]}>
+                  <Col xs={24} xl={8}>
+                    <div className="meso-field-label">类别</div>
                     <Select
-                      allowClear
-                      style={{ width: 260 }}
-                      value={targetCohort}
-                      placeholder="target cohort (optional)"
+                      mode="multiple"
+                      value={selectedCohorts}
                       options={cohortOptions}
-                      onChange={setTargetCohort}
+                      onChange={setSelectedCohorts}
+                      className="meso-full"
+                      optionFilterProp="label"
+                      placeholder="默认分析当前项目全部 active 类别"
                     />
-                    <Button type="primary" onClick={() => void runExplainability()} loading={loadingExplainability} disabled={!projectId}>
-                      Run Explainability
-                    </Button>
-                    {explainability?.accuracy ? (
-                      <Tag color="blue">cv accuracy={toPercent(explainability.accuracy.mean, 2)}</Tag>
-                    ) : null}
-                  </Space>
-
-                  {!explainability ? (
-                    <Empty description="Run explainability to see feature importance" />
-                  ) : (
-                    <Space direction="vertical" size={16} style={{ width: "100%" }}>
-                      <Card size="small" className="ac-subcard" title="Feature Importance Board">
-                        <ImportanceBoard items={explainability.feature_importance} />
-                      </Card>
-                      <Table
-                        rowKey="term_id"
-                        size="small"
-                        pagination={{ pageSize: 8 }}
-                        dataSource={explainability.target_preview}
-                        columns={[
-                          { title: "Term", dataIndex: "canonical", width: 180 },
-                          { title: "True Cohort", dataIndex: "true_cohort", width: 150 },
-                          { title: "Target Prob", dataIndex: "target_probability", render: (value: number) => value.toFixed(4) },
-                        ]}
-                      />
-                    </Space>
-                  )}
-                </Card>
+                  </Col>
+                  <Col xs={24} xl={10}>
+                    <div className="meso-field-label">词项</div>
+                    <Select
+                      mode="multiple"
+                      value={selectedTermIds}
+                      options={termOptions}
+                      onChange={setSelectedTermIds}
+                      className="meso-full"
+                      optionFilterProp="label"
+                      placeholder="留空表示使用当前类别下全部词项"
+                      maxTagCount="responsive"
+                    />
+                  </Col>
+                  <Col xs={12} xl={3}>
+                    <div className="meso-field-label">聚类数</div>
+                    <InputNumber min={2} max={8} value={clusterK} onChange={(value) => setClusterK(Number(value) || 3)} className="meso-full" />
+                  </Col>
+                  <Col xs={12} xl={3}>
+                    <div className="meso-field-label">包含仿真</div>
+                    <div className="meso-switch-row">
+                      <Switch checked={includeSimulation} onChange={setIncludeSimulation} />
+                    </div>
+                  </Col>
+                </Row>
               ),
             },
           ]}
         />
-      </Space>
+      </Card>
+
+      <Row gutter={[16, 16]}>
+        <Col xs={24} md={12} xl={6}>
+          <Card className="meso-stat-card" bordered={false}>
+            <Statistic title="当前项目" value={selectedProject?.name || "-"} prefix={<FolderOpenOutlined />} />
+            <div className="meso-stat-copy">类别 {selectedCohorts.length || activeCohorts.length} 个，词项 {effectiveTerms.length} 个，数据源 {String(dataSource).toUpperCase()}。</div>
+          </Card>
+        </Col>
+        <Col xs={24} md={12} xl={6}>
+          <Card className="meso-stat-card" bordered={false}>
+            <Statistic title="微观完整词项" value={microReadyCount} suffix={`/ ${effectiveTerms.length || 0}`} prefix={<ExperimentOutlined />} />
+            <Progress percent={effectiveTerms.length ? Number(((microReadyCount / effectiveTerms.length) * 100).toFixed(1)) : 0} size="small" showInfo={false} />
+          </Card>
+        </Col>
+        <Col xs={24} md={12} xl={6}>
+          <Card className="meso-stat-card" bordered={false}>
+            <Statistic title="必需任务覆盖" value={coverageRows.length ? `${coverageRows.filter((item) => item.ratio >= 1).length}/${coverageRows.length}` : "0/0"} prefix={<BranchesOutlined />} />
+            <div className="meso-stat-copy">{coverageRows.map((item) => `${item.taskType}:${Math.round(item.ratio * 100)}%`).join(" · ")}</div>
+          </Card>
+        </Col>
+        <Col xs={24} md={12} xl={6}>
+          <Card className="meso-stat-card" bordered={false}>
+            <Statistic title="当前建议" value={effectiveTerms.length ? "可直接运行" : "先补词项"} prefix={<ClusterOutlined />} />
+            <div className="meso-stat-copy">页面默认只分析你选中的类别和词，不再要求手动理解多个分析模块。</div>
+          </Card>
+        </Col>
+      </Row>
+
+      {(runningPipeline || prepareResult || mesoTaskState) ? (
+        <Card className="meso-process-card" bordered={false}>
+          <div className="meso-section-head">
+            <div>
+              <div className="meso-section-title">执行链路</div>
+              <div className="meso-section-copy">准备微观结果，然后自动产出中观画像与聚类结果。</div>
+            </div>
+            {pipelineStep ? <Tag color="blue">{pipelineStep}</Tag> : null}
+          </div>
+
+          {prepareResult ? (
+            <Alert
+              type="info"
+              showIcon
+              message={`已纳入 ${prepareResult.selected_term_count} 个词项，创建 ${prepareResult.created_tasks.length} 个任务，复用 ${prepareResult.reused_tasks.length} 个已有任务。`}
+            />
+          ) : null}
+
+          {microTaskStates.length ? (
+            <div className="meso-inline-tags">
+              {microTaskStates.map((item) => (
+                <Tag key={item.task_id} color={taskColor(item.state)}>
+                  {item.task_id.slice(0, 8)} · {item.state}
+                </Tag>
+              ))}
+            </div>
+          ) : null}
+
+          {mesoTaskId ? (
+            <div className="meso-inline-tags">
+              <Tag color={taskColor(mesoTaskState?.state || "QUEUED")}>meso-analysis · {mesoTaskState?.state || "QUEUED"}</Tag>
+            </div>
+          ) : null}
+
+          {prepareResult?.task_matrix?.length ? (
+            <Table
+              rowKey={(row) => String(row.term_id)}
+              columns={taskColumns}
+              dataSource={prepareResult.task_matrix}
+              pagination={{ pageSize: 6 }}
+              size="small"
+            />
+          ) : null}
+        </Card>
+      ) : null}
+
+      {!mesoResult ? (
+        <Card className="meso-empty-card" bordered={false}>
+          <Empty
+            image={Empty.PRESENTED_IMAGE_SIMPLE}
+            description="还没有生成中观结果。先选类别和词项，然后点击“一键准备并生成中观分析”。"
+          />
+        </Card>
+      ) : (
+        <>
+          {mesoResult.warnings.length ? (
+            <Alert
+              type="warning"
+              showIcon
+              message="部分词项的微观结果还不完整，本次中观结果会对缺失指标做空值安全聚合。"
+              description={mesoResult.warnings.slice(0, 5).join("；")}
+            />
+          ) : null}
+
+          <Row gutter={[16, 16]}>
+            <Col xs={24} md={12} xl={6}>
+              <Card className="meso-result-card" bordered={false}>
+                <Statistic title="分析词项" value={mesoResult.summary.selected_terms} />
+              </Card>
+            </Col>
+            <Col xs={24} md={12} xl={6}>
+              <Card className="meso-result-card" bordered={false}>
+                <Statistic title="分析类别" value={mesoResult.summary.selected_categories} />
+              </Card>
+            </Col>
+            <Col xs={24} md={12} xl={6}>
+              <Card className="meso-result-card" bordered={false}>
+                <Statistic title="聚类数" value={mesoResult.clustering.k} />
+              </Card>
+            </Col>
+            <Col xs={24} md={12} xl={6}>
+              <Card className="meso-result-card" bordered={false}>
+                <Statistic title="微观就绪率" value={Number((mesoResult.summary.ready_ratio * 100).toFixed(1))} suffix="%" />
+              </Card>
+            </Col>
+          </Row>
+
+          <Card className="meso-panel-card" bordered={false}>
+            <div className="meso-section-head">
+              <div>
+                <div className="meso-section-title">类别画像</div>
+                <div className="meso-section-copy">每个类别用已有微观结果聚合出错拼率、稳定耗时、delta_t 和变体数。</div>
+              </div>
+            </div>
+            <div className="meso-profile-grid">
+              {mesoResult.category_profiles.map((profile) => (
+                <div key={profile.category} className="meso-profile-card">
+                  <div className="meso-profile-head">
+                    <div className="meso-profile-title">{profile.category}</div>
+                    <Tag>{profile.term_count} terms</Tag>
+                  </div>
+                  <div className="meso-profile-metrics">
+                    <div>平均错拼率: {formatMetric("avg_misspelling_rate", profile.metrics.avg_misspelling_rate?.mean)}</div>
+                    <div>峰值错拼率: {formatMetric("peak_misspelling_rate", profile.metrics.peak_misspelling_rate?.mean)}</div>
+                    <div>delta_t: {formatMetric("delta_t_years", profile.metrics.delta_t_years?.mean)}</div>
+                    <div>因果强度: {formatMetric("causal_mean_strength", profile.metrics.causal_mean_strength?.mean)}</div>
+                  </div>
+                  <div className="meso-profile-terms">代表词: {profile.representative_terms.join(", ") || "-"}</div>
+                </div>
+              ))}
+            </div>
+          </Card>
+
+          <Row gutter={[16, 16]}>
+            <Col xs={24} xl={14}>
+              <Card className="meso-panel-card" bordered={false}>
+                <div className="meso-section-head">
+                  <div>
+                    <div className="meso-section-title">类别对比热力图</div>
+                    <div className="meso-section-copy">颜色越深，表示该类别在对应指标上的均值越高。</div>
+                  </div>
+                </div>
+                <HeatmapBoard result={mesoResult} />
+              </Card>
+            </Col>
+            <Col xs={24} xl={10}>
+              <Card className="meso-panel-card" bordered={false}>
+                <div className="meso-section-head">
+                  <div>
+                    <div className="meso-section-title">关键指标分布</div>
+                    <div className="meso-section-copy">保留最能解释中观差异的几个核心指标。</div>
+                  </div>
+                </div>
+                <DistributionBoard result={mesoResult} />
+              </Card>
+            </Col>
+          </Row>
+
+          <Row gutter={[16, 16]}>
+            <Col xs={24} xl={15}>
+              <Card className="meso-panel-card" bordered={false}>
+                <div className="meso-section-head">
+                  <div>
+                    <div className="meso-section-title">轻量聚类散点</div>
+                    <div className="meso-section-copy">使用标准化后的词项特征向量做 KMeans 聚类，并用 PCA 投影到二维平面。</div>
+                  </div>
+                  {mesoResult.clustering.diagnostics.silhouette !== null ? (
+                    <Tag color="blue">silhouette {mesoResult.clustering.diagnostics.silhouette.toFixed(3)}</Tag>
+                  ) : null}
+                </div>
+                <ClusterScatter result={mesoResult} />
+              </Card>
+            </Col>
+            <Col xs={24} xl={9}>
+              <Card className="meso-panel-card" bordered={false}>
+                <div className="meso-section-head">
+                  <div>
+                    <div className="meso-section-title">簇解释</div>
+                    <div className="meso-section-copy">簇标签直接根据簇中心的错拼率、变体数和稳定速度自动概括。</div>
+                  </div>
+                </div>
+                <div className="meso-cluster-list">
+                  {mesoResult.clustering.clusters.map((cluster, index) => (
+                    <div key={cluster.cluster_id} className="meso-cluster-card">
+                      <div className="meso-cluster-head">
+                        <Tag color={CLUSTER_COLORS[index % CLUSTER_COLORS.length]}>{cluster.label}</Tag>
+                        <span>{cluster.size} terms</span>
+                      </div>
+                      <div className="meso-cluster-copy">代表词: {cluster.representative_terms.join(", ") || "-"}</div>
+                    </div>
+                  ))}
+                </div>
+              </Card>
+            </Col>
+          </Row>
+
+          <Card className="meso-panel-card" bordered={false}>
+            <div className="meso-section-head">
+              <div>
+                <div className="meso-section-title">词项特征表</div>
+                <div className="meso-section-copy">答辩时可以直接说明：中观模块不是另造模型，而是对词项级微观结果做结构化聚合。</div>
+              </div>
+            </div>
+            <Table
+              rowKey={(row) => String(row.term_id)}
+              columns={featureColumns}
+              dataSource={mesoResult.feature_rows}
+              pagination={{ pageSize: 8 }}
+              scroll={{ x: 980 }}
+            />
+          </Card>
+        </>
+      )}
     </div>
   );
 }

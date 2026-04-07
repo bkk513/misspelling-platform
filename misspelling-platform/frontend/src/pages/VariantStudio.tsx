@@ -44,12 +44,6 @@ type RecommendationVariant = {
   selected: boolean;
 };
 
-function heuristic(word: string) {
-  const base = normalizeWord(word);
-  if (!base) return [];
-  return [`${base}s`, `${base}e`, `${base}-official`, base.replace(/e/g, "") || `${base}x`];
-}
-
 function normalizeWord(word: string): string {
   return String(word || "").trim().toLowerCase();
 }
@@ -136,6 +130,12 @@ function formatTime(value?: string): string {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return value;
   return parsed.toLocaleString();
+}
+
+function rejectedSummary(items: Array<{ variant: string }> | undefined, limit = 6) {
+  const values = (items || []).map((item) => normalizeWord(item.variant)).filter(Boolean);
+  if (values.length === 0) return "";
+  return values.slice(0, limit).join(", ");
 }
 
 function buildRecommendations(
@@ -272,11 +272,13 @@ export function VariantStudioPage() {
       const source = normalizeSource(resp.source, "llm");
       const next = buildRecommendations(resp.variants || [], source, normalizedWord, cacheVariantSet);
       setRecommendItems(next);
+      const rejected = rejectedSummary(resp.rejected_variants);
+      if (rejected) {
+        message.info(`Filtered lexical words: ${rejected}`);
+      }
       message.success(`Loaded ${next.length} recommendations from ${source}.`);
-    } catch {
-      const fallback = buildRecommendations(heuristic(normalizedWord), "heuristic", normalizedWord, cacheVariantSet);
-      setRecommendItems(fallback);
-      message.warning("Recommend API unavailable. Switched to local heuristic results.");
+    } catch (e) {
+      message.error(describeApiError(e));
     } finally {
       setLoadingSuggest(false);
     }
@@ -301,9 +303,17 @@ export function VariantStudioPage() {
     setSaving(true);
     try {
       const resp = await api.saveVariantCache(normalizedWord, cleaned, source);
-      message.success(`Added ${resp.saved} variants to cache.`);
+      const rejected = rejectedSummary(resp.rejected_variants);
+      if (resp.saved > 0) {
+        message.success(`Added ${resp.saved} variants to cache.`);
+      } else if (rejected) {
+        message.warning(`Rejected lexical words: ${rejected}`);
+      }
+      if (rejected && resp.saved > 0) {
+        message.info(`Filtered lexical words: ${rejected}`);
+      }
       await loadCache(normalizedWord);
-      const savedSet = new Set(cleaned);
+      const savedSet = new Set((resp.variants || cleaned).map((item) => normalizeWord(item)));
       setRecommendItems((prev) => prev.map((row) => (savedSet.has(normalizeWord(row.value)) ? { ...row, selected: false } : row)));
     } catch (e) {
       message.error(describeApiError(e));
@@ -324,12 +334,23 @@ export function VariantStudioPage() {
     if (cacheEnabled) {
       await addVariantsToCache([value], "manual");
     } else {
-      setRecommendItems((prev) => {
-        const exists = prev.some((row) => normalizeWord(row.value) === value);
-        if (exists || value === normalizedWord) return prev;
-        return [{ value, source: "manual", selected: true }, ...prev];
-      });
-      message.success("Added to local list.");
+      try {
+        const review = await api.reviewVariants(normalizedWord, [value]);
+        const accepted = review.accepted_variants || review.variants || [];
+        const rejected = rejectedSummary(review.rejected_variants);
+        if (accepted.length > 0) {
+          setRecommendItems((prev) => {
+            const exists = prev.some((row) => normalizeWord(row.value) === value);
+            if (exists || value === normalizedWord) return prev;
+            return [{ value, source: "manual", selected: true }, ...prev];
+          });
+          message.success("Added to local list.");
+        } else if (rejected) {
+          message.warning(`Rejected lexical word: ${rejected}`);
+        }
+      } catch (e) {
+        message.error(describeApiError(e));
+      }
     }
 
     setManualInput("");

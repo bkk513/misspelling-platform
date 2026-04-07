@@ -22,12 +22,13 @@ import { useEffect, useState } from "react";
 import { goToTask } from "../app/router";
 import { AlgorithmTermBuilder } from "../components/AlgorithmTermBuilder";
 import { TurnstileWidget } from "../components/TurnstileWidget";
-import { api, describeApiError } from "../lib/api";
+import { api, describeApiError, type DataSourceKey } from "../lib/api";
 import { asObject, fetchArtifactJson, taskStateTone } from "./algorithmStudioShared";
 import "./algorithmStudio.css";
 
 type DeltaRow = {
   year: number;
+  time_label?: string;
   correct: number;
   misspelling_total: number;
   actual_total: number;
@@ -45,6 +46,7 @@ type DeltaRow = {
 export function DeltaTBiasPage() {
   const [word, setWord] = useState("internet");
   const [variants, setVariants] = useState<string[]>([]);
+  const [dataSource, setDataSource] = useState<DataSourceKey>("gbnc");
   const [originYear, setOriginYear] = useState<number | undefined>(undefined);
   const [startYear, setStartYear] = useState(1900);
   const [endYear, setEndYear] = useState(2019);
@@ -97,6 +99,7 @@ export function DeltaTBiasPage() {
       setRows(
         events.map((row) => ({
           year: Number(row.year ?? 0) || 0,
+          time_label: String(row.time_label ?? ""),
           correct: Number(row.correct ?? 0) || 0,
           misspelling_total: Number(row.misspelling_total ?? 0) || 0,
           actual_total: Number(row.actual_total ?? 0) || 0,
@@ -175,6 +178,7 @@ export function DeltaTBiasPage() {
           startYear: effectiveStartYear,
           endYear,
           smoothing,
+          dataSource,
           variants,
           originYear,
           bootstrapSamples,
@@ -220,12 +224,12 @@ export function DeltaTBiasPage() {
             <div className="algo-hero-side">
               <div className="algo-hero-note">
                 <span className="algo-hero-note-label">Actual Mutation</span>
-                <div className="algo-hero-note-value">{String(summary?.actual_mutation_year ?? "--")}</div>
+                <div className="algo-hero-note-value">{String(summary?.actual_mutation_time ?? summary?.actual_mutation_year ?? "--")}</div>
                 <div className="algo-hero-note-copy">总传播曲线的成熟 / 变异点。</div>
               </div>
               <div className="algo-hero-note">
                 <span className="algo-hero-note-label">Predicted Mutation</span>
-                <div className="algo-hero-note-value">{String(summary?.predicted_mutation_year ?? "--")}</div>
+                <div className="algo-hero-note-value">{String(summary?.predicted_mutation_time ?? summary?.predicted_mutation_year ?? "--")}</div>
                 <div className="algo-hero-note-copy">CfC counterfactual trajectory 的 mutation point。</div>
               </div>
             </div>
@@ -248,7 +252,7 @@ export function DeltaTBiasPage() {
             </div>
             <div className="algo-score-card">
               <div className="algo-score-label">Origin Year</div>
-              <div className="algo-score-value">{String(summary?.origin_year ?? originYear ?? "--")}</div>
+              <div className="algo-score-value">{String(summary?.origin_time ?? summary?.origin_year ?? originYear ?? "--")}</div>
               <div className="algo-score-copy">传播起点由词项历史建议或人工输入给出。</div>
             </div>
             <div className="algo-score-card">
@@ -278,12 +282,20 @@ export function DeltaTBiasPage() {
                 variants={variants}
                 originYear={originYear}
                 showOriginYear
+                dataSource={dataSource}
                 startYear={startYear}
                 endYear={endYear}
                 smoothing={smoothing}
                 onWordChange={setWord}
                 onVariantsChange={setVariants}
                 onOriginYearChange={setOriginYear}
+                onDataSourceChange={(value) => {
+                  setDataSource(value);
+                  if (value === "gdelt") {
+                    setStartYear((current) => Math.max(current, 2015));
+                    setEndYear((current) => Math.min(Math.max(current, 2015), new Date().getFullYear()));
+                  }
+                }}
               />
 
               <div className="algo-parameter-grid" style={{ marginTop: 18 }}>
@@ -297,7 +309,7 @@ export function DeltaTBiasPage() {
                 </div>
                 <div className="algo-field algo-span-2">
                   <span className="algo-field-label">Smoothing</span>
-                  <InputNumber min={0} max={50} value={smoothing} onChange={(value) => setSmoothing(value ?? 3)} style={{ width: "100%" }} />
+                  <InputNumber min={0} max={50} value={smoothing} onChange={(value) => setSmoothing(value ?? 3)} style={{ width: "100%" }} disabled={dataSource === "gdelt"} />
                 </div>
                 <div className="algo-field algo-span-2">
                   <span className="algo-field-label">Bootstrap</span>
@@ -429,8 +441,10 @@ export function DeltaTBiasPage() {
                   <div className="algo-insight-card">
                     <div className="algo-insight-label">Actual vs Null</div>
                     <div className="algo-insight-value">
-                      {typeof deltaStats?.actual_mutation_year === "number" && typeof deltaStats?.predicted_mutation_year === "number"
-                        ? `${deltaStats.actual_mutation_year} → ${deltaStats.predicted_mutation_year}`
+                      {typeof deltaStats?.actual_mutation_time === "string" && typeof deltaStats?.predicted_mutation_time === "string"
+                        ? `${deltaStats.actual_mutation_time} → ${deltaStats.predicted_mutation_time}`
+                        : typeof deltaStats?.actual_mutation_year === "number" && typeof deltaStats?.predicted_mutation_year === "number"
+                          ? `${deltaStats.actual_mutation_year} → ${deltaStats.predicted_mutation_year}`
                         : "--"}
                     </div>
                     <div className="algo-insight-copy">总传播成熟点到零假设正确拼写成熟点的时间位移。</div>
@@ -438,8 +452,8 @@ export function DeltaTBiasPage() {
                   <div className="algo-insight-card">
                     <div className="algo-insight-label">Time Anchor</div>
                     <div className="algo-insight-copy">
-                      {typeof summary?.origin_year === "number"
-                        ? `图像从 ${String(summary.origin_year)} 对应的传播起点开始裁切，这个时间点就是当前 tipping year。`
+                      {(typeof summary?.origin_time === "string" && summary.origin_time) || typeof summary?.origin_year === "number"
+                        ? `图像从 ${String(summary.origin_time || summary.origin_year)} 对应的传播起点开始裁切，这个时间点就是当前 tipping point。`
                         : "运行后会显示当前传播起点。"}
                     </div>
                   </div>
@@ -452,7 +466,8 @@ export function DeltaTBiasPage() {
                   dataSource={rows}
                   pagination={{ pageSize: 8 }}
                   columns={[
-                    { title: "Year", dataIndex: "year", width: 92 },
+                    { title: "Time", dataIndex: "time_label", width: 132, render: (value: string, row: DeltaRow) => value || String(row.year) },
+                    { title: "Index", dataIndex: "year", width: 92 },
                     { title: "Actual Total", dataIndex: "actual_total", render: (value: number) => value.toFixed(4) },
                     { title: "CfC Counterfactual", dataIndex: "predicted_correct", render: (value: number) => value.toFixed(4) },
                     { title: "Observed Correct", dataIndex: "correct", render: (value: number) => value.toFixed(4) },

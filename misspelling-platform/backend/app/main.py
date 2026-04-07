@@ -10,10 +10,12 @@ from .api.routes_reports import router as reports_router
 from .api.routes_tasks import router as tasks_router
 from .api.routes_timeseries import router as timeseries_router
 from .services.auth_service import ensure_init_admin_from_env
+from .services.schema_bootstrap_service import ensure_project_analytics_schema
 
 
 def create_app() -> FastAPI:
     ensure_init_admin_from_env()
+    ensure_project_analytics_schema()
     app = FastAPI(title="Misspelling Platform API (MVP)")
     app.include_router(auth_router)
     app.include_router(admin_router)

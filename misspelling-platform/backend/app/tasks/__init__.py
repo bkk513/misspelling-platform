@@ -34,7 +34,9 @@ from ..services.artifact_service import (
     write_simulation_preview_png,
     write_word_analysis_csv,
 )
-from ..services.gbnc_service import build_provenance, pull_gbnc_with_fallback
+from ..services.external_data_service import pull_external_series_payload
+from ..services.gbnc_service import build_provenance
+from ..services.meso_service import build_meso_result_payload
 from ..services.simulation_explain_service import explain_simulation_fit
 from ..services.task_event_service import (
     record_task_failure,
@@ -46,6 +48,7 @@ from ..services.timeseries_service import (
     persist_simulation_stub_timeseries,
     persist_word_analysis_external_series,
 )
+from ..services.variant_review_service import review_misspelling_variants
 
 ALGO_SOURCE_REPO = "https://github.com/bkk513/misspelling_behaviors"
 ALGO_SOURCE_COMMIT = "4e781ec"
@@ -72,6 +75,7 @@ def _word_params(payload: str | dict):
             "smoothing": _int_or_default(payload.get("smoothing"), 3),
             "corpus": str(payload.get("corpus") or "eng_2019"),
             "variants": variants,
+            "data_source": str(payload.get("data_source") or "gbnc"),
         }
     return {
         "word": str(payload or "demo"),
@@ -80,6 +84,7 @@ def _word_params(payload: str | dict):
         "smoothing": 3,
         "corpus": "eng_2019",
         "variants": [],
+        "data_source": "gbnc",
     }
 
 
@@ -107,17 +112,12 @@ def _to_optional_float(value: Any) -> float | None:
 
 
 def _unique_variants(word: str, values: Any) -> list[str]:
-    out: list[str] = []
     canonical = str(word or "").strip().lower()
-    if canonical:
-        out.append(canonical)
     if isinstance(values, str):
         values = [v.strip() for v in values.split(",") if v.strip()]
-    for raw in values or []:
-        item = str(raw or "").strip().lower()
-        if item and item not in out:
-            out.append(item)
-    return out
+    review = review_misspelling_variants(canonical, [str(raw or "").strip().lower() for raw in (values or []) if str(raw).strip()])
+    accepted = [str(v) for v in (review.get("accepted_variants") or [])]
+    return [canonical, *accepted] if canonical else accepted
 
 
 def _algo_params(payload: dict[str, Any] | Any) -> dict[str, Any]:
@@ -130,6 +130,7 @@ def _algo_params(payload: dict[str, Any] | Any) -> dict[str, Any]:
         "end_year": _to_int(data.get("end_year"), 2019),
         "corpus": str(data.get("corpus") or "eng_2019"),
         "smoothing": _to_int(data.get("smoothing"), 3),
+        "data_source": str(data.get("data_source") or "gbnc"),
         "origin_year": _to_int(data.get("origin_year"), 0) or None,
         "tau_max": _to_int(data.get("tau_max"), 8),
         "window_size": _to_int(data.get("window_size"), 0),
@@ -148,14 +149,17 @@ def _algo_params(payload: dict[str, Any] | Any) -> dict[str, Any]:
 def _simulation_params(payload: dict[str, Any] | Any) -> dict[str, Any]:
     data = payload if isinstance(payload, dict) else {}
     base = _algo_params(data)
-    topology = str(data.get("topology") or "watts_strogatz").strip().lower() or "watts_strogatz"
-    if topology not in {"grid", "watts_strogatz", "newman_watts", "barabasi_albert", "dual_barabasi_albert"}:
-        topology = "watts_strogatz"
+    topology = str(data.get("topology") or "auto").strip().lower() or "auto"
+    if topology not in {"auto", "grid", "watts_strogatz", "newman_watts", "barabasi_albert", "dual_barabasi_albert"}:
+        topology = "auto"
     n_agents = _to_int(data.get("n_agents") if isinstance(data, dict) else None, _to_int(data.get("n"), 720))
     search_rounds = _to_int(data.get("search_rounds") if isinstance(data, dict) else None, _to_int(data.get("steps"), 36))
     fit_profile = str(data.get("fit_profile") or "publication").strip().lower() or "publication"
     if fit_profile not in {"explore", "research", "publication"}:
         fit_profile = "publication"
+    variant_scope = str(data.get("variant_scope") or "typo_only").strip().lower() or "typo_only"
+    if variant_scope not in {"typo_only", "competition"}:
+        variant_scope = "typo_only"
     return {
         **base,
         "topology": topology,
@@ -168,6 +172,7 @@ def _simulation_params(payload: dict[str, Any] | Any) -> dict[str, Any]:
         "ws_p": _to_float(data.get("ws_p"), 0.08),
         "ba_m": max(1, _to_int(data.get("ba_m"), 4)),
         "intervention_year": _to_int(data.get("intervention_year"), 0) or None,
+        "variant_scope": variant_scope,
     }
 
 
@@ -318,6 +323,7 @@ def _execute_algo_task(
             end_year=int(params["end_year"]),
             corpus=str(params["corpus"]),
             smoothing=int(params["smoothing"]),
+            data_source=str(params.get("data_source") or "gbnc"),
         )
         algo_payload = runner(dataset, params)
         warnings = _merge_warnings(dataset.warnings, algo_payload.get("warnings"))
@@ -376,13 +382,17 @@ def demo_analysis(self, payload: str | dict):
             time.sleep(1)
             self.update_state(state="PROGRESS", meta={"step": i + 1, "total": 3})
 
-        pulled = pull_gbnc_with_fallback(
-            term=params["word"],
+        owner_user_id = get_task_owner(task_id)
+        current_user = {"id": int(owner_user_id), "roles": []} if owner_user_id is not None else None
+        pulled = pull_external_series_payload(
+            word=params["word"],
             variants=params["variants"],
             start_year=params["start_year"],
             end_year=params["end_year"],
             corpus=params["corpus"],
             smoothing=params["smoothing"],
+            current_user=current_user,
+            data_source=str(params.get("data_source") or "gbnc"),
         )
         persisted = persist_word_analysis_external_series(
             task_id,
@@ -399,7 +409,7 @@ def demo_analysis(self, payload: str | dict):
             for point in item.get("points") or []:
                 csv_rows.append(
                     {
-                        "time": str(point.get("year")),
+                        "time": str(point.get("year") or point.get("date") or ""),
                         "variant": variant,
                         "value": float(point.get("value") or 0.0),
                     }
@@ -458,6 +468,7 @@ def simulation_run(self, payload: dict[str, Any] | None = None):
             end_year=int(params["end_year"]),
             corpus=str(params["corpus"]),
             smoothing=int(params["smoothing"]),
+            data_source=str(params.get("data_source") or "gbnc"),
         )
         sim_payload = run_simulation(
             dataset,
@@ -472,6 +483,7 @@ def simulation_run(self, payload: dict[str, Any] | None = None):
             ws_p=float(params["ws_p"]),
             ba_m=int(params["ba_m"]),
             intervention_year=params.get("intervention_year"),
+            variant_scope=str(params.get("variant_scope") or "typo_only"),
         )
         sim_payload["explanation"] = explain_simulation_fit(
             word=params["word"],
@@ -588,6 +600,7 @@ def mrnmr_steady(self, payload: dict[str, Any]):
             rows_builder=to_metric_rows,
             fieldnames=[
                 "year",
+                "time_label",
                 "misspelling",
                 "correct",
                 "signal_total",
@@ -625,6 +638,7 @@ def deltat_null(self, payload: dict[str, Any]):
             rows_builder=to_event_rows,
             fieldnames=[
                 "year",
+                "time_label",
                 "correct",
                 "misspelling_total",
                 "actual_total",
@@ -643,4 +657,33 @@ def deltat_null(self, payload: dict[str, Any]):
     except Exception as exc:
         set_task_failure(task_id, str(exc))
         record_task_failure(task_id, "deltaT-null", str(exc))
+        raise
+
+
+@celery_app.task(bind=True)
+def meso_analysis_run(self, payload: dict[str, Any] | None = None):
+    task_id = self.request.id
+    set_task_running(task_id)
+    record_task_running(task_id, "meso-analysis")
+    params = payload if isinstance(payload, dict) else {}
+    try:
+        result = build_meso_result_payload(
+            project_id=int(params.get("project_id") or 0),
+            owner_user_id=int(params.get("owner_user_id") or 0) or None,
+            cohort_names=list(params.get("cohort_names") or []),
+            term_ids=list(params.get("term_ids") or []),
+            cluster_k=int(params.get("cluster_k") or 3),
+            include_simulation=bool(params.get("include_simulation")),
+            data_source=str(params.get("data_source") or "gbnc"),
+        )
+        out_dir = build_output_dir(task_id)
+        out_json = out_dir / "result.json"
+        write_json_file(result, out_json)
+        register_artifact(task_id, "json", "result.json", out_json, "application/json")
+        set_task_success(task_id, json.dumps(result))
+        record_task_success(task_id, "meso-analysis")
+        return result
+    except Exception as exc:
+        set_task_failure(task_id, str(exc))
+        record_task_failure(task_id, "meso-analysis", str(exc))
         raise

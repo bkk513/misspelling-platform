@@ -65,7 +65,7 @@
       - ../../llm_api_key.txt:/srv/apps/llm_api_key.txt:ro
   worker:
     build: ./backend
-    command: celery -A app.celery_app worker -l INFO
+    command: celery -A app.celery_app worker -l INFO --concurrency=${WORKER_CONCURRENCY:-2} --prefetch-multiplier=1 --max-tasks-per-child=8
     environment:
       DATABASE_URL: ${DATABASE_URL:-mysql+pymysql://root:root@mysql:3306/misspell}
       CELERY_BROKER_URL: redis://redis:6379/1

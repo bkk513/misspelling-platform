@@ -1,4 +1,5 @@
 export type ApiError = Error & { status?: number; bodyText?: string };
+export type DataSourceKey = "gbnc" | "gdelt";
 
 let accessToken = "";
 let guestKey = "";
@@ -63,6 +64,7 @@ export type AlgorithmTaskOptions = {
   endYear?: number;
   smoothing?: number;
   corpus?: string;
+  dataSource?: DataSourceKey;
   variants?: string[];
   originYear?: number;
 };
@@ -107,6 +109,13 @@ export type TaskEventsResponse = {
   task_id: string;
   items: Array<{ event_type: string; message: string; meta?: unknown; created_at?: string }>;
 };
+export type PauseTaskResponse = {
+  task_id: string;
+  paused: boolean;
+  reason?: string;
+  state?: string;
+  previous_status?: string;
+};
 export type TimeSeriesMeta = {
   task_id: string;
   source: string;
@@ -146,6 +155,14 @@ export type SeriesBulkDeleteResponse = {
 export type VariantSuggestResponse = {
   word: string;
   variants: string[];
+  accepted_variants?: string[];
+  rejected_variants?: Array<{
+    variant: string;
+    reason: string;
+    reason_label?: string;
+    dictionary_backend?: string | null;
+  }>;
+  filter_policy?: string;
   source?: "llm" | "cache" | "heuristic" | "dictionary";
   warnings?: string[];
 };
@@ -155,6 +172,13 @@ export type OriginYearSuggestResponse = {
   suggested_year?: number | null;
   basis_year?: number | null;
   correct_first_year?: number | null;
+  rejected_variants?: Array<{
+    variant: string;
+    reason: string;
+    reason_label?: string;
+    dictionary_backend?: string | null;
+  }>;
+  filter_policy?: string;
   source?: "seed" | "gbnc" | "llm" | "heuristic";
   dataset_source?: string;
   reasoning?: string;
@@ -301,6 +325,25 @@ export type AnalyticsClusterResponse = {
     }>;
   }>;
 };
+export type AnalyticsDemoCohortsResponse = {
+  method: string;
+  project_id: number;
+  source_cluster_method: string;
+  k: number;
+  terms: number;
+  assignments: number;
+  diagnostics?: { silhouette: number | null; pca_explained_variance: number[] };
+  created_cohorts: Array<{
+    cohort_id: number;
+    name: string;
+    color?: string | null;
+    cluster_id: number;
+    size: number;
+  }>;
+  recommended_pair: string[];
+  target_cohort?: string | null;
+  warnings?: string[];
+};
 export type AnalyticsCohortCompareResponse = {
   method: string;
   project_id: number;
@@ -349,6 +392,143 @@ export type AnalyticsExplainabilityResponse = {
   feature_importance: Array<{ feature: string; importance_mean: number; importance_std: number }>;
   target_preview: Array<{ term_id: number; canonical: string; true_cohort: string; target_probability: number }>;
 };
+export type MesoPrepareResponse = {
+  project_id: number;
+  data_source?: string;
+  selected_term_count: number;
+  selected_terms: Array<{
+    term_id: number;
+    canonical: string;
+    primary_cohort: string;
+    variants: string[];
+  }>;
+  required_micro_tasks: string[];
+  created_tasks: Array<{
+    task_id: string;
+    task_type: string;
+    word: string;
+    status: string;
+    mode: string;
+  }>;
+  reused_tasks: Array<{
+    task_id: string;
+    task_type: string;
+    word: string;
+    status: string;
+    mode: string;
+  }>;
+  skipped_terms: Array<{
+    term_id: number;
+    canonical: string;
+    primary_cohort: string;
+    reason: string;
+  }>;
+  watched_task_ids: string[];
+  task_matrix: Array<{
+    term_id: number;
+    canonical: string;
+    primary_cohort: string;
+    variants: string[];
+    task_statuses: Array<{
+      task_id?: string;
+      task_type: string;
+      word: string;
+      status: string;
+      mode: string;
+      reason?: string;
+    }>;
+  }>;
+};
+export type MesoAnalysisResult = {
+  version: string;
+  project_id: number;
+  summary: {
+    selected_terms: number;
+    selected_categories: number;
+    cluster_k: number;
+    generated_at: string;
+    required_micro_tasks: string[];
+    data_source?: string;
+    ready_terms: number;
+    ready_ratio: number;
+  };
+  selection: {
+    categories: string[];
+    term_ids: number[];
+    terms: Array<{ term_id: number; canonical: string; primary_cohort: string }>;
+  };
+  coverage: {
+    required_micro_tasks: string[];
+    task_coverage: Record<string, { ready_terms: number; coverage_ratio: number }>;
+    missing_terms: Array<{ term_id: number; canonical: string; missing_tasks: string[] }>;
+  };
+  category_profiles: Array<{
+    category: string;
+    term_count: number;
+    representative_terms: string[];
+    metrics: Record<string, { mean: number | null; median: number | null; std: number | null; non_null: number }>;
+  }>;
+  comparison: {
+    metrics: Array<{ key: string; label: string }>;
+    heatmap: Array<{
+      category: string;
+      values: Array<{ key: string; label: string; mean: number | null; score: number | null }>;
+    }>;
+    distributions: Array<{
+      key: string;
+      label: string;
+      groups: Array<{ category: string; values: number[] }>;
+    }>;
+  };
+  clustering: {
+    k: number;
+    features: string[];
+    feature_labels: Record<string, string>;
+    diagnostics: { silhouette: number | null; pca_explained_variance: number[] };
+    scatter: Array<{
+      term_id: number;
+      canonical: string;
+      primary_cohort: string;
+      cluster_id: number;
+      cluster_label: string;
+      x: number;
+      y: number;
+    }>;
+    clusters: Array<{
+      cluster_id: number;
+      label: string;
+      size: number;
+      representative_terms: string[];
+      centroid: Record<string, number>;
+      terms?: string[];
+    }>;
+  };
+  feature_rows: Array<{
+    term_id: number;
+    canonical: string;
+    primary_cohort: string;
+    cohort_names: string[];
+    variant_count: number;
+    avg_misspelling_rate?: number | null;
+    peak_misspelling_rate?: number | null;
+    peak_year?: number | null;
+    first_year?: number | null;
+    last_year?: number | null;
+    steady_year?: number | null;
+    steady_lag_years?: number | null;
+    turning_point_year?: number | null;
+    delta_t_years?: number | null;
+    causal_edge_count?: number | null;
+    causal_mean_strength?: number | null;
+    causal_window_count?: number | null;
+    simulation_best_score?: number | null;
+    simulation_fit_grade?: string | null;
+    micro_ready: boolean;
+    available_tasks: string[];
+    missing_tasks: string[];
+  }>;
+  warnings: string[];
+};
 export type ReportItem = {
   id: number;
   owner_user_id?: number | null;
@@ -371,12 +551,57 @@ export type VariantCacheItem = {
   created_at?: string;
   updated_at?: string;
 };
-export type VariantCacheListResponse = { items: VariantCacheItem[] };
+export type VariantCacheListResponse = {
+  items: VariantCacheItem[];
+  warnings?: string[];
+  rejected_variants?: Array<{
+    variant: string;
+    reason: string;
+    reason_label?: string;
+    dictionary_backend?: string | null;
+  }>;
+  filter_policy?: string;
+};
+export type VariantReviewResponse = {
+  word: string;
+  variants: string[];
+  accepted_variants?: string[];
+  accepted_count?: number;
+  rejected_variants?: Array<{
+    variant: string;
+    reason: string;
+    reason_label?: string;
+    dictionary_backend?: string | null;
+  }>;
+  rejected_count?: number;
+  filter_policy?: string;
+  dictionary_backend?: string | null;
+  warnings?: string[];
+};
+export type VariantCacheSaveResponse = {
+  saved: number;
+  variants?: string[];
+  rejected_variants?: Array<{
+    variant: string;
+    reason: string;
+    reason_label?: string;
+    dictionary_backend?: string | null;
+  }>;
+  warnings?: string[];
+  filter_policy?: string;
+};
 export type GbncPullResponse = {
   word: string;
   source: string;
   cache_hit: boolean;
   warnings?: string[];
+  rejected_variants?: Array<{
+    variant: string;
+    reason: string;
+    reason_label?: string;
+    dictionary_backend?: string | null;
+  }>;
+  filter_policy?: string;
   error_reason?: string | null;
   series_id?: number | null;
   series_ids?: number[];
@@ -407,7 +632,7 @@ function extractObservedYear(value: string | number | undefined | null) {
 
 async function fallbackOriginYearSuggestion(
   word: string,
-  opts?: { variants?: string[]; startYear?: number; endYear?: number; corpus?: string; smoothing?: number }
+  opts?: { variants?: string[]; startYear?: number; endYear?: number; corpus?: string; smoothing?: number; dataSource?: DataSourceKey }
 ): Promise<OriginYearSuggestResponse> {
   const params = new URLSearchParams();
   params.set("word", word);
@@ -415,6 +640,7 @@ async function fallbackOriginYearSuggestion(
   if (opts?.endYear !== undefined) params.set("end_year", String(opts.endYear));
   if (opts?.corpus) params.set("corpus", opts.corpus);
   if (opts?.smoothing !== undefined) params.set("smoothing", String(opts.smoothing));
+  if (opts?.dataSource) params.set("data_source", String(opts.dataSource));
   if (opts?.variants && opts.variants.length > 0) params.set("variants", opts.variants.join(","));
 
   const pulled = await request<GbncPullResponse>(`/api/data/gbnc/pull?${params.toString()}`, { method: "POST" });
@@ -477,7 +703,7 @@ async function fallbackOriginYearSuggestion(
     source: String(pulled.source || "").toUpperCase() === "GBNC" ? "gbnc" : "heuristic",
     dataset_source: pulled.source,
     reasoning:
-      "根据当前 GBNC 时序首现年份推断：优先采用 correct 序列首次出现年份，否则采用 total signal 序列首次出现年份。",
+      "根据当前所选数据源的时序首现年份推断：优先采用 correct 序列首次出现年份，否则采用 total signal 序列首次出现年份。",
     warnings,
   };
 }
@@ -521,7 +747,7 @@ export const api = {
     }),
   createWordAnalysis: (
     word: string,
-    opts?: { startYear?: number; endYear?: number; smoothing?: number; corpus?: string; variants?: string[] },
+    opts?: { startYear?: number; endYear?: number; smoothing?: number; corpus?: string; dataSource?: DataSourceKey; variants?: string[] },
     turnstileToken?: string
   ) => {
     const params = new URLSearchParams();
@@ -530,6 +756,7 @@ export const api = {
     if (opts?.endYear) params.set("end_year", String(opts.endYear));
     if (opts?.smoothing !== undefined) params.set("smoothing", String(opts.smoothing));
     if (opts?.corpus) params.set("corpus", opts.corpus);
+    if (opts?.dataSource) params.set("data_source", opts.dataSource);
     if (opts?.variants && opts.variants.length > 0) params.set("variants", opts.variants.join(","));
     return request<CreateTaskResponse>(`/api/tasks/word-analysis?${params.toString()}`, {
       method: "POST",
@@ -553,6 +780,7 @@ export const api = {
     if (opts?.endYear) params.set("end_year", String(opts.endYear));
     if (opts?.smoothing !== undefined) params.set("smoothing", String(opts.smoothing));
     if (opts?.corpus) params.set("corpus", opts.corpus);
+    if (opts?.dataSource) params.set("data_source", opts.dataSource);
     if (opts?.variants && opts.variants.length > 0) params.set("variants", opts.variants.join(","));
     if (opts?.tauMax !== undefined) params.set("tau_max", String(opts.tauMax));
     if (opts?.windowSize !== undefined) params.set("window_size", String(opts.windowSize));
@@ -575,6 +803,7 @@ export const api = {
     if (opts?.endYear) params.set("end_year", String(opts.endYear));
     if (opts?.smoothing !== undefined) params.set("smoothing", String(opts.smoothing));
     if (opts?.corpus) params.set("corpus", opts.corpus);
+    if (opts?.dataSource) params.set("data_source", opts.dataSource);
     if (opts?.variants && opts.variants.length > 0) params.set("variants", opts.variants.join(","));
     if (opts?.originYear !== undefined) params.set("origin_year", String(opts.originYear));
     if (opts?.tippingIndex !== undefined) params.set("tipping_index", String(opts.tippingIndex));
@@ -600,6 +829,7 @@ export const api = {
     if (opts?.endYear) params.set("end_year", String(opts.endYear));
     if (opts?.smoothing !== undefined) params.set("smoothing", String(opts.smoothing));
     if (opts?.corpus) params.set("corpus", opts.corpus);
+    if (opts?.dataSource) params.set("data_source", opts.dataSource);
     if (opts?.variants && opts.variants.length > 0) params.set("variants", opts.variants.join(","));
     if (opts?.originYear !== undefined) params.set("origin_year", String(opts.originYear));
     if (opts?.bootstrapSamples !== undefined) params.set("bootstrap_samples", String(opts.bootstrapSamples));
@@ -619,6 +849,7 @@ export const api = {
     if (opts?.endYear) params.set("end_year", String(opts.endYear));
     if (opts?.smoothing !== undefined) params.set("smoothing", String(opts.smoothing));
     if (opts?.corpus) params.set("corpus", opts.corpus);
+    if (opts?.dataSource) params.set("data_source", opts.dataSource);
     if (opts?.variants && opts.variants.length > 0) params.set("variants", opts.variants.join(","));
     if (opts?.topology) params.set("topology", String(opts.topology));
     if (opts?.nAgents !== undefined) params.set("n_agents", String(opts.nAgents));
@@ -646,6 +877,8 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ task_ids: taskIds })
     }),
+  pauseTask: (taskId: string) =>
+    request<PauseTaskResponse>(`/api/tasks/${encodeURIComponent(taskId)}/pause`, { method: "POST" }),
   deleteTask: (taskId: string) => request<DeleteTaskResponse>(`/api/tasks/${encodeURIComponent(taskId)}`, { method: "DELETE" }),
   retryTask: (taskId: string) =>
     request<{ ok: boolean; task_id?: string; parent_task_id?: string; reason?: string }>(
@@ -687,9 +920,15 @@ export const api = {
     if (opts?.preferCache !== undefined) params.set("prefer_cache", String(Boolean(opts.preferCache)));
     return request<VariantSuggestResponse>(`/api/lexicon/variants/suggest?${params.toString()}`, { method: "POST" });
   },
+  reviewVariants: (word: string, variants: string[]) =>
+    request<VariantReviewResponse>("/api/lexicon/variants/review", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ word, variants }),
+    }),
   suggestOriginYear: async (
     word: string,
-    opts?: { variants?: string[]; startYear?: number; endYear?: number; corpus?: string; smoothing?: number }
+    opts?: { variants?: string[]; startYear?: number; endYear?: number; corpus?: string; smoothing?: number; dataSource?: DataSourceKey }
   ) => {
     const params = new URLSearchParams();
     params.set("word", word);
@@ -698,6 +937,7 @@ export const api = {
     if (opts?.endYear !== undefined) params.set("end_year", String(opts.endYear));
     if (opts?.corpus) params.set("corpus", opts.corpus);
     if (opts?.smoothing !== undefined) params.set("smoothing", String(opts.smoothing));
+    if (opts?.dataSource) params.set("data_source", String(opts.dataSource));
     const query = params.toString();
     const candidates = [
       `/api/lexicon/origin-year/suggest?${query}`,
@@ -722,7 +962,7 @@ export const api = {
       `/api/lexicon/variant-cache?word=${encodeURIComponent(word)}&limit=${limit}`
     ),
   saveVariantCache: (word: string, variants: string[], source = "manual") =>
-    request<{ saved: number }>("/api/lexicon/variant-cache", {
+    request<VariantCacheSaveResponse>("/api/lexicon/variant-cache", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ word, variants, source })
@@ -747,13 +987,14 @@ export const api = {
       `/api/lexicon/terms?limit=${limit}&q=${encodeURIComponent(q)}`
     ),
   getLexiconTerm: (termId: number) => request<{ id: number; found?: boolean; canonical?: string; attributes?: unknown; variants?: unknown[] }>(`/api/lexicon/${termId}`),
-  pullGbnc: (word: string, opts?: { startYear?: number; endYear?: number; corpus?: string; smoothing?: number; variants?: string[] }) => {
+  pullGbnc: (word: string, opts?: { startYear?: number; endYear?: number; corpus?: string; smoothing?: number; dataSource?: DataSourceKey; variants?: string[] }) => {
     const params = new URLSearchParams();
     params.set("word", word);
     if (opts?.startYear) params.set("start_year", String(opts.startYear));
     if (opts?.endYear) params.set("end_year", String(opts.endYear));
     if (opts?.corpus) params.set("corpus", opts.corpus);
     if (opts?.smoothing !== undefined) params.set("smoothing", String(opts.smoothing));
+    if (opts?.dataSource) params.set("data_source", String(opts.dataSource));
     if (opts?.variants && opts.variants.length > 0) params.set("variants", opts.variants.join(","));
     return request<GbncPullResponse>(`/api/data/gbnc/pull?${params.toString()}`, { method: "POST" });
   },
@@ -775,6 +1016,25 @@ export const api = {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ words, category })
+    }),
+  importProjectTerms: (
+    projectId: number,
+    body: { filename: string; content_base64: string; target_cohort?: string }
+  ) =>
+    request<{
+      project_id: number;
+      added: number;
+      category?: string;
+      cohort_id?: number | null;
+      filename: string;
+      extracted_count: number;
+      extracted_terms: string[];
+      extract_source: string;
+      warnings?: string[];
+    }>(`/api/projects/${projectId}/terms/import`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
     }),
   listProjectTerms: (projectId: number) => request<ProjectTermsResponse>(`/api/projects/${projectId}/terms`),
   listProjectCohorts: (projectId: number) => request<ProjectCohortsResponse>(`/api/projects/${projectId}/cohorts`),
@@ -856,6 +1116,12 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ project_id: projectId, k, method })
     }),
+  analyticsBootstrapDemoCohorts: (projectId: number, k = 3, method: "kmeans_advanced" | "baseline-kmeans" = "kmeans_advanced") =>
+    request<AnalyticsDemoCohortsResponse>("/api/analytics/bootstrap-demo-cohorts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ project_id: projectId, k, method })
+    }),
   analyticsCohortCompare: (
     projectId: number,
     cohortA: string,
@@ -891,6 +1157,32 @@ export const api = {
         project_id: projectId,
         target_cohort: targetCohort || undefined
       })
+    }),
+  analyticsMesoPrepare: (body: {
+    project_id: number;
+    cohort_names?: string[];
+    term_ids?: number[];
+    cluster_k?: number;
+    include_simulation?: boolean;
+    data_source?: DataSourceKey;
+  }) =>
+    request<MesoPrepareResponse>("/api/analytics/meso/prepare", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  analyticsMesoAnalyze: (body: {
+    project_id: number;
+    cohort_names?: string[];
+    term_ids?: number[];
+    cluster_k?: number;
+    include_simulation?: boolean;
+    data_source?: DataSourceKey;
+  }) =>
+    request<CreateTaskResponse>("/api/analytics/meso/analyze", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
     }),
   createTaskReport: (taskId: string) =>
     request<{ report_id: number; task_id: string; filename: string; download_url: string }>(

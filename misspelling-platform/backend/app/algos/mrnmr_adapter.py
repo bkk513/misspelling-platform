@@ -28,14 +28,31 @@ def _density_scores(nmr: np.ndarray, mr: np.ndarray, bandwidth: str) -> np.ndarr
         return 1.0 / (1.0 + d)
 
 
-def _origin_index(years: list[int], origin_year: int | None) -> int:
+def _label_to_year(label: str) -> int | None:
+    text = str(label or "").strip()
+    if len(text) >= 4 and text[:4].isdigit():
+        try:
+            return int(text[:4])
+        except Exception:
+            return None
+    return None
+
+
+def _origin_index(dataset: AlgorithmDataset, origin_year: int | None) -> int:
+    years = dataset.years
     if not years:
         return 0
     if origin_year is None:
         return 0
     target = int(origin_year)
-    for idx, year in enumerate(years):
-        if int(year) >= target:
+    if str(dataset.granularity or "year").strip().lower() == "day" and len(dataset.labels) == len(years):
+        for idx, label in enumerate(dataset.labels):
+            label_year = _label_to_year(label)
+            if label_year is not None and int(label_year) >= target:
+                return idx
+        return max(0, len(years) - 1)
+    for idx, value in enumerate(years):
+        if int(value) >= target:
             return idx
     return max(0, len(years) - 1)
 
@@ -62,8 +79,10 @@ def run_mrnmr(
             "impl": "internal_rewrite",
         }
 
-    absolute_origin_index = _origin_index(dataset.years, origin_year)
+    labels = dataset.labels if len(dataset.labels) == len(dataset.years) else [str(year) for year in dataset.years]
+    absolute_origin_index = _origin_index(dataset, origin_year)
     analysis_years = dataset.years[absolute_origin_index:]
+    analysis_labels = labels[absolute_origin_index:]
     if len(analysis_years) < 3:
         warnings.append("insufficient_points_after_origin")
         return {
@@ -71,7 +90,8 @@ def run_mrnmr(
                 "points": len(analysis_years),
                 "steady_index": None,
                 "tipping_index": absolute_origin_index,
-                "origin_year": int(dataset.years[absolute_origin_index]),
+                "origin_year": _label_to_year(labels[absolute_origin_index]),
+                "origin_time": labels[absolute_origin_index],
             },
             "metrics": [],
             "warnings": warnings,
@@ -94,9 +114,11 @@ def run_mrnmr(
 
     metrics = []
     for idx, year in enumerate(analysis_years):
+        label = analysis_labels[idx] if idx < len(analysis_labels) else str(year)
         metrics.append(
             {
                 "year": int(year),
+                "time_label": label,
                 "misspelling": float(miss[idx]),
                 "correct": float(correct[idx]),
                 "signal_total": float(total_signal[idx]),
@@ -107,19 +129,24 @@ def run_mrnmr(
             }
         )
 
-    origin_year_value = int(analysis_years[0])
+    origin_year_value = _label_to_year(analysis_labels[0]) if analysis_labels else None
+    steady_year_value = _label_to_year(analysis_labels[steady_index]) if analysis_labels else None
     return {
         "summary": {
             "points": len(analysis_years),
             "origin_index": absolute_origin_index,
             "origin_year": origin_year_value,
+            "origin_time": analysis_labels[0] if analysis_labels else None,
             "tipping_index": absolute_origin_index,
             "tipping_year": origin_year_value,
+            "tipping_time": analysis_labels[0] if analysis_labels else None,
             "steady_index": steady_index,
-            "steady_year": int(analysis_years[steady_index]),
+            "steady_year": steady_year_value,
+            "steady_time": analysis_labels[steady_index] if analysis_labels else None,
             "poly_degree": int(poly_degree),
             "signal_definition": "correct_frequency + sum(misspelling_frequency)",
             "noise_definition": "sum(misspelling_frequency)",
+            "time_granularity": str(dataset.granularity or "year"),
         },
         "metrics": metrics,
         "warnings": warnings,
@@ -134,6 +161,7 @@ def to_metric_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
         rows.append(
             {
                 "year": item.get("year"),
+                "time_label": item.get("time_label"),
                 "misspelling": item.get("misspelling"),
                 "correct": item.get("correct"),
                 "signal_total": item.get("signal_total"),

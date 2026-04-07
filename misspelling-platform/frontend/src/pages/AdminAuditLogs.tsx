@@ -1,4 +1,4 @@
-import { Button, Card, Drawer, Input, Space, Table, Tag } from "antd";
+import { Button, Card, Drawer, Input, Space, Table, Tag, Typography, message } from "antd";
 import { useEffect, useMemo, useState } from "react";
 import { api, describeApiError, type AdminAuditResponse } from "../lib/api";
 
@@ -14,8 +14,7 @@ export function AdminAuditLogsPage() {
       const data = await api.adminAuditLogs(200);
       setItems(data.items);
     } catch (e) {
-      // eslint-disable-next-line no-alert
-      window.alert(describeApiError(e));
+      message.error(describeApiError(e));
     } finally {
       setLoading(false);
     }
@@ -29,6 +28,9 @@ export function AdminAuditLogsPage() {
 
   return (
     <Card title="Audit Logs" extra={<Space><Input placeholder="Filter action/target" value={query} onChange={(e) => setQuery(e.target.value)} style={{ width: 220 }} /><Button onClick={() => void refresh()} loading={loading}>Refresh</Button></Space>}>
+      <Typography.Text type="secondary" style={{ display: "block", marginBottom: 12 }}>
+        审计日志用于追踪关键操作链路，点击任意行可查看完整明细。
+      </Typography.Text>
       <Table
         rowKey="id"
         size="small"
