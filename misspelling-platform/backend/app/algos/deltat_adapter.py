@@ -7,31 +7,14 @@ import numpy as np
 from .types import AlgorithmDataset
 
 
-def _label_to_year(label: str) -> int | None:
-    text = str(label or "").strip()
-    if len(text) >= 4 and text[:4].isdigit():
-        try:
-            return int(text[:4])
-        except Exception:
-            return None
-    return None
-
-
-def _origin_index(dataset: AlgorithmDataset, origin_year: int | None) -> int:
-    years = dataset.years
+def _origin_index(years: list[int], origin_year: int | None) -> int:
     if not years:
         return 0
     if origin_year is None:
         return 0
     target = int(origin_year)
-    if str(dataset.granularity or "year").strip().lower() == "day" and len(dataset.labels) == len(years):
-        for idx, label in enumerate(dataset.labels):
-            label_year = _label_to_year(label)
-            if label_year is not None and int(label_year) >= target:
-                return idx
-        return max(0, len(years) - 1)
-    for idx, value in enumerate(years):
-        if int(value) >= target:
+    for idx, year in enumerate(years):
+        if int(year) >= target:
             return idx
     return max(0, len(years) - 1)
 
@@ -73,7 +56,7 @@ def _normalize_signal(values: np.ndarray) -> np.ndarray:
 def _detect_peak_window(
     series: np.ndarray,
     origin_index: int,
-    timeline: list[int],
+    years: list[int],
     window_size: int,
 ) -> dict[str, Any]:
     import pandas as pd
@@ -81,8 +64,8 @@ def _detect_peak_window(
     if len(series) == 0:
         return {
             "origin_year": None,
-            "peak_index": None,
-            "end_index": None,
+            "peak_year": None,
+            "end_year": None,
             "range_source": "empty_series",
         }
 
@@ -103,41 +86,37 @@ def _detect_peak_window(
         if crossing + 1 < len(diff) and diff[crossing] < 0 and diff[crossing + 1] > 0
     ]
 
-    origin_point = int(timeline[safe_origin]) if timeline else int(safe_origin)
+    origin_year = int(years[safe_origin])
     if peak_indices:
-        first_peak_index = int(timeline[safe_origin + peak_indices[0]]) if timeline else int(safe_origin + peak_indices[0])
-        first_valley_index = next(
-            (
-                int(timeline[safe_origin + item]) if timeline else int(safe_origin + item)
-                for item in valley_indices
-                if item > peak_indices[0]
-            ),
+        first_peak_year = int(years[safe_origin + peak_indices[0]])
+        first_valley_year = next(
+            (int(years[safe_origin + item]) for item in valley_indices if item > peak_indices[0]),
             None,
         )
-        if first_valley_index is not None:
+        if first_valley_year is not None:
             return {
-                "origin_year": origin_point,
-                "peak_index": first_peak_index,
-                "end_index": first_valley_index,
+                "origin_year": origin_year,
+                "peak_year": first_peak_year,
+                "end_year": first_valley_year,
                 "range_source": "first_peak_to_first_valley",
             }
         if len(peak_indices) > 1:
             return {
-                "origin_year": origin_point,
-                "peak_index": first_peak_index,
-                "end_index": int(timeline[safe_origin + peak_indices[1]]) if timeline else int(safe_origin + peak_indices[1]),
+                "origin_year": origin_year,
+                "peak_year": first_peak_year,
+                "end_year": int(years[safe_origin + peak_indices[1]]),
                 "range_source": "first_peak_to_second_peak",
             }
         return {
-            "origin_year": origin_point,
-            "peak_index": first_peak_index,
-            "end_index": int(timeline[-1]) if timeline else int(len(series) - 1),
+            "origin_year": origin_year,
+            "peak_year": first_peak_year,
+            "end_year": int(years[-1]),
             "range_source": "first_peak_to_series_end",
         }
     return {
-        "origin_year": origin_point,
-        "peak_index": origin_point,
-        "end_index": int(timeline[-1]) if timeline else int(len(series) - 1),
+        "origin_year": origin_year,
+        "peak_year": origin_year,
+        "end_year": int(years[-1]),
         "range_source": "origin_to_series_end_no_peak",
     }
 
@@ -145,9 +124,9 @@ def _detect_peak_window(
 def _bayesian_bootstrap_case(
     values: np.ndarray,
     window_size: int,
-    start_index: int,
-    end_index: int,
-    base_index: int,
+    start_year: int,
+    end_year: int,
+    base_year: int,
     draw_count: int,
 ) -> tuple[list[float], int]:
     import scipy.stats as ss
@@ -155,7 +134,7 @@ def _bayesian_bootstrap_case(
 
     data = np.asarray(values, dtype=float)
     if len(data) <= 2:
-        return [0.0 for _ in data.tolist()], max(base_index, start_index)
+        return [0.0 for _ in data.tolist()], max(base_year, start_year)
 
     clf = KNN()
     clf.fit(data.reshape(-1, 1))
@@ -179,11 +158,11 @@ def _bayesian_bootstrap_case(
         vars_ = draws * (window_data - means.reshape(safe_draws, 1)) ** 2
         stds.append(float(np.sqrt(vars_.sum(axis=1)).mean()))
 
-    start_offset = max(0, int(start_index) - int(base_index))
-    end_offset = max(start_offset + 1, min(int(end_index) - int(base_index), len(stds)))
+    start_offset = max(0, int(start_year) - int(base_year))
+    end_offset = max(start_offset + 1, min(int(end_year) - int(base_year), len(stds)))
     focus = stds[start_offset:end_offset]
     if not focus:
-        return [0.0 for _ in data.tolist()], int(start_index)
+        return [0.0 for _ in data.tolist()], int(start_year)
 
     smoothed = _exponential_smoothing(focus, alpha=0.3)
     normalized = _normalize(smoothed)
@@ -195,15 +174,15 @@ def _bayesian_bootstrap_case(
         if 0 <= write_index < len(padded):
             padded[write_index] = float(value)
 
-    mutation_index = int(base_index + start_offset + int(np.argmax(np.asarray(normalized, dtype=float))))
-    return padded, mutation_index
+    mutation_year = int(base_year + start_offset + int(np.argmax(np.asarray(normalized, dtype=float))))
+    return padded, mutation_year
 
 
 def _predict_counterfactual(
     correct_signal: np.ndarray,
     total_signal: np.ndarray,
-    actual_mutation_index: int,
-    base_index: int,
+    actual_mutation_year: int,
+    base_year: int,
     random_seed: int,
 ) -> np.ndarray:
     import os
@@ -219,7 +198,7 @@ def _predict_counterfactual(
     tf.random.set_seed(int(random_seed))
     np.random.seed(int(random_seed))
 
-    train_length = max(4, min(len(correct_signal), int(actual_mutation_index) - int(base_index)))
+    train_length = max(4, min(len(correct_signal), int(actual_mutation_year) - int(base_year)))
     fc_wiring = wirings.FullyConnected(8, 1)
     model = keras.models.Sequential(
         [
@@ -248,8 +227,6 @@ def run_delta_t(
     random_seed: int = 42,
 ) -> dict[str, Any]:
     warnings = list(dataset.warnings)
-    labels = dataset.labels if len(dataset.labels) == len(dataset.years) else [str(year) for year in dataset.years]
-    granularity = str(dataset.granularity or "year").strip().lower() or "year"
     if not dataset.series or not dataset.years:
         return {
             "summary": {
@@ -265,11 +242,9 @@ def run_delta_t(
             "impl": "fig6_notebook_port",
         }
 
-    timeline = [int(idx) for idx in range(len(dataset.years))]
-    base_index = 0
-    effective_origin_index = _origin_index(dataset, origin_year)
-    effective_origin_label = labels[effective_origin_index] if labels else str(effective_origin_index)
-    effective_origin_year = _label_to_year(effective_origin_label)
+    base_year = int(dataset.years[0])
+    effective_origin_index = _origin_index(dataset.years, origin_year)
+    effective_origin_year = int(dataset.years[effective_origin_index])
     raw_correct_signal, raw_total_signal = _build_signals(dataset)
     correct_signal = _normalize_signal(raw_correct_signal)
     total_signal = _normalize_signal(raw_total_signal)
@@ -280,7 +255,6 @@ def run_delta_t(
             "summary": {
                 "points": len(total_signal),
                 "origin_year": effective_origin_year,
-                "origin_time": effective_origin_label,
                 "actual_mutation_year": None,
                 "predicted_mutation_year": None,
                 "delta_t_years": None,
@@ -291,45 +265,39 @@ def run_delta_t(
             "impl": "fig6_notebook_port",
         }
 
-    actual_window = _detect_peak_window(total_signal, effective_origin_index, timeline, window_size=7)
-    actual_peak_index = int(actual_window["peak_index"] or effective_origin_index)
-    actual_end_index = int(actual_window["end_index"] or timeline[-1])
-    actual_bootstrap, actual_mutation_index = _bayesian_bootstrap_case(
+    actual_window = _detect_peak_window(total_signal, effective_origin_index, dataset.years, window_size=7)
+    actual_peak_year = int(actual_window["peak_year"] or effective_origin_year)
+    actual_end_year = int(actual_window["end_year"] or dataset.years[-1])
+    actual_bootstrap, actual_mutation_year = _bayesian_bootstrap_case(
         total_signal,
         window_size=5,
-        start_index=actual_peak_index,
-        end_index=actual_end_index,
-        base_index=base_index,
+        start_year=actual_peak_year,
+        end_year=actual_end_year,
+        base_year=base_year,
         draw_count=bootstrap_samples,
     )
 
     predicted_signal = _predict_counterfactual(
         correct_signal=correct_signal,
         total_signal=total_signal,
-        actual_mutation_index=actual_mutation_index,
-        base_index=base_index,
+        actual_mutation_year=actual_mutation_year,
+        base_year=base_year,
         random_seed=random_seed,
     )
-    predicted_start_index = max(0, min(int(actual_mutation_index), len(timeline) - 1))
-    predicted_window = _detect_peak_window(predicted_signal, predicted_start_index, timeline, window_size=5)
-    predicted_peak_index = int(predicted_window["peak_index"] or predicted_start_index)
-    predicted_end_index = int(predicted_window["end_index"] or timeline[-1])
-    predicted_bootstrap, predicted_mutation_index = _bayesian_bootstrap_case(
+    predicted_start_index = _origin_index(dataset.years, actual_mutation_year)
+    predicted_window = _detect_peak_window(predicted_signal, predicted_start_index, dataset.years, window_size=5)
+    predicted_peak_year = int(predicted_window["peak_year"] or actual_mutation_year)
+    predicted_end_year = int(predicted_window["end_year"] or dataset.years[-1])
+    predicted_bootstrap, predicted_mutation_year = _bayesian_bootstrap_case(
         predicted_signal,
         window_size=5,
-        start_index=predicted_peak_index,
-        end_index=predicted_end_index,
-        base_index=base_index,
+        start_year=predicted_peak_year,
+        end_year=predicted_end_year,
+        base_year=base_year,
         draw_count=bootstrap_samples,
     )
 
-    delta_t_steps = int(predicted_mutation_index - actual_mutation_index)
-    if granularity == "day":
-        delta_t_years = float(delta_t_steps / 365.25)
-        delta_t_days = int(delta_t_steps)
-    else:
-        delta_t_years = float(delta_t_steps)
-        delta_t_days = None
+    delta_t_years = float(predicted_mutation_year - actual_mutation_year)
     delay_years = float(max(0.0, delta_t_years))
     raw_miss_signal = np.maximum(raw_total_signal - raw_correct_signal, 0.0)
     correct_share = np.divide(
@@ -340,19 +308,10 @@ def run_delta_t(
     )
 
     events: list[dict[str, Any]] = []
-    actual_mutation_label = labels[actual_mutation_index] if 0 <= actual_mutation_index < len(labels) else None
-    predicted_mutation_label = labels[predicted_mutation_index] if 0 <= predicted_mutation_index < len(labels) else None
-    actual_peak_label = labels[actual_peak_index] if 0 <= actual_peak_index < len(labels) else None
-    predicted_peak_label = labels[predicted_peak_index] if 0 <= predicted_peak_index < len(labels) else None
-    actual_end_label = labels[actual_end_index] if 0 <= actual_end_index < len(labels) else None
-    predicted_end_label = labels[predicted_end_index] if 0 <= predicted_end_index < len(labels) else None
-
-    for idx, axis_value in enumerate(timeline):
-        label = labels[idx] if idx < len(labels) else str(axis_value)
+    for idx, year in enumerate(dataset.years):
         events.append(
             {
-                "year": int(axis_value),
-                "time_label": label,
+                "year": int(year),
                 "correct": float(correct_signal[idx]),
                 "correct_raw": float(raw_correct_signal[idx]),
                 "misspelling_total": float(raw_miss_signal[idx]),
@@ -363,10 +322,10 @@ def run_delta_t(
                 "correct_share": float(correct_share[idx]),
                 "actual_bootstrap": float(actual_bootstrap[idx] if idx < len(actual_bootstrap) else 0.0),
                 "predicted_bootstrap": float(predicted_bootstrap[idx] if idx < len(predicted_bootstrap) else 0.0),
-                "actual_focus": 1 if actual_peak_index <= int(axis_value) <= actual_end_index else 0,
-                "predicted_focus": 1 if predicted_peak_index <= int(axis_value) <= predicted_end_index else 0,
-                "actual_mutation": 1 if int(axis_value) == actual_mutation_index else 0,
-                "predicted_mutation": 1 if int(axis_value) == predicted_mutation_index else 0,
+                "actual_focus": 1 if actual_peak_year <= int(year) <= actual_end_year else 0,
+                "predicted_focus": 1 if predicted_peak_year <= int(year) <= predicted_end_year else 0,
+                "actual_mutation": 1 if int(year) == actual_mutation_year else 0,
+                "predicted_mutation": 1 if int(year) == predicted_mutation_year else 0,
                 "event_threshold": float(event_threshold_quantile),
             }
         )
@@ -374,28 +333,17 @@ def run_delta_t(
     return {
         "word": dataset.word,
         "summary": {
-            "points": len(timeline),
-            "base_year": base_index,
+            "points": len(dataset.years),
+            "base_year": base_year,
             "origin_year": effective_origin_year,
-            "origin_time": effective_origin_label,
-            "actual_peak_year": _label_to_year(str(actual_peak_label or "")),
-            "actual_peak_time": actual_peak_label,
-            "actual_range_end_year": _label_to_year(str(actual_end_label or "")),
-            "actual_range_end_time": actual_end_label,
-            "predicted_peak_year": _label_to_year(str(predicted_peak_label or "")),
-            "predicted_peak_time": predicted_peak_label,
-            "predicted_range_end_year": _label_to_year(str(predicted_end_label or "")),
-            "predicted_range_end_time": predicted_end_label,
-            "actual_mutation_year": _label_to_year(str(actual_mutation_label or "")),
-            "actual_mutation_time": actual_mutation_label,
-            "actual_mutation_index": int(actual_mutation_index),
-            "predicted_mutation_year": _label_to_year(str(predicted_mutation_label or "")),
-            "predicted_mutation_time": predicted_mutation_label,
-            "predicted_mutation_index": int(predicted_mutation_index),
+            "actual_peak_year": actual_peak_year,
+            "actual_range_end_year": actual_end_year,
+            "predicted_peak_year": predicted_peak_year,
+            "predicted_range_end_year": predicted_end_year,
+            "actual_mutation_year": int(actual_mutation_year),
+            "predicted_mutation_year": int(predicted_mutation_year),
             "delta_t_years": delta_t_years,
-            "delta_t_days": delta_t_days,
             "delay_years": delay_years,
-            "time_granularity": granularity,
             "signal_definition": "all_signal = correct_frequency + sum(misspelling_frequency)",
             "signal_scale": "correct and all_signal are min-max normalized independently to match the Fig6 workbook scale",
             "counterfactual_definition": "CfC notebook port trained from normalized correct series to reconstruct the normalized notebook counterfactual trajectory",
@@ -403,8 +351,7 @@ def run_delta_t(
             "method": "fig6_notebook_port",
         },
         "series": {
-            "years": [int(item) for item in timeline],
-            "time_labels": [str(label) for label in labels],
+            "years": [int(year) for year in dataset.years],
             "actual_total": [float(v) for v in total_signal.tolist()],
             "observed_correct": [float(v) for v in correct_signal.tolist()],
             "misspelling_total": [float(v) for v in raw_miss_signal.tolist()],
@@ -418,36 +365,24 @@ def run_delta_t(
         "ranges": {
             "actual": {
                 "origin_year": effective_origin_year,
-                "origin_time": effective_origin_label,
-                "peak_year": _label_to_year(str(actual_peak_label or "")),
-                "peak_time": actual_peak_label,
-                "end_year": _label_to_year(str(actual_end_label or "")),
-                "end_time": actual_end_label,
+                "peak_year": actual_peak_year,
+                "end_year": actual_end_year,
                 "range_source": actual_window["range_source"],
             },
             "predicted": {
-                "origin_year": _label_to_year(str(actual_mutation_label or "")),
-                "origin_time": actual_mutation_label,
-                "peak_year": _label_to_year(str(predicted_peak_label or "")),
-                "peak_time": predicted_peak_label,
-                "end_year": _label_to_year(str(predicted_end_label or "")),
-                "end_time": predicted_end_label,
+                "origin_year": int(actual_mutation_year),
+                "peak_year": predicted_peak_year,
+                "end_year": predicted_end_year,
                 "range_source": predicted_window["range_source"],
             },
         },
         "events": events,
         "delta_t_stats": {
-            "actual_mutation_year": _label_to_year(str(actual_mutation_label or "")),
-            "actual_mutation_time": actual_mutation_label,
-            "actual_mutation_index": int(actual_mutation_index),
-            "predicted_mutation_year": _label_to_year(str(predicted_mutation_label or "")),
-            "predicted_mutation_time": predicted_mutation_label,
-            "predicted_mutation_index": int(predicted_mutation_index),
+            "actual_mutation_year": int(actual_mutation_year),
+            "predicted_mutation_year": int(predicted_mutation_year),
             "delta_t_years": delta_t_years,
-            "delta_t_days": delta_t_days,
             "delay_years": delay_years,
             "tipping_year": effective_origin_year,
-            "tipping_time": effective_origin_label,
         },
         "warnings": warnings,
         "mode": dataset.mode,
@@ -461,7 +396,6 @@ def to_event_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
         rows.append(
             {
                 "year": item.get("year"),
-                "time_label": item.get("time_label"),
                 "correct": item.get("correct"),
                 "misspelling_total": item.get("misspelling_total"),
                 "actual_total": item.get("actual_total"),

@@ -5,9 +5,9 @@ import {
   PlusOutlined,
   RobotOutlined,
 } from "@ant-design/icons";
-import { Button, Input, InputNumber, Select, Space, Tag, Tooltip, Typography, message } from "antd";
+import { Button, Input, InputNumber, Space, Tag, Tooltip, Typography, message } from "antd";
 import { useEffect, useMemo, useState } from "react";
-import type { DataSourceKey, OriginYearSuggestResponse, VariantCacheItem } from "../lib/api";
+import type { OriginYearSuggestResponse, VariantCacheItem } from "../lib/api";
 import { api, describeApiError } from "../lib/api";
 
 type SuggestedVariant = {
@@ -34,18 +34,11 @@ function parseManualValues(value: string) {
   return uniqVariants("", value.split(/[\n,，;；\s]+/g).filter(Boolean));
 }
 
-function summarizeRejectedVariants(items: Array<{ variant: string }> | undefined, limit = 6) {
-  const values = (items || []).map((item) => normalizeWord(item.variant)).filter(Boolean);
-  if (values.length === 0) return "";
-  return values.slice(0, limit).join(", ");
-}
-
 export function AlgorithmTermBuilder({
   word,
   variants,
   originYear,
   showOriginYear = false,
-  dataSource = "gbnc",
   startYear,
   endYear,
   smoothing,
@@ -53,13 +46,11 @@ export function AlgorithmTermBuilder({
   onWordChange,
   onVariantsChange,
   onOriginYearChange,
-  onDataSourceChange,
 }: {
   word: string;
   variants: string[];
   originYear?: number | null;
   showOriginYear?: boolean;
-  dataSource?: DataSourceKey;
   startYear?: number;
   endYear?: number;
   smoothing?: number;
@@ -67,7 +58,6 @@ export function AlgorithmTermBuilder({
   onWordChange: (value: string) => void;
   onVariantsChange: (values: string[]) => void;
   onOriginYearChange?: (value?: number) => void;
-  onDataSourceChange?: (value: DataSourceKey) => void;
 }) {
   const [manualInput, setManualInput] = useState("");
   const [cacheEnabled, setCacheEnabled] = useState(false);
@@ -129,29 +119,13 @@ export function AlgorithmTermBuilder({
     onVariantsChange(uniqVariants(normalizedWord, variants.filter((item) => normalizeWord(item) !== target)));
   };
 
-  const addManualValues = async () => {
+  const addManualValues = () => {
     const parsed = parseManualValues(manualInput);
     if (parsed.length === 0) {
       message.info("请输入要加入算法的错拼变体。");
       return;
     }
-    try {
-      const review = await api.reviewVariants(normalizedWord, parsed);
-      const accepted = uniqVariants(normalizedWord, review.accepted_variants || review.variants || []);
-      if (accepted.length > 0) {
-        mergeVariants(accepted);
-      }
-      const rejectedText = summarizeRejectedVariants(review.rejected_variants);
-      if (accepted.length > 0 && rejectedText) {
-        message.warning(`已过滤合法词：${rejectedText}`);
-      } else if (accepted.length === 0 && rejectedText) {
-        message.warning(`未加入任何变体，以下是合法词：${rejectedText}`);
-        return;
-      }
-    } catch (e) {
-      message.error(describeApiError(e));
-      return;
-    }
+    mergeVariants(parsed);
     setManualInput("");
   };
 
@@ -181,10 +155,6 @@ export function AlgorithmTermBuilder({
         source: resp.source || "llm",
       }));
       setSuggestions(next);
-      const rejectedText = summarizeRejectedVariants(resp.rejected_variants);
-      if (rejectedText) {
-        message.info(`已自动剔除合法词：${rejectedText}`);
-      }
       if (next.length === 0) {
         message.info("当前没有拿到新的推荐变体。");
       }
@@ -209,7 +179,6 @@ export function AlgorithmTermBuilder({
         endYear,
         smoothing,
         corpus,
-        dataSource,
       });
       setOriginSuggestion(resp);
       if (typeof resp.suggested_year === "number") {
@@ -233,20 +202,7 @@ export function AlgorithmTermBuilder({
           <Input value={word} onChange={(e) => onWordChange(e.target.value)} placeholder="internet" />
         </div>
 
-        <div className="algo-field algo-span-3">
-          <span className="algo-field-label">Data Source</span>
-          <Select
-            value={dataSource}
-            onChange={(value) => onDataSourceChange?.(value as DataSourceKey)}
-            options={[
-              { value: "gbnc", label: "GBNC" },
-              { value: "gdelt", label: "GDELT" },
-            ]}
-            style={{ width: "100%" }}
-          />
-        </div>
-
-        <div className="algo-field algo-span-6">
+        <div className="algo-field algo-span-7">
           <span className="algo-field-label">Variant Intake</span>
           <Space wrap>
             <Button icon={<DatabaseOutlined />} loading={loadingCache} onClick={importCache} disabled={!normalizedWord}>
@@ -368,7 +324,6 @@ export function AlgorithmTermBuilder({
             {originSuggestion.reasoning || "系统会优先尝试 LLM 的词义起点建议，在不可用时再退回本地语料证据。"}
           </Typography.Paragraph>
           <Space wrap>
-            <Tag color="blue">{String(originSuggestion.dataset_source || dataSource).toUpperCase()}</Tag>
             {typeof originSuggestion.suggested_year === "number" ? <Tag color="success">Suggested {originSuggestion.suggested_year}</Tag> : null}
             {typeof originSuggestion.basis_year === "number" ? <Tag>Basis {originSuggestion.basis_year}</Tag> : null}
             {typeof originSuggestion.correct_first_year === "number" ? <Tag>Correct first year {originSuggestion.correct_first_year}</Tag> : null}

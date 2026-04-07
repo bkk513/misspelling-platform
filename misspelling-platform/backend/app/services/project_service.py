@@ -1,14 +1,7 @@
-﻿import base64
-import io
-import re
-from typing import Any
-
-import pandas as pd
-from fastapi import HTTPException
+﻿from fastapi import HTTPException
 
 from ..db.audit_logs_repo import insert_audit_log
 from ..db.lexicon_repo import get_or_create_term
-from ..providers.llm_bailian import strict_json_completion
 from ..db.projects_repo import (
     add_project_terms,
     bind_project_task,
@@ -70,88 +63,6 @@ def _cohort_color(name: str) -> str:
         "custom": "#6b7280",
     }
     return palette.get(key, "#4f7cff")
-
-
-def _decode_import_content(content_base64: str) -> bytes:
-    raw = str(content_base64 or "").strip()
-    if not raw:
-        raise HTTPException(status_code=400, detail="file content is required")
-    try:
-        return base64.b64decode(raw, validate=False)
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"invalid base64 payload: {exc}") from exc
-
-
-def _extract_text_from_import(filename: str, raw_bytes: bytes) -> str:
-    lower_name = str(filename or "").strip().lower()
-    if lower_name.endswith((".xlsx", ".xls")):
-        try:
-            workbook = pd.read_excel(io.BytesIO(raw_bytes), sheet_name=None, header=None, dtype=str)
-        except Exception as exc:
-            raise HTTPException(status_code=400, detail=f"spreadsheet parse failed: {exc}") from exc
-        parts: list[str] = []
-        for sheet_name, frame in workbook.items():
-            parts.append(f"[sheet:{sheet_name}]")
-            for row in frame.fillna("").astype(str).values.tolist():
-                line = " | ".join(str(cell or "").strip() for cell in row if str(cell or "").strip())
-                if line:
-                    parts.append(line)
-        return "\n".join(parts)
-    for encoding in ("utf-8", "utf-8-sig", "gbk", "latin-1"):
-        try:
-            return raw_bytes.decode(encoding)
-        except Exception:
-            continue
-    raise HTTPException(status_code=400, detail="file decode failed")
-
-
-def _fallback_extract_terms(text: str) -> list[str]:
-    terms: list[str] = []
-    seen: set[str] = set()
-    for match in re.finditer(r"[A-Za-z][A-Za-z0-9_-]{1,63}", str(text or "")):
-        token = match.group(0).strip().lower()
-        if len(token) < 2 or token in seen:
-            continue
-        seen.add(token)
-        terms.append(token)
-        if len(terms) >= 300:
-            break
-    return terms
-
-
-def _llm_extract_terms(text: str, filename: str, actor_user_id: int | None) -> tuple[list[str], str, list[str]]:
-    preview = str(text or "")[:12000]
-    llm = strict_json_completion(
-        prompt=(
-            "Return JSON only: {\"terms\": [..]}. "
-            "Extract the English terms or keywords that should be added into a research term list. "
-            "Keep only concise lexical terms, lowercase them, remove duplicates, ignore prose and metadata. "
-            f"Filename: {filename}\nContent:\n{preview}"
-        ),
-        actor_user_id=actor_user_id,
-        action="PROJECT_TERM_IMPORT",
-        audit_meta={"filename": filename, "chars": len(preview)},
-        temperature=0.1,
-        timeout_seconds=25,
-    )
-    parsed = llm.get("parsed")
-    if isinstance(parsed, dict):
-        raw_terms = parsed.get("terms") or parsed.get("words") or []
-        if isinstance(raw_terms, list):
-            terms = []
-            seen = set()
-            for item in raw_terms:
-                token = str(item or "").strip().lower()
-                if len(token) < 2 or len(token) > 64 or token in seen:
-                    continue
-                if not re.fullmatch(r"[a-z][a-z0-9 _-]{1,63}", token):
-                    continue
-                seen.add(token)
-                terms.append(token)
-            if terms:
-                return terms[:300], str(llm.get("source") or "llm"), [str(w) for w in (llm.get("warnings") or [])]
-    fallback = _fallback_extract_terms(text)
-    return fallback, "fallback", [str(w) for w in (llm.get("warnings") or [])]
 
 
 def create_project_payload(name: str, description: str | None, current_user: dict | None):
@@ -223,44 +134,6 @@ def add_project_terms_payload(project_id: int, words: list[str], category: str |
         meta={"added": added, "category": normalized_category, "synced_to_cohort": bool(cohort)},
     )
     return {"project_id": project_id, "added": added, "category": normalized_category, "cohort_id": int(cohort["id"]) if cohort else None}
-
-
-def import_project_terms_payload(
-    project_id: int,
-    filename: str,
-    content_base64: str,
-    target_cohort: str | None,
-    current_user: dict | None,
-):
-    _ensure_project_access(project_id, current_user)
-    owner_user_id = _owner_id(current_user)
-    raw_bytes = _decode_import_content(content_base64)
-    extracted_text = _extract_text_from_import(filename, raw_bytes)
-    terms, source, warnings = _llm_extract_terms(extracted_text, filename, owner_user_id)
-    if not terms:
-        raise HTTPException(status_code=400, detail="no importable terms found")
-    result = add_project_terms_payload(project_id, terms, target_cohort, current_user)
-    insert_audit_log(
-        action="PROJECT_IMPORT_TERMS",
-        actor_user_id=owner_user_id,
-        target_type="project",
-        target_id=str(project_id),
-        meta={
-            "filename": filename,
-            "target_cohort": _normalize_category(target_cohort),
-            "extracted_count": len(terms),
-            "source": source,
-            "warnings": warnings,
-        },
-    )
-    return {
-        **result,
-        "filename": filename,
-        "extracted_count": len(terms),
-        "extracted_terms": terms[:80],
-        "extract_source": source,
-        "warnings": warnings,
-    }
 
 
 def list_project_tasks_payload(project_id: int, current_user: dict | None, limit: int = 100):

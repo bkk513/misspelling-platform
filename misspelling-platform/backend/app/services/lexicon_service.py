@@ -1,5 +1,4 @@
 ﻿from pathlib import Path
-from datetime import date
 from typing import Any
 
 from ..db.audit_logs_repo import insert_audit_log
@@ -19,10 +18,9 @@ from ..db.variant_cache_repo import (
     upsert_variants as upsert_cached_variants,
 )
 from ..providers.llm_bailian import suggest_origin_year as llm_suggest_origin_year, suggest_variants
-from .external_data_service import pull_external_series_payload
+from .gbnc_service import pull_gbnc_with_fallback
 from .dictionary_service import enrich_term, search_terms
 from .variant_dictionary_service import suggest_from_dictionary
-from .variant_review_service import review_misspelling_variants
 
 ORIGIN_YEAR_SEED_PATH = Path(__file__).resolve().parent.parent / "assets" / "origin_year_seed.txt"
 _ORIGIN_YEAR_SEEDS: dict[str, int] | None = None
@@ -40,58 +38,6 @@ def _owner_id(current_user: dict | None) -> int | None:
 
 def _normalize_word(word: str) -> str:
     return str(word or "").strip().lower()
-
-
-def _merge_variant_warnings(*parts: Any) -> list[str]:
-    warnings: list[str] = []
-    for part in parts:
-        if not part:
-            continue
-        for raw in part if isinstance(part, list) else [part]:
-            msg = str(raw or "").strip()
-            if msg and msg not in warnings:
-                warnings.append(msg)
-    return warnings
-
-
-def _review_variant_rows(
-    rows: list[dict[str, Any]],
-    *,
-    word_key: str,
-    variant_key: str,
-) -> tuple[list[dict[str, Any]], list[str], list[dict[str, Any]], str | None]:
-    grouped: dict[str, list[str]] = {}
-    for row in rows:
-        word = _normalize_word(str(row.get(word_key) or ""))
-        variant = _normalize_word(str(row.get(variant_key) or ""))
-        if not word or not variant:
-            continue
-        grouped.setdefault(word, []).append(variant)
-
-    accepted_by_word: dict[str, set[str]] = {}
-    warnings: list[str] = []
-    rejected: list[dict[str, Any]] = []
-    filter_policy: str | None = None
-
-    for word, variants in grouped.items():
-        review = review_misspelling_variants(word, variants)
-        accepted_by_word[word] = set(str(v) for v in (review.get("accepted_variants") or []))
-        filter_policy = str(review.get("filter_policy") or filter_policy or "") or filter_policy
-        warnings = _merge_variant_warnings(warnings, review.get("warnings"))
-        for item in review.get("rejected_variants") or []:
-            row = dict(item)
-            row["word"] = word
-            rejected.append(row)
-
-    filtered_rows: list[dict[str, Any]] = []
-    for row in rows:
-        word = _normalize_word(str(row.get(word_key) or ""))
-        variant = _normalize_word(str(row.get(variant_key) or ""))
-        accepted = accepted_by_word.get(word)
-        if accepted is None or variant in accepted:
-            filtered_rows.append(row)
-
-    return filtered_rows, warnings, rejected, filter_policy
 
 
 def _load_origin_year_seeds() -> dict[str, int]:
@@ -127,14 +73,7 @@ def _infer_observed_origin_years(series_rows: list[dict[str, Any]]) -> tuple[int
         points = row.get("points") or []
         for point in points:
             try:
-                raw_year = point.get("year")
-                raw_date = str(point.get("date") or "").strip()
-                if raw_year is not None:
-                    year = int(raw_year)
-                elif raw_date:
-                    year = int(date.fromisoformat(raw_date[:10]).year)
-                else:
-                    continue
+                year = int(point.get("year"))
                 value = float(point.get("value") or 0.0)
             except Exception:
                 continue
@@ -165,71 +104,55 @@ def suggest_and_cache_variants(
     dictionary_hit = suggest_from_dictionary(word=normalized_word, k=k)
     if dictionary_hit.get("found"):
         term_id = term["id"] if term else get_or_create_term(normalized_word, owner_user_id=owner_user_id)
-        review = review_misspelling_variants(normalized_word, [str(v) for v in (dictionary_hit.get("variants") or [])])
-        variants = [str(v) for v in (review.get("accepted_variants") or [])]
-        warnings = _merge_variant_warnings(review.get("warnings"))
-        if not variants:
-            dictionary_hit = {"found": False}
-        else:
-            if persist and owner_user_id is not None:
-                upsert_cached_variants(owner_user_id, normalized_word, variants, source="dictionary")
-                upsert_term_variants(int(term_id), variants, source="dictionary", owner_user_id=owner_user_id)
-            insert_audit_log(
-                action="LEXICON_VARIANT_SUGGEST",
-                actor_user_id=owner_user_id,
-                target_type="term",
-                target_id=str(term_id),
-                meta={
-                    "word": normalized_word,
-                    "variants_count": len(variants),
-                    "source": "dictionary",
-                    "dictionary_path": dictionary_hit.get("dictionary_path"),
-                    "warnings": warnings,
-                    "rejected_variants": review.get("rejected_variants") or [],
-                    "persist": bool(persist),
-                    "prefer_cache": bool(prefer_cache),
-                },
-            )
-            return {
+        variants = [str(v) for v in (dictionary_hit.get("variants") or [])]
+        if persist and owner_user_id is not None:
+            upsert_cached_variants(owner_user_id, normalized_word, variants, source="dictionary")
+            upsert_term_variants(int(term_id), variants, source="dictionary", owner_user_id=owner_user_id)
+        insert_audit_log(
+            action="LEXICON_VARIANT_SUGGEST",
+            actor_user_id=owner_user_id,
+            target_type="term",
+            target_id=str(term_id),
+            meta={
                 "word": normalized_word,
-                "variants": variants,
-                "accepted_variants": variants,
-                "rejected_variants": review.get("rejected_variants") or [],
-                "filter_policy": review.get("filter_policy"),
+                "variants_count": len(variants),
                 "source": "dictionary",
-                "warnings": warnings,
-                "llm_error": None,
-                "term_id": int(term_id),
-            }
+                "dictionary_path": dictionary_hit.get("dictionary_path"),
+                "warnings": [],
+                "persist": bool(persist),
+                "prefer_cache": bool(prefer_cache),
+            },
+        )
+        return {
+            "word": normalized_word,
+            "variants": variants,
+            "source": "dictionary",
+            "warnings": [],
+            "llm_error": None,
+            "term_id": int(term_id),
+        }
 
     if prefer_cache and owner_user_id is not None:
         cached = list_cached_variants(owner_user_id, word=normalized_word, limit=max(k, 200))
-        review = review_misspelling_variants(normalized_word, [str(v["variant"]) for v in cached])
-        cached_values = [str(v) for v in (review.get("accepted_variants") or [])]
+        cached_values = [str(v["variant"]) for v in cached]
         if cached_values:
             term_id = term["id"] if term else get_or_create_term(normalized_word, owner_user_id=owner_user_id)
             return {
                 "word": normalized_word,
                 "variants": cached_values[:k],
-                "accepted_variants": cached_values[:k],
-                "rejected_variants": review.get("rejected_variants") or [],
-                "filter_policy": review.get("filter_policy"),
                 "source": "cache",
-                "warnings": _merge_variant_warnings(review.get("warnings")),
+                "warnings": [],
                 "llm_error": None,
                 "term_id": int(term_id),
             }
 
     suggested = suggest_variants(normalized_word, k=k, actor_user_id=owner_user_id)
-    review = review_misspelling_variants(normalized_word, suggested["variants"])
-    accepted_variants = [str(v) for v in (review.get("accepted_variants") or [])]
-    merged_warnings = _merge_variant_warnings(suggested.get("warnings"), review.get("warnings"))
     term_id = term["id"] if term else get_or_create_term(normalized_word, owner_user_id=owner_user_id)
     if persist and owner_user_id is not None:
-        upsert_cached_variants(owner_user_id, normalized_word, accepted_variants, source=str(suggested["source"]))
+        upsert_cached_variants(owner_user_id, normalized_word, suggested["variants"], source=str(suggested["source"]))
         upsert_term_variants(
             int(term_id),
-            accepted_variants,
+            suggested["variants"],
             source=str(suggested["source"]),
             owner_user_id=owner_user_id,
         )
@@ -240,22 +163,18 @@ def suggest_and_cache_variants(
         target_id=str(term_id),
         meta={
             "word": normalized_word,
-            "variants_count": len(accepted_variants),
+            "variants_count": len(suggested["variants"]),
             "source": suggested["source"],
-            "warnings": merged_warnings,
-            "rejected_variants": review.get("rejected_variants") or [],
+            "warnings": suggested.get("warnings") or [],
             "persist": bool(persist),
             "prefer_cache": bool(prefer_cache),
         },
     )
     return {
         "word": normalized_word,
-        "variants": accepted_variants,
-        "accepted_variants": accepted_variants,
-        "rejected_variants": review.get("rejected_variants") or [],
-        "filter_policy": review.get("filter_policy"),
+        "variants": suggested["variants"],
         "source": suggested["source"],
-        "warnings": merged_warnings,
+        "warnings": suggested.get("warnings") or [],
         "llm_error": suggested.get("llm_error"),
         "term_id": int(term_id),
     }
@@ -268,33 +187,30 @@ def suggest_origin_year_payload(
     end_year: int = 2019,
     corpus: str = "eng_2019",
     smoothing: int = 0,
-    data_source: str = "gbnc",
     current_user: dict | None = None,
 ):
     normalized_word = _normalize_word(word)
-    review = review_misspelling_variants(normalized_word, variants or [])
-    cleaned_variants = [str(v) for v in (review.get("accepted_variants") or [])]
+    cleaned_variants = [_normalize_word(item) for item in (variants or []) if _normalize_word(item) and _normalize_word(item) != normalized_word]
     seeds = _load_origin_year_seeds()
     seed_year = seeds.get(normalized_word)
     basis_year = seed_year
     correct_first_year: int | None = None
     dataset_source = None
-    warnings: list[str] = _merge_variant_warnings(review.get("warnings"))
+    warnings: list[str] = []
 
     if basis_year is None:
-        pulled = pull_external_series_payload(
-            word=normalized_word,
+        pulled = pull_gbnc_with_fallback(
+            term=normalized_word,
             variants=cleaned_variants,
             start_year=int(start_year),
             end_year=int(end_year),
             corpus=str(corpus or "eng_2019"),
             smoothing=max(0, int(smoothing)),
-            data_source=data_source,
-            current_user=current_user,
+            actor_user_id=_owner_id(current_user),
         )
         dataset_source = str(pulled.get("source") or "")
         warnings.extend(str(item) for item in (pulled.get("warnings") or []))
-        if dataset_source.upper() not in {"STUB", ""}:
+        if dataset_source.upper() != "STUB":
             basis_year, correct_first_year = _infer_observed_origin_years(pulled.get("series") or [])
 
     llm_result = llm_suggest_origin_year(
@@ -364,8 +280,6 @@ def suggest_origin_year_payload(
         "dataset_source": dataset_source,
         "reasoning": reasoning,
         "warnings": unique_warnings,
-        "rejected_variants": review.get("rejected_variants") or [],
-        "filter_policy": review.get("filter_policy"),
     }
 
 
@@ -390,12 +304,6 @@ def get_term_payload(term_id: int, current_user: dict | None = None):
     if not term:
         return {"id": term_id, "found": False}
     variants = list_term_variants(term_id, owner_user_id=_owner_id(current_user), include_all=_is_admin(current_user))
-    variant_rows = [{**dict(v), "canonical": str(term["canonical"])} for v in variants]
-    reviewed_rows, warnings, rejected_variants, filter_policy = _review_variant_rows(
-        variant_rows,
-        word_key="canonical",
-        variant_key="variant",
-    ) if variant_rows else ([], [], [], None)
     attrs = enrich_term(str(term["canonical"]))
     return {
         "id": int(term["id"]),
@@ -404,10 +312,7 @@ def get_term_payload(term_id: int, current_user: dict | None = None):
         "language": term.get("language"),
         "owner_user_id": term.get("owner_user_id"),
         "attributes": attrs,
-        "variants": reviewed_rows if variants else [],
-        "warnings": warnings,
-        "rejected_variants": rejected_variants,
-        "filter_policy": filter_policy,
+        "variants": [dict(v) for v in variants],
     }
 
 
@@ -437,11 +342,6 @@ def list_variant_cache_payload(current_user: dict, word: str = "", limit: int = 
         word=_normalize_word(word) if word else None,
         limit=limit,
     )
-    reviewed_rows, warnings, rejected_variants, filter_policy = _review_variant_rows(
-        [dict(r) for r in rows],
-        word_key="word",
-        variant_key="variant",
-    ) if rows else ([], [], [], None)
     return {
         "items": [
             {
@@ -453,11 +353,8 @@ def list_variant_cache_payload(current_user: dict, word: str = "", limit: int = 
                 "created_at": r.get("created_at"),
                 "updated_at": r.get("updated_at"),
             }
-            for r in reviewed_rows
-        ],
-        "warnings": warnings,
-        "rejected_variants": rejected_variants,
-        "filter_policy": filter_policy,
+            for r in rows
+        ]
     }
 
 
@@ -496,16 +393,9 @@ def save_variant_cache_payload(
 ):
     owner_user_id = _owner_id(current_user)
     normalized_word = _normalize_word(word)
-    review = review_misspelling_variants(normalized_word, variants)
-    cleaned = [str(v) for v in (review.get("accepted_variants") or [])]
+    cleaned = [_normalize_word(v) for v in variants if _normalize_word(v)]
     if not normalized_word or not cleaned:
-        return {
-            "saved": 0,
-            "variants": [],
-            "rejected_variants": review.get("rejected_variants") or [],
-            "warnings": _merge_variant_warnings(review.get("warnings")),
-            "filter_policy": review.get("filter_policy"),
-        }
+        return {"saved": 0}
     saved = upsert_cached_variants(
         owner_user_id=owner_user_id or 0,
         word=normalized_word,
@@ -520,17 +410,9 @@ def save_variant_cache_payload(
             "word": normalized_word,
             "saved": saved,
             "source": source or "manual",
-            "rejected_variants": review.get("rejected_variants") or [],
-            "warnings": _merge_variant_warnings(review.get("warnings")),
         },
     )
-    return {
-        "saved": saved,
-        "variants": cleaned,
-        "rejected_variants": review.get("rejected_variants") or [],
-        "warnings": _merge_variant_warnings(review.get("warnings")),
-        "filter_policy": review.get("filter_policy"),
-    }
+    return {"saved": saved}
 
 
 def admin_list_variant_cache_payload(limit: int = 300, user_id: int | None = None, word: str | None = None):
@@ -539,11 +421,6 @@ def admin_list_variant_cache_payload(limit: int = 300, user_id: int | None = Non
         word=_normalize_word(word or "") or None,
         limit=limit,
     )
-    reviewed_rows, warnings, rejected_variants, filter_policy = _review_variant_rows(
-        [dict(r) for r in rows],
-        word_key="word",
-        variant_key="variant",
-    ) if rows else ([], [], [], None)
     return {
         "items": [
             {
@@ -556,11 +433,8 @@ def admin_list_variant_cache_payload(limit: int = 300, user_id: int | None = Non
                 "created_at": r.get("created_at"),
                 "updated_at": r.get("updated_at"),
             }
-            for r in reviewed_rows
-        ],
-        "warnings": warnings,
-        "rejected_variants": rejected_variants,
-        "filter_policy": filter_policy,
+            for r in rows
+        ]
     }
 
 

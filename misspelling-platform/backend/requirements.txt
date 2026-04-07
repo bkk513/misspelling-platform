@@ -20,4 +20,3 @@ pyod==2.0.5
 ncps==1.0.1
 tensorflow==2.21.0
 grpcio==1.80.0
-pyspellchecker==0.8.1

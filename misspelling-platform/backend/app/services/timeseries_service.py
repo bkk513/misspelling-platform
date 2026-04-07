@@ -119,10 +119,7 @@ def persist_simulation_external_series(
     payload: dict[str, Any],
 ):
     owner_user_id = get_task_owner(task_id)
-    summary = payload.get("summary") if isinstance(payload.get("summary"), dict) else {}
-    granularity = str(summary.get("time_granularity") or payload.get("time_granularity") or "year").strip().lower()
-    granularity = "day" if granularity == "day" else "year"
-    source_id = ensure_data_source(name="simulation_abm", granularity=granularity)
+    source_id = ensure_data_source(name="simulation_abm", granularity="year")
     canonical = (word or "simulation").strip().lower() or "simulation"
     term_id = ensure_term(canonical=canonical, category="custom", language="en", owner_user_id=owner_user_id)
     rows = list(payload.get("series_rows") or [])
@@ -139,50 +136,16 @@ def persist_simulation_external_series(
     ]
     total_points = 0
     variants: list[str] = []
-    parsed_timeline: list[date] = []
-    for row in rows:
-        if granularity == "day":
-            raw_label = str(row.get("time_label") or row.get("label") or "").strip()
-            label_text = raw_label.split("T", 1)[0][:10] if raw_label else ""
-            point_date: date | None = None
-            if label_text:
-                try:
-                    point_date = date.fromisoformat(label_text)
-                except Exception:
-                    point_date = None
-            if point_date is None:
-                try:
-                    day_offset = max(0, int(row.get("year") or 0))
-                except Exception:
-                    day_offset = 0
-                point_date = date(2000, 1, 1) + timedelta(days=day_offset)
-            parsed_timeline.append(point_date)
-            continue
-
-        raw_year = row.get("year")
-        if raw_year in (None, ""):
-            raw_year = _extract_year_from_label(str(row.get("time_label") or row.get("label") or ""))
-        try:
-            year_value = int(raw_year)
-        except Exception:
-            year_value = date.today().year
-        year_value = max(1, min(9999, year_value))
-        parsed_timeline.append(date(year_value, 1, 1))
-
-    if parsed_timeline:
-        window_start = min(parsed_timeline)
-        window_end = max(parsed_timeline)
-    else:
-        today = date.today()
-        window_start = today
-        window_end = today
+    years = [int(row.get("year") or date.today().year) for row in rows]
+    window_start = date(min(years), 1, 1)
+    window_end = date(max(years), 1, 1)
 
     for variant_label, field in series_defs:
         series_id = create_series(
             term_id=term_id,
             variant_id=ensure_variant(term_id, variant_label, owner_user_id=owner_user_id),
             source_id=source_id,
-            granularity=granularity,
+            granularity="year",
             window_start=window_start,
             window_end=window_end,
             units="relative_frequency",
@@ -196,27 +159,16 @@ def persist_simulation_external_series(
             },
             owner_user_id=owner_user_id,
         )
-        points = []
-        for idx, row in enumerate(rows):
-            if idx >= len(parsed_timeline):
-                continue
-            points.append({"t": parsed_timeline[idx], "value": float(row.get(field) or 0.0)})
+        points = [
+            {"t": date(int(row.get("year") or date.today().year), 1, 1), "value": float(row.get(field) or 0.0)}
+            for row in rows
+        ]
         if points:
             insert_series_points(series_id, points)
             total_points += len(points)
             variants.append(variant_label)
 
     return {"series_count": len(variants), "point_count": total_points, "variants": variants}
-
-
-def _extract_year_from_label(label: str) -> int | None:
-    text = str(label or "").strip()
-    if len(text) >= 4 and text[:4].isdigit():
-        try:
-            return int(text[:4])
-        except Exception:
-            return None
-    return None
 
 
 def get_task_timeseries_summary(task_id: str, current_user: dict | None = None, guest_key: str | None = None):
@@ -340,15 +292,8 @@ def persist_word_analysis_external_series(
     smoothing: int | None = None,
 ):
     owner_user_id = get_task_owner(task_id)
-    payload_source = str(payload.get("source", "")).upper()
-    if payload_source == "GBNC":
-        source_name = "GBNC"
-    elif payload_source == "GDELT":
-        source_name = "GDELT"
-    else:
-        source_name = "stub_local"
-    granularity = str(payload.get("granularity") or "year").strip().lower() or "year"
-    source_id = ensure_data_source(name=source_name, granularity=granularity)
+    source_name = "GBNC" if str(payload.get("source", "")).upper() == "GBNC" else "stub_local"
+    source_id = ensure_data_source(name=source_name, granularity="year")
     canonical = (word or "word").strip().lower()
     term_id = ensure_term(canonical=canonical, category="custom", language="en", owner_user_id=owner_user_id)
     meta_corpus = str(corpus or payload.get("corpus") or "").strip() or None
@@ -370,36 +315,20 @@ def persist_word_analysis_external_series(
         variants.append(variant)
         variant_id = None if variant == canonical else ensure_variant(term_id, variant, owner_user_id=owner_user_id)
 
-        parsed_points = []
-        for point in points_raw:
-            raw_date = str(point.get("date") or "").strip()
-            raw_year = point.get("year")
-            try:
-                if raw_date:
-                    point_date = date.fromisoformat(raw_date[:10])
-                elif raw_year is not None:
-                    point_date = date(int(raw_year), 1, 1)
-                else:
-                    continue
-                value = float(point.get("value") or 0.0)
-            except Exception:
-                continue
-            parsed_points.append({"t": point_date, "value": value})
-
-        if parsed_points:
-            dates = [point["t"] for point in parsed_points]
-            window_start = min(dates)
-            window_end = max(dates)
+        if points_raw:
+            years = [int(p.get("year")) for p in points_raw if p.get("year") is not None]
+            window_start = date(min(years), 1, 1)
+            window_end = date(max(years), 1, 1)
         else:
-            today = date.today()
-            window_start = today
-            window_end = today
+            now_year = date.today().year
+            window_start = date(now_year, 1, 1)
+            window_end = date(now_year, 1, 1)
 
         series_id = create_series(
             term_id=term_id,
             variant_id=variant_id,
             source_id=source_id,
-            granularity=granularity,
+            granularity="year",
             window_start=window_start,
             window_end=window_end,
             units=str(payload.get("unit") or "relative_frequency"),
@@ -416,9 +345,16 @@ def persist_word_analysis_external_series(
             },
             owner_user_id=owner_user_id,
         )
-        total_points += len(parsed_points)
-        if parsed_points:
-            insert_series_points(series_id, parsed_points)
+        points = []
+        for point in points_raw:
+            year = point.get("year")
+            if year is None:
+                continue
+            value = float(point.get("value") or 0.0)
+            points.append({"t": date(int(year), 1, 1), "value": value})
+        total_points += len(points)
+        if points:
+            insert_series_points(series_id, points)
 
     return {
         "source": payload.get("source"),

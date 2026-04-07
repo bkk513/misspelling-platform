@@ -1,7 +1,7 @@
 import json
 import csv
 import os
-from datetime import date, datetime, timedelta
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -107,12 +107,12 @@ def write_simulation_preview_png(payload: dict[str, Any], out_png: Path) -> None
     network = dict(payload.get("network_summary") or {})
     word = str(payload.get("word") or "Simulation").strip() or "Simulation"
 
-    fig = plt.figure(figsize=(14.8, 12.4), constrained_layout=True)
-    grid = fig.add_gridspec(4, 1, height_ratios=[1.28, 1.02, 1.02, 0.9], hspace=0.16)
-    ax_fit = fig.add_subplot(grid[0, 0])
+    fig = plt.figure(figsize=(13.8, 10.2), constrained_layout=True)
+    grid = fig.add_gridspec(3, 2, width_ratios=[1.2, 1.0], height_ratios=[1.2, 1.0, 0.82])
+    ax_fit = fig.add_subplot(grid[0, :])
     ax_share = fig.add_subplot(grid[1, 0])
-    ax_scenario = fig.add_subplot(grid[2, 0])
-    ax_meta = fig.add_subplot(grid[3, 0])
+    ax_scenario = fig.add_subplot(grid[1, 1])
+    ax_meta = fig.add_subplot(grid[2, :])
 
     if not rows:
         ax_fit.text(0.5, 0.5, "No simulation series", ha="center", va="center", fontsize=13)
@@ -125,8 +125,7 @@ def write_simulation_preview_png(payload: dict[str, Any], out_png: Path) -> None
         return
 
     years = [int(row.get("year") or 0) for row in rows]
-    labels = [str(row.get("time_label") or row.get("label") or row.get("year") or "") for row in rows]
-    x = np.arange(len(labels), dtype=float)
+    x = np.arange(len(years), dtype=float)
     right_actual = np.asarray([float(row.get("right_actual") or 0.0) for row in rows], dtype=float)
     error_actual = np.asarray([float(row.get("error_actual") or 0.0) for row in rows], dtype=float)
     right_sim = np.asarray([float(row.get("right_simulated") or 0.0) for row in rows], dtype=float)
@@ -136,17 +135,13 @@ def write_simulation_preview_png(payload: dict[str, Any], out_png: Path) -> None
     right_std = np.asarray([float(row.get("right_std") or 0.0) for row in rows], dtype=float)
     error_std = np.asarray([float(row.get("error_std") or 0.0) for row in rows], dtype=float)
     share_std = np.asarray([float(row.get("share_std") or 0.0) for row in rows], dtype=float)
-    sparse_signal = bool(summary.get("dataset_sparse_signal") or str(summary.get("fit_regime") or "").lower() == "sparse_signal")
-    phase_break_label = str(summary.get("phase_break_label") or "")
     phase_break_year = summary.get("phase_break_year")
-    phase_break_index = int(summary.get("phase_break_index") or 0)
-    if phase_break_label and phase_break_label in labels:
-        phase_break_index = labels.index(phase_break_label)
-    elif isinstance(phase_break_year, (int, float)):
+    phase_break_index = 0
+    if isinstance(phase_break_year, (int, float)):
         try:
             phase_break_index = years.index(int(phase_break_year))
         except Exception:
-            phase_break_index = int(summary.get("phase_break_index") or 0)
+            phase_break_index = 0
 
     fit_colors = {
         "right": "#245b9c",
@@ -189,12 +184,8 @@ def write_simulation_preview_png(payload: dict[str, Any], out_png: Path) -> None
         color=fit_colors["error_fill"],
         alpha=0.20,
     )
-    positive_error = [float(value) for value in np.concatenate([error_actual, error_sim]) if float(value) > 0]
-    if sparse_signal and positive_error:
-        ax_fit_error.set_yscale("log")
-        ax_fit_error.set_ylim(min(positive_error) / 1.8, max(positive_error) * 1.4)
     ax_fit.axvline(float(phase_break_index), color="#334155", linestyle=":", linewidth=1.4, alpha=0.9)
-    ax_fit.set_title("Observed vs Simulated Trajectories", fontsize=15, fontweight="bold")
+    ax_fit.set_title("Observed vs Simulated Trajectories", fontsize=14, fontweight="bold")
     ax_fit.set_ylabel("Correct Frequency", fontsize=11)
     ax_fit_error.set_ylabel("Error Frequency", fontsize=11)
     ax_fit.grid(alpha=0.18, linestyle=":")
@@ -204,24 +195,23 @@ def write_simulation_preview_png(payload: dict[str, Any], out_png: Path) -> None
         loc="upper left",
         frameon=False,
         ncol=2,
-        fontsize=10,
+        fontsize=9,
     )
-    ax_fit.tick_params(labelsize=11)
-    ax_fit_error.tick_params(labelsize=11)
+    ax_fit.tick_params(labelsize=10)
+    ax_fit_error.tick_params(labelsize=10)
 
     ax_share.plot(x, share_actual, color=fit_colors["share"], linewidth=2.3, label="Observed error share")
     ax_share.plot(x, share_sim, color=fit_colors["share"], linestyle="--", linewidth=2.0, label="Simulated error share")
     ax_share.fill_between(x, np.maximum(share_sim - share_std, 0.0), np.minimum(share_sim + share_std, 1.0), color="#a7e2d8", alpha=0.28)
     ax_share.axvline(float(phase_break_index), color="#334155", linestyle=":", linewidth=1.4, alpha=0.9)
-    ax_share.set_title("Phase Shift and Error Share", fontsize=14, fontweight="bold")
+    ax_share.set_title("Phase Shift and Error Share", fontsize=13, fontweight="bold")
     ax_share.set_ylabel("Share", fontsize=11)
-    ax_share.set_xlabel("Time", fontsize=11)
+    ax_share.set_xlabel("Year", fontsize=11)
     ax_share.grid(alpha=0.18, linestyle=":")
-    ax_share.legend(loc="upper left", frameon=False, fontsize=10)
-    ax_share.tick_params(labelsize=11)
+    ax_share.legend(loc="upper left", frameon=False, fontsize=9)
+    ax_share.tick_params(labelsize=10)
 
     ax_scenario.plot(x, error_sim, color=fit_colors["baseline"], linewidth=2.2, label="Baseline error")
-    scenario_values: list[np.ndarray] = [error_sim]
     for item in scenarios[:3]:
         key = str(item.get("key") or "").strip()
         color = str(item.get("color") or "#0f766e")
@@ -230,51 +220,38 @@ def write_simulation_preview_png(payload: dict[str, Any], out_png: Path) -> None
         if not points:
             continue
         y = np.asarray([float(point.get("error_mean") or 0.0) for point in points], dtype=float)
-        scenario_values.append(y)
         ax_scenario.plot(x, y, color=color, linewidth=2.0, label=label)
     ax_scenario.axvline(float(phase_break_index), color="#334155", linestyle=":", linewidth=1.4, alpha=0.9)
-    if sparse_signal:
-        positive_scenario = [
-            float(value)
-            for arr in scenario_values
-            for value in np.asarray(arr, dtype=float)
-            if float(value) > 0
-        ]
-        if positive_scenario:
-            ax_scenario.set_yscale("log")
-            ax_scenario.set_ylim(min(positive_scenario) / 1.8, max(positive_scenario) * 1.45)
-    ax_scenario.set_title("Intervention Scenarios", fontsize=14, fontweight="bold")
+    ax_scenario.set_title("Intervention Scenarios", fontsize=13, fontweight="bold")
     ax_scenario.set_ylabel("Error Frequency", fontsize=11)
-    ax_scenario.set_xlabel("Time", fontsize=11)
+    ax_scenario.set_xlabel("Year", fontsize=11)
     ax_scenario.grid(alpha=0.18, linestyle=":")
-    ax_scenario.legend(loc="upper left", frameon=False, fontsize=10)
-    ax_scenario.tick_params(labelsize=11)
+    ax_scenario.legend(loc="upper left", frameon=False, fontsize=9)
+    ax_scenario.tick_params(labelsize=10)
 
     ax_meta.set_axis_off()
     meta_lines = [
         ("Topology", str(summary.get("topology") or "--")),
-        ("Fit Grade", str(summary.get("fit_grade") or "--")),
-        ("Fit Regime", str(summary.get("fit_regime_label") or "--")),
+        ("Fit Profile", str(summary.get("fit_profile") or "--")),
+        ("Phase Break", str(summary.get("phase_break_year") or "--")),
         ("Best Score", f"{float(summary.get('best_score') or 0.0):.4f}"),
         ("Right R²", f"{float(summary.get('right_r2') or 0.0):.4f}"),
-        ("Error NRMSE", f"{float(summary.get('error_nrmse_peak') or 0.0):.4f}"),
-        ("Share NRMSE", f"{float(summary.get('share_nrmse_peak') or 0.0):.4f}"),
-        ("Phase Break", str(summary.get("phase_break_year") or "--")),
-        ("Signal Strength", str(summary.get("signal_strength_grade") or "--")),
-        ("Variant Scope", str(summary.get("variant_scope_label") or "--")),
+        ("Error R²", f"{float(summary.get('error_r2') or 0.0):.4f}"),
+        ("Share RMSE", f"{float(summary.get('share_rmse') or 0.0):.6f}"),
         (
             "Share Basis",
             "observed scale"
             if float(summary.get("error_share_amplification") or 1.0) <= 1.0001
             else f"×{float(summary.get('error_share_amplification') or 1.0):.1f}",
         ),
+        ("Agents", str(int(summary.get("n_agents") or 0) or "--")),
         ("Avg Degree", f"{float(network.get('avg_degree') or 0.0):.2f}"),
     ]
     ax_meta.text(
         0.02,
         0.97,
         word,
-        fontsize=25,
+        fontsize=24,
         fontweight="bold",
         color="white",
         va="top",
@@ -285,37 +262,37 @@ def write_simulation_preview_png(payload: dict[str, Any], out_png: Path) -> None
         0.02,
         0.84,
         "Group-Level Spelling Diffusion Dashboard",
-        fontsize=12,
+        fontsize=11,
         color="#475569",
         ha="left",
     )
     left_col = meta_lines[:5]
     right_col = meta_lines[5:]
-    y_left = 0.72
-    y_right = 0.72
+    y_left = 0.70
+    y_right = 0.70
     for label, value in left_col:
-        ax_meta.text(0.03, y_left, label, fontsize=10.5, color="#64748b", ha="left")
-        ax_meta.text(0.24, y_left, value, fontsize=12.2, fontweight="bold", color="#0f172a", ha="left")
-        y_left -= 0.12
+        ax_meta.text(0.03, y_left, label, fontsize=10, color="#64748b", ha="left")
+        ax_meta.text(0.23, y_left, value, fontsize=12, fontweight="bold", color="#0f172a", ha="left")
+        y_left -= 0.11
     for label, value in right_col:
-        ax_meta.text(0.53, y_right, label, fontsize=10.5, color="#64748b", ha="left")
-        ax_meta.text(0.75, y_right, value, fontsize=12.2, fontweight="bold", color="#0f172a", ha="left")
-        y_right -= 0.12
+        ax_meta.text(0.53, y_right, label, fontsize=10, color="#64748b", ha="left")
+        ax_meta.text(0.75, y_right, value, fontsize=12, fontweight="bold", color="#0f172a", ha="left")
+        y_right -= 0.11
     ax_meta.text(
         0.03,
         0.008,
         "The simulation now fits the observed error-share scale directly and uses phase-aware network diffusion for interpretation.",
-        fontsize=9.2,
+        fontsize=8.6,
         color="#64748b",
         ha="left",
         va="bottom",
         wrap=True,
     )
 
-    tick_positions = np.linspace(0, len(labels) - 1, min(7, len(labels))).astype(int)
-    tick_labels = [str(labels[idx]) for idx in tick_positions]
+    tick_positions = np.linspace(0, len(years) - 1, min(7, len(years))).astype(int)
+    tick_labels = [str(years[idx]) for idx in tick_positions]
     for axis in (ax_fit, ax_share, ax_scenario):
-        axis.set_xlim(0, max(0, len(labels) - 1))
+        axis.set_xlim(0, max(0, len(years) - 1))
         axis.set_xticks(tick_positions)
         axis.set_xticklabels(tick_labels, rotation=0)
 
@@ -332,9 +309,9 @@ def write_simulation_animation_gif(
     ba_m: int = 4,
     random_seed: int = 42,
     max_agents: int = 420,
-    fps: int = 3,
+    fps: int = 6,
     frame_step: int = 1,
-    max_frames: int = 72,
+    max_frames: int = 64,
 ) -> None:
     import matplotlib
 
@@ -365,32 +342,7 @@ def write_simulation_animation_gif(
         return
 
     years = [int(row.get("year") or 0) for row in rows]
-    labels = [str(row.get("time_label") or row.get("label") or row.get("year") or "") for row in rows]
-    granularity = str(summary.get("time_granularity") or "year").strip().lower() or "year"
-
-    def _label_to_date(value: str, fallback_year: int, fallback_index: int) -> date:
-        text = str(value or "").strip()
-        if "T" in text:
-            text = text.split("T", 1)[0].strip()
-        if len(text) >= 10:
-            text = text[:10]
-        try:
-            return date.fromisoformat(text)
-        except Exception:
-            try:
-                return date(int(fallback_year), 1, 1)
-            except Exception:
-                return date(2000, 1, 1) + timedelta(days=int(fallback_index))
-
-    if granularity == "day":
-        parsed_dates = [_label_to_date(labels[idx], years[idx], idx) for idx in range(len(labels))]
-    else:
-        parsed_dates = []
-        for idx, year in enumerate(years):
-            try:
-                parsed_dates.append(date(int(year), 1, 1))
-            except Exception:
-                parsed_dates.append(_label_to_date(labels[idx], year, idx))
+    labels = [str(row.get("label") or year) for row, year in zip(rows, years)]
     right_actual = np.asarray([float(row.get("right_actual") or 0.0) for row in rows], dtype=float)
     error_actual = np.asarray([float(row.get("error_actual") or 0.0) for row in rows], dtype=float)
     total = right_actual + error_actual
@@ -398,25 +350,12 @@ def write_simulation_animation_gif(
     error_share = np.asarray([float(row.get("error_share_actual") or 0.0) for row in rows], dtype=float)
     amplification = max(float(summary.get("error_share_amplification") or 1.0), 1.0)
     error_share_fit = np.clip(error_share * amplification, 0.0, 0.25)
-    right_peak = float(right_actual.max()) if len(right_actual) else 0.0
-    error_peak = float(error_actual.max()) if len(error_actual) else 0.0
-    error_signal_ratio = float(error_peak / max(right_peak, 1e-12))
-    share_std = float(np.std(error_share)) if len(error_share) else 0.0
-    error_scale = max(error_peak, right_peak * 0.01, 1e-12)
-    error_std = float(np.std(error_actual)) if len(error_actual) else 0.0
-    sparse_signal = bool(
-        error_share.max(initial=0.0) < 0.08
-        or error_signal_ratio < 0.12
-        or share_std < 0.01
-        or error_std < error_scale * 0.25
-    )
 
     sim_dataset = SimulationDataset(
-        word=str(payload.get("word") or summary.get("word") or "simulation"),
+        word=str(payload.get("word") or "simulation"),
         years=years,
         labels=labels,
-        dates=parsed_dates,
-        granularity=granularity,
+        dates=[date(int(year), 1, 1) for year in years],
         right=right_actual,
         error=error_actual,
         total=total,
@@ -424,10 +363,6 @@ def write_simulation_animation_gif(
         error_share_fit=error_share_fit,
         error_share_amplification=amplification,
         error_seed_floor=float(summary.get("error_seed_floor") or 0.001),
-        error_peak=error_peak,
-        right_peak=right_peak,
-        error_signal_ratio=error_signal_ratio,
-        sparse_signal=bool(summary.get("dataset_sparse_signal")) if "dataset_sparse_signal" in summary else sparse_signal,
         salience=np.divide(total, total_max, out=np.zeros_like(total), where=total_max > 0),
         variant_names=[],
         variant_matrix=np.zeros((0, len(years)), dtype=float),
@@ -535,7 +470,7 @@ def write_simulation_animation_gif(
     error_node_series = np.array([np.mean(states == STATE_ERROR) for states in history], dtype=float)
     right_node_series = np.array([np.mean(states == STATE_RIGHT) for states in history], dtype=float)
 
-    fig = plt.figure(figsize=(17.2, 11.6))
+    fig = plt.figure(figsize=(16.4, 10.4))
     grid = fig.add_gridspec(3, 2, width_ratios=[1.12, 1.0], height_ratios=[1.04, 0.92, 0.98], wspace=0.16, hspace=0.22)
     ax_net = fig.add_subplot(grid[:, 0])
     ax_curve = fig.add_subplot(grid[0, 1])
@@ -552,7 +487,7 @@ def write_simulation_animation_gif(
         linewidths=0.28,
         edgecolors="white",
     )
-    ax_net.set_title("A. Network Propagation View", fontsize=15, fontweight="bold")
+    ax_net.set_title("A. Network Propagation View", fontsize=14, fontweight="bold")
     ax_net.set_xticks([])
     ax_net.set_yticks([])
     for spine in ax_net.spines.values():
@@ -567,7 +502,7 @@ def write_simulation_animation_gif(
         transform=ax_net.transAxes,
         ha="left",
         va="bottom",
-        fontsize=11,
+        fontsize=10,
         bbox={"boxstyle": "round,pad=0.34", "fc": "white", "ec": "#bbbbbb", "alpha": 0.92},
     )
 
@@ -576,7 +511,7 @@ def write_simulation_animation_gif(
     error_im = ax_heat.imshow(error_maps[frame_idx[0]], extent=heat_extent, origin="lower", cmap=err_cmap, alpha=0.95, vmin=0.0, vmax=vmax_error)
     right_im = ax_heat.imshow(right_maps[frame_idx[0]], extent=heat_extent, origin="lower", cmap=right_cmap, alpha=0.42, vmin=0.0, vmax=vmax_right)
     ax_heat.scatter(pos_array[:, 0], pos_array[:, 1], s=3.5, color="#2d2d2d", alpha=0.16)
-    ax_heat.set_title("B. Diffusion Heat Field", fontsize=14, fontweight="bold")
+    ax_heat.set_title("B. Diffusion Heat Field", fontsize=13, fontweight="bold")
     ax_heat.set_xticks([])
     ax_heat.set_yticks([])
     for spine in ax_heat.spines.values():
@@ -589,11 +524,11 @@ def write_simulation_animation_gif(
     ax_curve.plot(dates, curve_error, color="#c74a5f", linestyle="--", linewidth=2.0, label="Error simulated")
     ax_curve.axvspan(dates[phase_break_index], dates[-1], color="#f0f0f0", alpha=0.55)
     ax_curve.axvline(dates[phase_break_index], color="#444444", linestyle=":", linewidth=1.4, label="Phase break")
-    ax_curve.set_title("C. Macro Trajectories", fontsize=14, fontweight="bold")
+    ax_curve.set_title("C. Macro Trajectories", fontsize=13, fontweight="bold")
     ax_curve.set_ylabel("Frequency", fontsize=11)
     ax_curve.grid(alpha=0.22)
-    ax_curve.legend(fontsize=9.6, ncol=2, loc="upper right", frameon=False)
-    ax_curve.tick_params(labelsize=10.8)
+    ax_curve.legend(fontsize=9, ncol=2, loc="upper right", frameon=False)
+    ax_curve.tick_params(labelsize=10)
 
     share_marker = ax_share.axvline(dates[frame_idx[0]], color="#0f172a", linewidth=1.3)
     share_point = ax_share.scatter([dates[frame_idx[0]]], [curve_share[frame_idx[0]]], color="#7f5aa2", s=35, zorder=4)
@@ -610,16 +545,16 @@ def write_simulation_animation_gif(
     ax_share.plot(dates, curve_share, color="#7f5aa2", linestyle="--", linewidth=1.8, label="Error share simulated")
     ax_share.axvspan(dates[phase_break_index], dates[-1], color="#f0f0f0", alpha=0.55)
     ax_share.axvline(dates[phase_break_index], color="#444444", linestyle=":", linewidth=1.2)
-    ax_share.set_title("D. Error Share and Node Composition", fontsize=14, fontweight="bold")
+    ax_share.set_title("D. Error Share and Node Composition", fontsize=13, fontweight="bold")
     ax_share.set_ylabel("Share / Node Proportion", fontsize=11)
     ax_share.set_xlabel("Year", fontsize=11)
     ax_share.set_ylim(0.0, 1.0)
     ax_share.grid(alpha=0.22)
-    ax_share.legend(fontsize=9.4, loc="upper right", frameon=False, ncol=2)
-    ax_share.tick_params(labelsize=10.6)
+    ax_share.legend(fontsize=8.6, loc="upper right", frameon=False, ncol=2)
+    ax_share.tick_params(labelsize=10)
 
-    fig.colorbar(error_im, ax=ax_heat, fraction=0.045, pad=0.02).set_label("Error intensity", fontsize=10.5)
-    fig.suptitle(f"{str(payload.get('word') or 'Simulation')} propagation replay", fontsize=17, fontweight="bold", y=0.986)
+    fig.colorbar(error_im, ax=ax_heat, fraction=0.045, pad=0.02).set_label("Error intensity", fontsize=10)
+    fig.suptitle(f"{str(payload.get('word') or 'Simulation')} propagation replay", fontsize=16, fontweight="bold", y=0.985)
 
     def update(frame_no: int):
         idx = int(frame_idx[frame_no])
@@ -647,7 +582,14 @@ def write_simulation_animation_gif(
         blit=False,
         repeat=True,
     )
-    animation.save(out_gif, writer=PillowWriter(fps=int(fps)), dpi=120)
+    animation.save(out_gif, writer=PillowWriter(fps=int(fps)), dpi=110)
+    plt.close(fig)
+    fig, ax = plt.subplots(figsize=(10, 5.6))
+    ax.text(0.5, 0.6, title, ha="center", va="center", fontsize=12, fontweight="bold")
+    ax.text(0.5, 0.45, message, ha="center", va="center", fontsize=10)
+    ax.set_axis_off()
+    fig.tight_layout()
+    fig.savefig(out_png, format="png", dpi=180)
     plt.close(fig)
 
 
@@ -780,11 +722,9 @@ def write_mrnmr_preview_png(metrics: list[dict], summary: dict, out_png: Path) -
     ax1, ax2 = axes
 
     years = [int(row.get("year") or 0) for row in metrics or []]
-    labels = [str(row.get("time_label") or row.get("year") or "") for row in metrics or []]
     mr = [float(row.get("MR") or 0.0) for row in metrics or []]
     nmr = [float(row.get("NMR") or 0.0) for row in metrics or []]
     density = [float(row.get("density") or 0.0) for row in metrics or []]
-    granularity = str(summary.get("time_granularity") or "year").strip().lower() or "year"
 
     if not years:
         ax1.text(0.5, 0.5, "No MR/NMR points", ha="center", va="center", fontsize=11)
@@ -800,33 +740,20 @@ def write_mrnmr_preview_png(metrics: list[dict], summary: dict, out_png: Path) -
         ax1.set_title("MR vs NMR", fontsize=11, fontweight="bold")
         ax1.grid(linestyle=":", linewidth=0.8, alpha=0.3)
 
-        x_axis = list(range(len(labels))) if granularity == "day" else years
-        ax2.plot(x_axis, density, color="black", linewidth=1.7, label="Kernel density")
+        ax2.plot(years, density, color="black", linewidth=1.7, label="Kernel density")
         tipping_year = summary.get("tipping_year")
         steady_year = summary.get("steady_year")
-        if granularity == "day":
-            tipping_time = str(summary.get("tipping_time") or "")
-            steady_time = str(summary.get("steady_time") or "")
-            if tipping_time and tipping_time in labels:
-                ax2.axvline(float(labels.index(tipping_time)), linestyle="--", color="#f59e0b", linewidth=1.2, label="Tipping point")
-            if steady_time and steady_time in labels:
-                ax2.axvline(float(labels.index(steady_time)), linestyle="--", color="#dc2626", linewidth=1.2, label="Initial steady state")
-            tick_positions = np.linspace(0, len(labels) - 1, min(6, len(labels))).astype(int)
-            tick_labels = [labels[idx] for idx in tick_positions]
-            ax2.set_xticks(tick_positions)
-            ax2.set_xticklabels(tick_labels, rotation=0)
-        else:
-            if tipping_year:
-                ax2.axvline(float(tipping_year), linestyle="--", color="#f59e0b", linewidth=1.2, label="Tipping point")
-            if steady_year:
-                ax2.axvline(
-                    float(steady_year),
-                    linestyle="--",
-                    color="#dc2626",
-                    linewidth=1.2,
-                    label="Initial steady state",
-                )
-        ax2.set_xlabel("Time", fontsize=10, fontweight="bold")
+        if tipping_year:
+            ax2.axvline(float(tipping_year), linestyle="--", color="#f59e0b", linewidth=1.2, label="Tipping point")
+        if steady_year:
+            ax2.axvline(
+                float(steady_year),
+                linestyle="--",
+                color="#dc2626",
+                linewidth=1.2,
+                label="Initial steady state",
+            )
+        ax2.set_xlabel("Year", fontsize=10, fontweight="bold")
         ax2.set_ylabel("Kernel Density", fontsize=10, fontweight="bold")
         ax2.set_title("Steady-State Density Track", fontsize=11, fontweight="bold")
         ax2.grid(linestyle=":", linewidth=0.8, alpha=0.3)
@@ -842,7 +769,6 @@ def write_delta_t_preview_png(payload: dict[str, Any], out_png: Path) -> None:
 
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
-    import numpy as np
     from matplotlib.font_manager import FontProperties
     from matplotlib.patches import Rectangle
 
@@ -852,46 +778,22 @@ def write_delta_t_preview_png(payload: dict[str, Any], out_png: Path) -> None:
     summary = dict(payload.get("summary") or {})
     word = str(payload.get("word") or "DeltaT Bias").strip() or "DeltaT Bias"
     years = [int(v) for v in (series.get("years") or [])]
-    labels_raw = series.get("time_labels") or []
-    labels = [str(item) for item in labels_raw] if isinstance(labels_raw, list) else []
-    if len(labels) != len(years):
-        labels = [str(value) for value in years]
     actual_total = [float(v) for v in (series.get("actual_total") or [])]
     predicted_curve = [float(v) for v in (series.get("predicted_counterfactual") or series.get("predicted_correct") or [])]
-    origin_time = str(summary.get("origin_time") or "")
-    actual_mutation_time = str(summary.get("actual_mutation_time") or "")
-    predicted_mutation_time = str(summary.get("predicted_mutation_time") or "")
+    origin_year = summary.get("origin_year")
+    base_year = int(summary.get("base_year") or (years[0] if years else 0) or 0)
     actual_mutation_year = summary.get("actual_mutation_year")
     predicted_mutation_year = summary.get("predicted_mutation_year")
     delta_t_years = summary.get("delta_t_years")
-    delta_t_days = summary.get("delta_t_days")
-
-    def _index_from_label(value: str) -> int | None:
-        text = str(value or "").strip()
-        if not text:
-            return None
-        try:
-            return labels.index(text)
-        except ValueError:
-            return None
-
-    origin_index = _index_from_label(origin_time)
-    if origin_index is None:
-        origin_index = int(summary.get("phase_break_index") or 0)
-    actual_index = _index_from_label(actual_mutation_time)
-    predicted_index = _index_from_label(predicted_mutation_time)
-    if actual_index is None:
-        actual_index = max(0, min(len(years) - 1, int(summary.get("actual_mutation_index") or origin_index or 0)))
-    if predicted_index is None:
-        predicted_index = max(0, min(len(years) - 1, int(summary.get("predicted_mutation_index") or actual_index or 0)))
-
     if not years:
         ax.text(0.5, 0.5, "No DeltaT series", ha="center", va="center", fontsize=11)
         ax.set_axis_off()
     else:
         color = "#148758"
         x = list(range(len(years)))
-        tipping_index = max(0, int(origin_index or 0))
+        tipping_index = max(0, int(origin_year or years[0]) - base_year)
+        actual_index = max(0, int(actual_mutation_year or years[0]) - base_year)
+        predicted_index = max(0, int(predicted_mutation_year or years[0]) - base_year)
         ax.grid(False)
         ax.fill_between(x, actual_total, [-0.01] * len(actual_total), facecolor=color, alpha=0.13)
         ax.plot(x, predicted_curve, linewidth=2.0, color=color)
@@ -912,7 +814,7 @@ def write_delta_t_preview_png(payload: dict[str, Any], out_png: Path) -> None:
             ax.text(
                 float(actual_index),
                 ymin + ((ymax - ymin) / 2.0),
-                f"Δt = {int(round(float(delta_t_days)))} days" if isinstance(delta_t_days, (int, float)) else f"Δt = {float(delta_t_years):.2f} years",
+                f"Δt = {int(round(float(delta_t_years)))}",
                 rotation=90,
                 ha="right",
                 va="center",
@@ -921,12 +823,8 @@ def write_delta_t_preview_png(payload: dict[str, Any], out_png: Path) -> None:
             )
         ax.set_xlim(float(tipping_index), float(len(years)))
         ax.set_ylim(ymin, ymax)
-        ax.set_xlabel("Time", fontsize=10, fontweight="bold")
+        ax.set_xlabel("Year", fontsize=10, fontweight="bold")
         ax.set_ylabel("Normalized Frenquency", fontsize=10, fontweight="bold")
-        tick_positions = np.linspace(0, len(labels) - 1, min(6, len(labels))).astype(int)
-        tick_labels = [labels[idx] for idx in tick_positions]
-        ax.set_xticks(tick_positions)
-        ax.set_xticklabels(tick_labels, rotation=0)
         title_obj = ax.set_title(word, fontweight="bold")
         title_obj.set_color("white")
         title_obj.set_bbox({"facecolor": color, "alpha": 1, "edgecolor": "none"})

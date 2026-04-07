@@ -1,5 +1,5 @@
 import { DeleteOutlined, ReloadOutlined } from "@ant-design/icons";
-import { Button, Card, DatePicker, Popconfirm, Segmented, Select, Space, Table, Tag, Typography, message } from "antd";
+import { Button, Card, DatePicker, Popconfirm, Select, Space, Table, Tag, Typography, message } from "antd";
 import dayjs from "dayjs";
 import { useEffect, useMemo, useState } from "react";
 import { goToTask } from "../app/router";
@@ -25,7 +25,6 @@ export function TimeSeriesExplorerPage() {
   const [seriesMap, setSeriesMap] = useState<Record<string, Array<{ time: string; value: number }>>>({});
   const [loading, setLoading] = useState(false);
   const [selectedSeries, setSelectedSeries] = useState<number[]>([]);
-  const [axisMode, setAxisMode] = useState<"log" | "linear">("log");
 
   const loadAll = async () => {
     setLoading(true);
@@ -198,17 +197,6 @@ export function TimeSeriesExplorerPage() {
             </div>
           </div>
         }
-        extra={
-          <Segmented
-            size="small"
-            value={axisMode}
-            onChange={(value) => setAxisMode(value as "log" | "linear")}
-            options={[
-              { label: "Log Axis", value: "log" },
-              { label: "Linear Axis", value: "linear" },
-            ]}
-          />
-        }
       >
         {Object.keys(seriesMap).length > 0 ? (
           <TimeSeriesChart
@@ -218,7 +206,6 @@ export function TimeSeriesExplorerPage() {
             }))}
             title={meta ? `Time Series: ${meta.word}` : "Time Series"}
             height={500}
-            axisMode={axisMode}
           />
         ) : (
           <Typography.Text type="secondary">No time series data available. Please select a task.</Typography.Text>

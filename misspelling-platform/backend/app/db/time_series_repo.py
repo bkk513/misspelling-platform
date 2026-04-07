@@ -149,8 +149,8 @@ def list_series_by_task(
                     FROM time_series ts
                     JOIN data_sources ds ON ds.id = ts.source_id
                     JOIN lexicon_terms lt ON lt.id = ts.term_id
-                    LEFT JOIN tasks t ON t.task_id = NULLIF(JSON_UNQUOTE(JSON_EXTRACT(ts.meta_json, '$.task_id')), 'null')
-                    WHERE NULLIF(JSON_UNQUOTE(JSON_EXTRACT(ts.meta_json, '$.task_id')), 'null') = :task_id
+                    LEFT JOIN tasks t ON t.task_id = JSON_UNQUOTE(JSON_EXTRACT(ts.meta_json, '$.task_id'))
+                    WHERE JSON_UNQUOTE(JSON_EXTRACT(ts.meta_json, '$.task_id')) = :task_id
                       AND ("""
                     + where_access
                     + """)
@@ -180,8 +180,8 @@ def get_series_points_for_task(
                     """
                     SELECT ts.id
                     FROM time_series ts
-                    LEFT JOIN tasks t ON t.task_id = NULLIF(JSON_UNQUOTE(JSON_EXTRACT(ts.meta_json, '$.task_id')), 'null')
-                    WHERE NULLIF(JSON_UNQUOTE(JSON_EXTRACT(ts.meta_json, '$.task_id')), 'null') = :task_id
+                    LEFT JOIN tasks t ON t.task_id = JSON_UNQUOTE(JSON_EXTRACT(ts.meta_json, '$.task_id'))
+                    WHERE JSON_UNQUOTE(JSON_EXTRACT(ts.meta_json, '$.task_id')) = :task_id
                       AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(ts.meta_json, '$.variant')), 'correct') = :variant
                       AND ("""
                     + where_access
@@ -228,7 +228,7 @@ def list_series(
                       ts.window_start,
                       ts.window_end,
                       ts.owner_user_id,
-                      COALESCE(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(ts.meta_json, '$.task_id')), 'null'), '') AS task_id,
+                      COALESCE(JSON_UNQUOTE(JSON_EXTRACT(ts.meta_json, '$.task_id')), '') AS task_id,
                       COALESCE(JSON_UNQUOTE(JSON_EXTRACT(ts.meta_json, '$.variant')), 'correct') AS variant,
                       (SELECT COUNT(*) FROM time_series_points p WHERE p.series_id = ts.id) AS point_count,
                       t.created_at AS task_created_at,
@@ -236,7 +236,7 @@ def list_series(
                     FROM time_series ts
                     JOIN data_sources ds ON ds.id = ts.source_id
                     JOIN lexicon_terms lt ON lt.id = ts.term_id
-                    LEFT JOIN tasks t ON t.task_id = NULLIF(JSON_UNQUOTE(JSON_EXTRACT(ts.meta_json, '$.task_id')), 'null')
+                    LEFT JOIN tasks t ON t.task_id = JSON_UNQUOTE(JSON_EXTRACT(ts.meta_json, '$.task_id'))
                     WHERE ("""
                     + where_access
                     + """)
@@ -266,7 +266,7 @@ def list_series_owners(series_ids: list[int]):
                       t.created_at AS task_created_at,
                       t.status AS task_status
                     FROM time_series s
-                    LEFT JOIN tasks t ON t.task_id = NULLIF(JSON_UNQUOTE(JSON_EXTRACT(s.meta_json, '$.task_id')), 'null')
+                    LEFT JOIN tasks t ON t.task_id = JSON_UNQUOTE(JSON_EXTRACT(s.meta_json, '$.task_id'))
                     WHERE s.id IN :ids
                     """
                 ).bindparams(bindparam("ids", expanding=True)),

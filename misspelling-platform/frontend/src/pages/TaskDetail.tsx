@@ -9,7 +9,6 @@ import {
   Progress,
   Row,
   Select,
-  Segmented,
   Slider,
   Space,
   Table,
@@ -69,21 +68,6 @@ function formatMetric(value: unknown, digits = 4) {
   return value.toFixed(digits);
 }
 
-function formatFrequency(value: unknown, digits = 6) {
-  if (typeof value !== "number" || !Number.isFinite(value)) return "--";
-  const abs = Math.abs(value);
-  if (abs === 0) return "0";
-  if (abs >= 1) return value.toFixed(Math.min(2, digits));
-  if (abs >= 10 ** -Math.max(2, digits)) return value.toFixed(digits);
-  return value.toExponential(2);
-}
-
-function formatCompactMetric(value: unknown, digits = 3) {
-  const num = Number(value);
-  if (!Number.isFinite(num)) return "--";
-  return num.toFixed(digits);
-}
-
 function labelForTaskType(taskType: string) {
   if (taskType === "pcmci-causal") return "PCMCI Causal Network";
   if (taskType === "mrnmr-steady") return "Steady State";
@@ -124,27 +108,11 @@ type AlgoState = {
   simulationRows: Array<Record<string, unknown>>;
   interventions: Array<Record<string, unknown>>;
   variantBreakdown: Array<Record<string, unknown>>;
-  topologyBenchmark: Array<Record<string, unknown>>;
   windows: Array<Record<string, unknown>>;
   summary: Record<string, unknown> | null;
   deltaStats: Record<string, unknown> | null;
   networkSummary: Record<string, unknown> | null;
   explanation: Record<string, unknown> | null;
-};
-
-const EMPTY_ALGO_STATE: AlgoState = {
-  edges: [],
-  metrics: [],
-  events: [],
-  simulationRows: [],
-  interventions: [],
-  variantBreakdown: [],
-  topologyBenchmark: [],
-  windows: [],
-  summary: null,
-  deltaStats: null,
-  networkSummary: null,
-  explanation: null,
 };
 
 export function TaskDetailPage({ taskId }: { taskId: string }) {
@@ -159,11 +127,22 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
   const [tsVariants, setTsVariants] = useState<string[]>([]);
   const [tsSeriesMap, setTsSeriesMap] = useState<Record<string, Array<{ time: string; value: number }>>>({});
   const [tsLoading, setTsLoading] = useState(false);
-  const [tsAxisMode, setTsAxisMode] = useState<"log" | "linear">("log");
   const [tsLoadedAt, setTsLoadedAt] = useState<string>("-");
   const [lastRefreshAt, setLastRefreshAt] = useState<string>("-");
   const [actionBusy, setActionBusy] = useState<"" | "retry" | "report">("");
-  const [algoData, setAlgoData] = useState<AlgoState>(EMPTY_ALGO_STATE);
+  const [algoData, setAlgoData] = useState<AlgoState>({
+    edges: [],
+    metrics: [],
+    events: [],
+    simulationRows: [],
+    interventions: [],
+    variantBreakdown: [],
+    windows: [],
+    summary: null,
+    deltaStats: null,
+    networkSummary: null,
+    explanation: null,
+  });
   const [activeWindowIndex, setActiveWindowIndex] = useState(0);
   const prevTaskStateRef = useRef<string>("");
 
@@ -272,7 +251,7 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
     setTsVariants([]);
     setTsSeriesMap({});
     setTsLoadedAt("-");
-    setAlgoData(EMPTY_ALGO_STATE);
+    setAlgoData({ edges: [], metrics: [], events: [], simulationRows: [], interventions: [], variantBreakdown: [], windows: [], summary: null, deltaStats: null, networkSummary: null, explanation: null });
     setActiveWindowIndex(0);
     prevTaskStateRef.current = "";
     void loadTimeSeries(false);
@@ -280,7 +259,7 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
 
   useEffect(() => {
     const state = (task?.state || "").toUpperCase();
-    if (["SUCCESS", "FAILURE", "PAUSED", "REVOKED", "DELETED"].includes(state)) {
+    if (state === "SUCCESS" || state === "FAILURE") {
       setPolling(false);
       return;
     }
@@ -300,7 +279,7 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
   useEffect(() => {
     const state = (task?.state || "").toUpperCase();
     if (state !== "SUCCESS") {
-      setAlgoData(EMPTY_ALGO_STATE);
+      setAlgoData({ edges: [], metrics: [], events: [], simulationRows: [], interventions: [], variantBreakdown: [], windows: [], summary: null, deltaStats: null, networkSummary: null, explanation: null });
       setActiveWindowIndex(0);
       return;
     }
@@ -320,7 +299,6 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
           simulationRows: Array.isArray(obj?.series_rows) ? (obj.series_rows as Array<Record<string, unknown>>) : [],
           interventions: Array.isArray(obj?.interventions) ? (obj.interventions as Array<Record<string, unknown>>) : [],
           variantBreakdown: Array.isArray(obj?.variant_breakdown) ? (obj.variant_breakdown as Array<Record<string, unknown>>) : [],
-          topologyBenchmark: Array.isArray(obj?.topology_benchmark) ? (obj.topology_benchmark as Array<Record<string, unknown>>) : [],
           windows: Array.isArray(obj?.window_results) ? (obj.window_results as Array<Record<string, unknown>>) : [],
           summary: asObject(obj?.summary),
           deltaStats: asObject(obj?.delta_t_stats),
@@ -329,7 +307,7 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
         });
       })
       .catch(() => {
-        setAlgoData(EMPTY_ALGO_STATE);
+        setAlgoData({ edges: [], metrics: [], events: [], simulationRows: [], interventions: [], variantBreakdown: [], windows: [], summary: null, deltaStats: null, networkSummary: null, explanation: null });
         setActiveWindowIndex(0);
       });
   }, [task?.state, taskId, taskType]);
@@ -381,30 +359,6 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
   const strongestEdge = currentWindowEdges[0] || globalEdges[0];
   const deltaStats = algoData.deltaStats || asObject(taskObj?.delta_t_stats);
   const networkSummary = algoData.networkSummary || asObject(taskObj?.network_summary);
-  const simulationRows =
-    algoData.simulationRows.length > 0
-      ? algoData.simulationRows
-      : Array.isArray(taskObj?.series_rows)
-        ? (taskObj.series_rows as Array<Record<string, unknown>>)
-        : [];
-  const interventions =
-    algoData.interventions.length > 0
-      ? algoData.interventions
-      : Array.isArray(taskObj?.interventions)
-        ? (taskObj.interventions as Array<Record<string, unknown>>)
-        : [];
-  const variantBreakdown =
-    algoData.variantBreakdown.length > 0
-      ? algoData.variantBreakdown
-      : Array.isArray(taskObj?.variant_breakdown)
-        ? (taskObj.variant_breakdown as Array<Record<string, unknown>>)
-        : [];
-  const topologyBenchmark =
-    algoData.topologyBenchmark.length > 0
-      ? algoData.topologyBenchmark
-      : Array.isArray(taskObj?.topology_benchmark)
-        ? (taskObj.topology_benchmark as Array<Record<string, unknown>>)
-        : [];
   const taskWord = String(paramObj?.word || summary?.word || provenance?.word || "Research Task");
   const taskState = String(task?.state || "loading...");
   const createdAt = eventItems[0]?.created_at || "-";
@@ -815,11 +769,11 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
                         <div className="algo-insight-copy">错误传播机制从形成期切到稳定竞争期的年份。</div>
                       </div>
                       <div className="algo-insight-card">
-                        <div className="algo-insight-label">Error NRMSE</div>
+                        <div className="algo-insight-label">Error R²</div>
                         <div className="algo-insight-value">
-                          {typeof summary?.error_nrmse_peak === "number" ? Number(summary.error_nrmse_peak).toFixed(3) : "--"}
+                          {typeof summary?.error_r2 === "number" ? Number(summary.error_r2).toFixed(3) : "--"}
                         </div>
-                        <div className="algo-insight-copy">稀疏错拼场景优先看归一化偏差，值越小越好。</div>
+                        <div className="algo-insight-copy">错误曲线拟合优度，越接近 1 越好。</div>
                       </div>
                       <div className="algo-insight-card">
                         <div className="algo-insight-label">Avg Degree</div>
@@ -913,97 +867,14 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
 
                   <div className="algo-insight-list">
                     <div className="algo-insight-card">
-                      <div className="algo-insight-label">Selected Topology</div>
-                      <div className="algo-insight-value">{String(summary?.selected_topology ?? summary?.topology ?? "--")}</div>
-                      <div className="algo-insight-copy">
-                        {String(summary?.topology_mode || "").toLowerCase() === "auto_select"
-                          ? `自动比较后选中，原始请求为 ${String(summary?.requested_topology ?? "--")}。`
-                          : "当前实际用于拟合与传播仿真的网络结构。"}
-                      </div>
-                    </div>
-                    <div className="algo-insight-card">
-                      <div className="algo-insight-label">Fit Grade</div>
-                      <div className="algo-insight-value">{String(summary?.fit_grade ?? "--")}</div>
-                      <div className="algo-insight-copy">
-                        {String(summary?.fit_regime_label || "").trim()
-                          ? `${String(summary?.fit_regime_label)} 下给出的拟合等级。`
-                          : "按拟合质量做出的等级归档。"}
-                      </div>
-                    </div>
-                    <div className="algo-insight-card">
-                      <div className="algo-insight-label">Fit Regime</div>
-                      <div className="algo-insight-value" style={{ fontSize: 18 }}>{String(summary?.fit_regime_label ?? "--")}</div>
-                      <div className="algo-insight-copy">{String(summary?.fit_protocol ?? "当前拟合评价协议。")}</div>
-                    </div>
-                    <div className="algo-insight-card">
-                      <div className="algo-insight-label">Signal Strength</div>
-                      <div className="algo-insight-value" style={{ fontSize: 18 }}>{String(summary?.signal_strength_grade ?? "--").toUpperCase()}</div>
-                      <div className="algo-insight-copy">{String(summary?.signal_strength_reason ?? "Observed error signal strength.")}</div>
-                    </div>
-                    <div className="algo-insight-card">
-                      <div className="algo-insight-label">Model Family</div>
-                      <div className="algo-insight-value" style={{ fontSize: 18 }}>{String(summary?.model_family ?? "--")}</div>
-                      <div className="algo-insight-copy">当前实现是复杂 contagion 启发的随机 ABM，不是逐变体的纯传染病模型。</div>
-                    </div>
-                    <div className="algo-insight-card">
-                      <div className="algo-insight-label">Model Complexity</div>
-                      <div className="algo-insight-value" style={{ fontSize: 18 }}>{String(summary?.parameter_count ?? "--")} params</div>
-                      <div className="algo-insight-copy">{String(summary?.model_complexity ?? "模型复杂度摘要。")}</div>
-                    </div>
-                    <div className="algo-insight-card">
-                      <div className="algo-insight-label">Variant Scope</div>
-                      <div className="algo-insight-value" style={{ fontSize: 18 }}>{String(summary?.variant_scope_label ?? "--")}</div>
-                      <div className="algo-insight-copy">{String(summary?.variant_scope_reason ?? "当前变体聚合口径。")}</div>
-                    </div>
-                    <div className="algo-insight-card">
-                      <div className="algo-insight-label">Node Meaning</div>
-                      <div className="algo-insight-value" style={{ fontSize: 18 }}>{String(summary?.node_semantics ?? "--")}</div>
-                      <div className="algo-insight-copy">节点代表潜在写作者或暴露单元，不直接等同于真实平台用户 ID。</div>
-                    </div>
-                    <div className="algo-insight-card">
-                      <div className="algo-insight-label">Competition Scope</div>
-                      <div className="algo-insight-value" style={{ fontSize: 18 }}>{String(summary?.competition_scope ?? "--")}</div>
-                      <div className="algo-insight-copy">
-                        {String(summary?.variant_scope_mode_effective || "").toLowerCase() === "competition"
-                          ? "当前仿真竞争的是规范拼写与所选全部变体构成的竞争簇。"
-                          : "当前仿真竞争的是规范拼写与筛选后的错拼簇，强竞争正字法变体会先被剥离。"}
-                      </div>
-                    </div>
-                    <div className="algo-insight-card">
-                      <div className="algo-insight-label">State Space</div>
-                      <div className="algo-insight-value" style={{ fontSize: 18 }}>
-                        {Array.isArray(summary?.state_space) ? (summary?.state_space as unknown[]).join(" / ") : "--"}
-                      </div>
-                      <div className="algo-insight-copy">节点状态分为 unknown、error_cluster、right 三类。</div>
-                    </div>
-                    <div className="algo-insight-card">
-                      <div className="algo-insight-label">Requested Variants</div>
-                      <div className="algo-insight-value">{String(summary?.requested_variant_count ?? "--")}</div>
-                      <div className="algo-insight-copy">输入端一共选择了多少个非规范变体进入待筛选集合。</div>
-                    </div>
-                    <div className="algo-insight-card">
-                      <div className="algo-insight-label">Observed Variants</div>
-                      <div className="algo-insight-value">{String(summary?.observed_variant_count ?? "--")}</div>
-                      <div className="algo-insight-copy">输入端实际汇总进错误簇的错拼变体数。</div>
-                    </div>
-                    <div className="algo-insight-card">
-                      <div className="algo-insight-label">Filtered Variants</div>
-                      <div className="algo-insight-value">{String(summary?.excluded_variant_count ?? "--")}</div>
-                      <div className="algo-insight-copy">
-                        {Array.isArray(summary?.excluded_variants) && (summary?.excluded_variants as unknown[]).length > 0
-                          ? (summary?.excluded_variants as unknown[]).map((item) => String(item)).join(", ")
-                          : "当前没有被剔除的强竞争变体。"}
-                      </div>
+                      <div className="algo-insight-label">Topology</div>
+                      <div className="algo-insight-value">{String(summary?.topology ?? "--")}</div>
+                      <div className="algo-insight-copy">传播网络结构，决定局部复制与 hub 放大模式。</div>
                     </div>
                     <div className="algo-insight-card">
                       <div className="algo-insight-label">Phase Break</div>
                       <div className="algo-insight-value">{String(summary?.phase_break_year ?? "--")}</div>
                       <div className="algo-insight-copy">传播机制从形成期切到稳定竞争期的年份。</div>
-                    </div>
-                    <div className="algo-insight-card">
-                      <div className="algo-insight-label">Intervention Year</div>
-                      <div className="algo-insight-value">{String(summary?.intervention_year ?? "--")}</div>
-                      <div className="algo-insight-copy">干预情景开始生效的年份，默认从 phase break 之后启动。</div>
                     </div>
                     <div className="algo-insight-card">
                       <div className="algo-insight-label">Fit Profile</div>
@@ -1031,61 +902,8 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
                       </div>
                       <div className="algo-insight-copy">错误拼写轨迹的偏差量级，更直观反映拟合精度。</div>
                     </div>
-                    <div className="algo-insight-card">
-                      <div className="algo-insight-label">Error NRMSE</div>
-                      <div className="algo-insight-value">{formatCompactMetric(summary?.error_nrmse_peak, 3)}</div>
-                      <div className="algo-insight-copy">按稀疏错拼口径归一化后的错误轨迹偏差。</div>
-                    </div>
-                    <div className="algo-insight-card">
-                      <div className="algo-insight-label">Share NRMSE</div>
-                      <div className="algo-insight-value">{formatCompactMetric(summary?.share_nrmse_peak, 3)}</div>
-                      <div className="algo-insight-copy">按错误份额峰值归一化后的占比偏差。</div>
-                    </div>
-                    <div className="algo-insight-card">
-                      <div className="algo-insight-label">R² Caution</div>
-                      <div className="algo-insight-value" style={{ fontSize: 18 }}>
-                        {summary?.r2_caution ? "REFERENCE ONLY" : "DIRECT USE"}
-                      </div>
-                      <div className="algo-insight-copy">
-                        {String(summary?.r2_caution_reason || "当前可以直接使用 error/share 的 R² 作为等级依据。")}
-                      </div>
-                    </div>
-                    <div className="algo-insight-card">
-                      <div className="algo-insight-label">Grade Basis</div>
-                      <div className="algo-insight-copy">{String(summary?.fit_grade_reason ?? "当前等级依据说明。")}</div>
-                    </div>
-                    <div className="algo-insight-card">
-                      <div className="algo-insight-label">Peak Year Gap</div>
-                      <div className="algo-insight-value">{String(summary?.error_peak_year_gap ?? "--")}</div>
-                      <div className="algo-insight-copy">观测与仿真的错误峰值年份差，越小说明峰值时点越准。</div>
-                    </div>
                   </div>
                 </div>
-
-                {interventions.length > 0 && (
-                  <div className="algo-score-grid">
-                    {interventions.slice(0, 3).map((item) => (
-                      <div
-                        className="algo-score-card"
-                        key={String((item as Record<string, unknown>).key || Math.random())}
-                        style={{ borderTop: `3px solid ${String((item as Record<string, unknown>).color || "#148758")}` }}
-                      >
-                        <div className="algo-score-label">{String((item as Record<string, unknown>).label || "--")}</div>
-                        <div className="algo-score-value">
-                          {typeof (item as Record<string, unknown>).final_error_reduction === "number"
-                            ? Number((item as Record<string, unknown>).final_error_reduction).toExponential(2)
-                            : "--"}
-                        </div>
-                        <div className="algo-score-copy" style={{ marginTop: 10 }}>
-                          {typeof (item as Record<string, unknown>).start_year === "number"
-                            ? `从 ${String((item as Record<string, unknown>).start_year)} 开始；`
-                            : ""}
-                          {String((item as Record<string, unknown>).application_context || "干预应用场景说明暂未生成。")}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
 
                 {fitAssessment.length > 0 && (
                   <div className="algo-score-grid">
@@ -1131,80 +949,6 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
                     />
                   </Card>
                 )}
-
-                {topologyBenchmark.length > 0 && (
-                  <Card className="algo-table-card" bordered={false}>
-                    <Table
-                      size="small"
-                      rowKey={(row) => `${String((row as Record<string, unknown>).topology || "-")}-${String((row as Record<string, unknown>).rank || Math.random())}`}
-                      pagination={false}
-                      dataSource={topologyBenchmark}
-                      columns={[
-                        { title: "Rank", dataIndex: "rank", width: 70 },
-                        { title: "Topology", dataIndex: "topology", width: 170 },
-                        {
-                          title: "Score",
-                          dataIndex: "score",
-                          width: 100,
-                          render: (value: unknown) => formatMetric(Number(value), 3),
-                        },
-                        {
-                          title: "Right R²",
-                          dataIndex: "right_r2",
-                          width: 100,
-                          render: (value: unknown) => formatMetric(Number(value), 3),
-                        },
-                        {
-                          title: "Error NRMSE",
-                          dataIndex: "error_nrmse_peak",
-                          width: 110,
-                          render: (value: unknown) => formatMetric(Number(value), 3),
-                        },
-                        {
-                          title: "Share NRMSE",
-                          dataIndex: "share_nrmse_peak",
-                          width: 100,
-                          render: (value: unknown) => formatMetric(Number(value), 3),
-                        },
-                        {
-                          title: "Clustering",
-                          dataIndex: "clustering",
-                          render: (value: unknown) => formatMetric(Number(value), 3),
-                        },
-                      ]}
-                    />
-                  </Card>
-                )}
-
-                {variantBreakdown.length > 0 && (
-                  <Card className="algo-table-card" bordered={false}>
-                    <Table
-                      size="small"
-                      rowKey={(row) => String((row as Record<string, unknown>).variant ?? Math.random())}
-                      pagination={{ pageSize: 6 }}
-                      dataSource={variantBreakdown}
-                      columns={[
-                        { title: "Variant", dataIndex: "variant", width: 180 },
-                        { title: "Peak Year", dataIndex: "peak_year", width: 110 },
-                        {
-                          title: "Peak Value",
-                          dataIndex: "peak_value",
-                          render: (value: unknown) => formatFrequency(Number(value), 6),
-                        },
-                        {
-                          title: "Final Value",
-                          dataIndex: "final_value",
-                          render: (value: unknown) => formatFrequency(Number(value), 6),
-                        },
-                        {
-                          title: "Total Mass",
-                          dataIndex: "total_mass",
-                          render: (value: unknown) => formatFrequency(Number(value), 6),
-                        },
-                      ]}
-                    />
-                  </Card>
-                )}
               </Space>
             )}
 
@@ -1245,19 +989,19 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
               </Card>
             )}
 
-            {taskType === "simulation-run" && simulationRows.length > 0 && (
+            {taskType === "simulation-run" && algoData.simulationRows.length > 0 && (
               <Card className="algo-table-card" bordered={false} style={{ marginTop: 16 }}>
                 <Table
                   size="small"
                   rowKey={(row) => String((row as Record<string, unknown>).year ?? Math.random())}
                   pagination={{ pageSize: 8 }}
-                  dataSource={simulationRows}
+                  dataSource={algoData.simulationRows}
                   columns={[
                     { title: "Year", dataIndex: "year", width: 90 },
-                    { title: "Observed Correct", dataIndex: "right_actual", render: (value: unknown) => formatFrequency(Number(value), 6) },
-                    { title: "Observed Error", dataIndex: "error_actual", render: (value: unknown) => formatFrequency(Number(value), 6) },
-                    { title: "Simulated Correct", dataIndex: "right_simulated", render: (value: unknown) => formatFrequency(Number(value), 6) },
-                    { title: "Simulated Error", dataIndex: "error_simulated", render: (value: unknown) => formatFrequency(Number(value), 6) },
+                    { title: "Observed Correct", dataIndex: "right_actual", render: (value: unknown) => formatMetric(Number(value), 6) },
+                    { title: "Observed Error", dataIndex: "error_actual", render: (value: unknown) => formatMetric(Number(value), 6) },
+                    { title: "Simulated Correct", dataIndex: "right_simulated", render: (value: unknown) => formatMetric(Number(value), 6) },
+                    { title: "Simulated Error", dataIndex: "error_simulated", render: (value: unknown) => formatMetric(Number(value), 6) },
                     { title: "Observed Share", dataIndex: "error_share_actual", render: (value: unknown) => formatMetric(Number(value), 4) },
                     { title: "Simulated Share", dataIndex: "error_share_simulated", render: (value: unknown) => formatMetric(Number(value), 4) },
                   ]}
@@ -1282,15 +1026,6 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
               }
               extra={
                 <Space>
-                  <Segmented
-                    size="small"
-                    value={tsAxisMode}
-                    onChange={(value) => setTsAxisMode(value as "log" | "linear")}
-                    options={[
-                      { label: "Log Axis", value: "log" },
-                      { label: "Linear Axis", value: "linear" },
-                    ]}
-                  />
                   <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                     Last: {tsLoadedAt}
                   </Typography.Text>
@@ -1311,7 +1046,6 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
                   }))}
                   title={`Time Series (${tsVariants.length} variants)`}
                   height={460}
-                  axisMode={tsAxisMode}
                 />
               ) : (
                 <Empty description="No time-series data available." />

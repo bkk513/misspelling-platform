@@ -23,13 +23,12 @@ import { goToTask } from "../app/router";
 import { LineChart } from "../components/LineChart";
 import { AlgorithmTermBuilder } from "../components/AlgorithmTermBuilder";
 import { TurnstileWidget } from "../components/TurnstileWidget";
-import { api, describeApiError, type DataSourceKey } from "../lib/api";
+import { api, describeApiError } from "../lib/api";
 import { asObject, fetchArtifactJson, taskStateTone } from "./algorithmStudioShared";
 import "./algorithmStudio.css";
 
 type MetricRow = {
   year: number;
-  time_label?: string;
   misspelling: number;
   correct: number;
   signal_total: number;
@@ -42,7 +41,6 @@ type MetricRow = {
 export function SteadyStatePage() {
   const [word, setWord] = useState("internet");
   const [variants, setVariants] = useState<string[]>([]);
-  const [dataSource, setDataSource] = useState<DataSourceKey>("gbnc");
   const [originYear, setOriginYear] = useState<number | undefined>(undefined);
   const [startYear, setStartYear] = useState(1900);
   const [endYear, setEndYear] = useState(2019);
@@ -71,17 +69,17 @@ export function SteadyStatePage() {
     () => [
       {
         name: "Signal = correct + misspellings",
-        points: rows.map((row) => ({ time: String(row.time_label || row.year), value: row.signal_total })),
+        points: rows.map((row) => ({ time: String(row.year), value: row.signal_total })),
         color: "#135bdb",
       },
       {
         name: "Noise = misspellings",
-        points: rows.map((row) => ({ time: String(row.time_label || row.year), value: row.noise_misspelling })),
+        points: rows.map((row) => ({ time: String(row.year), value: row.noise_misspelling })),
         color: "#d97706",
       },
       {
         name: "Correct only",
-        points: rows.map((row) => ({ time: String(row.time_label || row.year), value: row.correct })),
+        points: rows.map((row) => ({ time: String(row.year), value: row.correct })),
         color: "#148758",
       },
     ],
@@ -92,17 +90,17 @@ export function SteadyStatePage() {
     () => [
       {
         name: "MR",
-        points: rows.map((row) => ({ time: String(row.time_label || row.year), value: row.MR })),
+        points: rows.map((row) => ({ time: String(row.year), value: row.MR })),
         color: "#135bdb",
       },
       {
         name: "NMR",
-        points: rows.map((row) => ({ time: String(row.time_label || row.year), value: row.NMR })),
+        points: rows.map((row) => ({ time: String(row.year), value: row.NMR })),
         color: "#148758",
       },
       {
         name: "Density",
-        points: rows.map((row) => ({ time: String(row.time_label || row.year), value: row.density })),
+        points: rows.map((row) => ({ time: String(row.year), value: row.density })),
         color: "#c2410c",
       },
     ],
@@ -130,7 +128,6 @@ export function SteadyStatePage() {
       setRows(
         metrics.map((row) => ({
           year: Number(row.year ?? 0) || 0,
-          time_label: String(row.time_label ?? ""),
           misspelling: Number(row.misspelling ?? 0) || 0,
           correct: Number(row.correct ?? 0) || 0,
           signal_total: Number(row.signal_total ?? 0) || 0,
@@ -200,7 +197,6 @@ export function SteadyStatePage() {
           startYear: effectiveStartYear,
           endYear,
           smoothing,
-          dataSource,
           variants,
           originYear,
           polyDegree,
@@ -266,7 +262,7 @@ export function SteadyStatePage() {
             <div className="algo-score-card">
               <div className="algo-score-label">Peak Density</div>
               <div className="algo-score-value">{rows.length ? peakDensity.density.toFixed(3) : "--"}</div>
-              <div className="algo-score-copy">{rows.length ? `Observed at ${peakDensity.time_label || peakDensity.year}` : "运行后显示密度峰值。"}</div>
+              <div className="algo-score-copy">{rows.length ? `Observed at ${peakDensity.year}` : "运行后显示密度峰值。"}</div>
             </div>
             <div className="algo-score-card">
               <div className="algo-score-label">Points</div>
@@ -295,34 +291,26 @@ export function SteadyStatePage() {
                 variants={variants}
                 originYear={originYear}
                 showOriginYear
-                dataSource={dataSource}
                 startYear={startYear}
                 endYear={endYear}
                 smoothing={smoothing}
                 onWordChange={setWord}
                 onVariantsChange={setVariants}
                 onOriginYearChange={setOriginYear}
-                onDataSourceChange={(value) => {
-                  setDataSource(value);
-                  if (value === "gdelt") {
-                    setStartYear((current) => Math.max(current, 2015));
-                    setEndYear((current) => Math.min(Math.max(current, 2015), new Date().getFullYear()));
-                  }
-                }}
               />
 
               <div className="algo-parameter-grid" style={{ marginTop: 18 }}>
                 <div className="algo-field algo-span-3">
                   <span className="algo-field-label">Start Year</span>
-                  <InputNumber min={1500} max={2026} value={startYear} onChange={(value) => setStartYear(value ?? 1900)} style={{ width: "100%" }} />
+                  <InputNumber min={1500} max={2026} value={startYear} onChange={(value) => setStartYear(value || 1900)} style={{ width: "100%" }} />
                 </div>
                 <div className="algo-field algo-span-3">
                   <span className="algo-field-label">End Year</span>
-                  <InputNumber min={1500} max={2026} value={endYear} onChange={(value) => setEndYear(value ?? 2019)} style={{ width: "100%" }} />
+                  <InputNumber min={1500} max={2026} value={endYear} onChange={(value) => setEndYear(value || 2019)} style={{ width: "100%" }} />
                 </div>
                 <div className="algo-field algo-span-2">
                   <span className="algo-field-label">Smoothing</span>
-                  <InputNumber min={0} max={50} value={smoothing} onChange={(value) => setSmoothing(value ?? 3)} style={{ width: "100%" }} disabled={dataSource === "gdelt"} />
+                  <InputNumber min={0} max={50} value={smoothing} onChange={(value) => setSmoothing(value || 3)} style={{ width: "100%" }} />
                 </div>
                 <div className="algo-field algo-span-2">
                   <span className="algo-field-label">Poly Degree</span>
@@ -454,7 +442,6 @@ export function SteadyStatePage() {
                   pagination={{ pageSize: 8 }}
                   columns={[
                     { title: "Year", dataIndex: "year", width: 100 },
-                    { title: "Time", dataIndex: "time_label", width: 160, render: (value: string, row: MetricRow) => value || String(row.year) },
                     { title: "Signal Total", dataIndex: "signal_total", render: (value: number) => value.toFixed(4) },
                     { title: "Noise", dataIndex: "noise_misspelling", render: (value: number) => value.toFixed(4) },
                     { title: "Correct", dataIndex: "correct", render: (value: number) => value.toFixed(4) },

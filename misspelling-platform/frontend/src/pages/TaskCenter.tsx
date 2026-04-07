@@ -1,4 +1,4 @@
-import { CopyOutlined, DeleteOutlined, EyeOutlined, PauseOutlined, ReloadOutlined, RocketOutlined, SearchOutlined } from "@ant-design/icons";
+import { CopyOutlined, DeleteOutlined, EyeOutlined, ReloadOutlined, RocketOutlined, SearchOutlined } from "@ant-design/icons";
 import { Button, Card, DatePicker, Input, Popconfirm, Select, Space, Table, Tag, Typography, message } from "antd";
 import dayjs from "dayjs";
 import { useEffect, useMemo, useState } from "react";
@@ -10,7 +10,6 @@ function color(status: string) {
   if (v === "SUCCESS") return "green";
   if (v === "FAILURE") return "red";
   if (v === "RUNNING" || v === "PROGRESS") return "processing";
-  if (v === "PAUSED" || v === "REVOKED") return "orange";
   if (v === "DELETED") return "default";
   return "blue";
 }
@@ -224,40 +223,11 @@ export function TaskCenterPage() {
                 <Space>
                   <Button size="small" icon={<EyeOutlined />} onClick={() => goToTask(row.task_id)}>Detail</Button>
                   <Button size="small" icon={<CopyOutlined />} onClick={() => navigator.clipboard?.writeText(row.task_id).then(() => message.success("Task ID copied"))}>Copy</Button>
-                  {["QUEUED", "RUNNING", "PROGRESS"].includes(String(row.status || "").toUpperCase()) ? (
-                    <Button
-                      size="small"
-                      icon={<PauseOutlined />}
-                      onClick={async () => {
-                        try {
-                          const resp = await api.pauseTask(row.task_id);
-                          if (!resp.paused) {
-                            message.warning(resp.reason || "Pause rejected");
-                            return;
-                          }
-                          message.success("Task paused");
-                          await refresh();
-                        } catch (e) {
-                          message.error(describeApiError(e));
-                        }
-                      }}
-                    >
-                      Pause
-                    </Button>
-                  ) : null}
                   <Popconfirm
                     title="Delete task"
                     description="The task will be soft-deleted and removed from active lists."
                     onConfirm={async () => {
                       try {
-                        const statusKey = String(row.status || "").toUpperCase();
-                        if (["QUEUED", "RUNNING", "PROGRESS"].includes(statusKey)) {
-                          const pauseResp = await api.pauseTask(row.task_id);
-                          if (!pauseResp.paused) {
-                            message.warning(pauseResp.reason || "Pause rejected");
-                            return;
-                          }
-                        }
                         const resp = await api.deleteTask(row.task_id);
                         if (!resp.deleted) {
                           message.warning(resp.reason || "Delete rejected");
